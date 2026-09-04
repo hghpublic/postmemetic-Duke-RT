@@ -215,6 +215,18 @@ CVAR(Bool, nri_ptindirectradiancecacheaccept, false, 0)
 
 CVAR(Bool, nri_ptwaitpresent, true, 0)
 
+CUSTOM_CVAR(Int, nri_ptframesinflight, 3, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+{
+	if (self < 1)
+	{
+		self = 1;
+	}
+	else if (self > 3)
+	{
+		self = 3;
+	}
+}
+
 CVAR(Bool, nri_ptslowdowntrace, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 
 CUSTOM_CVAR(Int, nri_pttraceframes, 0, 0)

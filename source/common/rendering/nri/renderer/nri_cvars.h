@@ -127,6 +127,7 @@ EXTERN_CVAR(Int, nri_ptvoxelvariantdelayactor)
 EXTERN_CVAR(Int, nri_ptvoxelvariantdelayframes)
 EXTERN_CVAR(Bool, nri_ptvoxeltransformkeyed)
 EXTERN_CVAR(Bool, nri_ptwaitpresent)
+EXTERN_CVAR(Int, nri_ptframesinflight)
 EXTERN_CVAR(Bool, nri_validation)
 EXTERN_CVAR(Bool, nri_voxelstats)
 

@@ -310,6 +310,7 @@ private:
 	void PrintFrameShellStatus() const;
 	void Print2DTextureStatus() const;
 	void PrintVramTelemetryStatus() const;
+	bool WaitForRenderedFrameAdmission();
 	const char* DescribeTextureTarget(const NRITextureResource* target) const;
 	void RecordFrameSequence(uint32_t releaseSemaphoreIndex, uint64_t submittedFenceValue, nri::Result presentResult);
 	void Reset2DTextureFrameStats();
