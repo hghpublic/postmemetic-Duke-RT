@@ -143,6 +143,7 @@ void GameInput::processMovement(const double turnscale, const bool allowstrafe, 
 		buttonMap.ButtonDown(gamefunc_Move_Down) +
 		joyAxes[JOYAXIS_Up] * scaleAdjust;
 
+	PerfInputLineageNoteInputMode(SyncInput());
 	PerfLoopTraceNoteMouseRoute(yawUsesMouseLook, pitchUsesMouseLook, mouseInput.X, mouseInput.Y);
 
 	// process player yaw input.
@@ -213,6 +214,8 @@ void GameInput::processVehicle(const double baseVel, const double velScale, cons
 {
 	// open up input packet for this session.
 	InputPacket thisInput{};
+	PerfInputLineageNoteInputMode(SyncInput());
+	PerfLoopTraceNoteMouseRoute((flags & VEH_CANTURN) != 0, false, mouseInput.X, mouseInput.Y);
 
 	// mask out all actions not compatible with vehicles.
 	inputBuffer.actions &= ~(SB_WEAPONMASK_BITS | SB_TURNAROUND | SB_CENTERVIEW | SB_HOLSTER | SB_JUMP | SB_CROUCH | SB_RUN | 
@@ -379,6 +382,7 @@ void GameInput::getInput(InputPacket* packet)
 
 	if (M_Active() || gamestate != GS_LEVEL)
 	{
+		PerfInputLineageDiscardPendingMouse();
 		inputBuffer = {};
 		return;
 	}
@@ -386,6 +390,7 @@ void GameInput::getInput(InputPacket* packet)
 	I_GetAxes(joyAxes);
 	processInputBits();
 	if (!paused) gi->doPlayerMovement();
+	PerfInputLineageNoteCommandSample(!paused);
 	PerfLoopTraceNoteGameInputSample(mouseInput.X, mouseInput.Y);
 	mouseInput.Zero();
 

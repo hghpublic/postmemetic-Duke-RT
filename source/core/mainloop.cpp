@@ -99,6 +99,7 @@
 #include "texturemanager.h"
 #include "gameinput.h"
 #include "d_eventbase.h"
+#include "input_lineage.h"
 #include "perf_capture.h"
 #include "hw_clock.h"
 
@@ -1683,6 +1684,7 @@ void MainLoop ()
 			++gPresentationGeneration;
 			if (gPresentationGeneration == 0) gPresentationGeneration = 1;
 			PerfCompactCaptureBeginOuterFrame(gPresentationGeneration);
+			PerfInputLineageBeginPresentation(gPresentationGeneration);
 			if (PerfLoopTraceActive() || PerfCompactCaptureTimingActive())
 			{
 				if (PerfLoopTraceActive())
@@ -1710,10 +1712,7 @@ void MainLoop ()
 
 			// update the scale factor for unsynchronised input here.
 			gameInput.UpdateInputScale();
-			if (PerfLoopTraceActive())
-			{
-				PerfLoopTraceNoteInputMode(gameInput.SyncInput(), gameInput.GetInputScale());
-			}
+			PerfLoopTraceNoteInputMode(gameInput.SyncInput(), gameInput.GetInputScale());
 
 			const double tryRunStartMs = I_msTimeF();
 			TryRunTics (); // will run at least one tic
@@ -2029,10 +2028,12 @@ void MainLoop ()
 				const int remainingTraceFrames = (int)perf_looptraceframes - 1;
 				perf_looptraceframes = remainingTraceFrames > 0 ? remainingTraceFrames : 0;
 			}
+			PerfInputLineageEndPresentation();
 		}
 		catch (CRecoverableError &error)
 		{
 			PerfCompactCaptureAbort("recoverable-error");
+			PerfInputLineageAbort("recoverable-error");
 			if (PerfLoopTraceActive())
 			{
 				Printf("PERF loop trace caught: frame=%llu type=recoverable state=%s gametic=%d\n",
@@ -2052,6 +2053,7 @@ void MainLoop ()
 		catch (CVMAbortException &error)
 		{
 			PerfCompactCaptureAbort("vm-abort");
+			PerfInputLineageAbort("vm-abort");
 			if (PerfLoopTraceActive())
 			{
 				Printf("PERF loop trace caught: frame=%llu type=vmabort state=%s gametic=%d\n",

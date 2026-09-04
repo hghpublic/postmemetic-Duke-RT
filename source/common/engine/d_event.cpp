@@ -48,6 +48,7 @@
 #include "c_cvars.h"
 #include "i_time.h"
 #include "keydef.h"
+#include "input_lineage.h"
 
 int eventhead;
 int eventtail;
@@ -287,6 +288,7 @@ void PerfLoopTraceNoteMouseDispatch(float x, float y)
 
 void PerfLoopTraceNoteMouseRoute(bool yawLook, bool pitchLook, float x, float y)
 {
+	PerfInputLineageNoteMouseRoute(yawLook, pitchLook);
 	if (!PerfLoopTraceActive())
 		return;
 
@@ -314,6 +316,7 @@ void PerfLoopTraceNoteGameInputSample(float x, float y)
 
 void PerfLoopTraceNoteTiccmdBuild(float yawDegrees, float pitchDegrees)
 {
+	PerfInputLineageNoteTiccmdBuild(yawDegrees, pitchDegrees);
 	if (!PerfLoopTraceActive())
 		return;
 
@@ -342,6 +345,7 @@ void PerfLoopTraceNotePlayerPitchApply(float pitchDegrees)
 
 void PerfLoopTraceNoteFastCameraApply(float yawDegrees, float pitchDegrees)
 {
+	PerfInputLineageNoteFastCameraApply(yawDegrees, pitchDegrees);
 	if (!PerfLoopTraceActive())
 		return;
 
@@ -352,6 +356,7 @@ void PerfLoopTraceNoteFastCameraApply(float yawDegrees, float pitchDegrees)
 
 void PerfLoopTraceNoteInputMode(bool syncInput, double inputScale)
 {
+	PerfInputLineageNoteInputMode(syncInput);
 	if (!PerfLoopTraceActive())
 		return;
 
@@ -638,6 +643,7 @@ void PostMouseMove(int xx, int yy)
 	if (ev.x || ev.y)
 	{
 		ev.type = EV_Mouse;
+		ev.inputSequence = PerfInputLineageRecordMousePost(xx, yy, ev.x, ev.y);
 		PerfLoopTraceNoteMousePost(ev.x, ev.y);
 		D_PostEvent(&ev);
 	}

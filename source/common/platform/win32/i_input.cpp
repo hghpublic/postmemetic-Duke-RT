@@ -65,6 +65,7 @@
 #include "s_soundinternal.h"
 #include "hardware.h"
 #include "d_eventbase.h"
+#include "input_lineage.h"
 #include "v_text.h"
 #include "version.h"
 #include "engineerrors.h"
@@ -600,7 +601,26 @@ void I_GetEvent ()
 		{
 			TranslateMessage (&mess);
 		}
-		DispatchMessage (&mess);
+		const bool lineageTiming = PerfInputLineageActive() && mess.message == WM_INPUT;
+		if (lineageTiming)
+		{
+			const DWORD nowMs = GetTickCount();
+			PerfInputLineageSetWindowsMessageTiming(
+				true,
+				(DWORD)mess.time,
+				(DWORD)(nowMs - (DWORD)mess.time),
+				PerfInputLineageNowUs());
+		}
+		try
+		{
+			DispatchMessage (&mess);
+		}
+		catch (...)
+		{
+			if (lineageTiming) PerfInputLineageClearWindowsMessageTiming();
+			throw;
+		}
+		if (lineageTiming) PerfInputLineageClearWindowsMessageTiming();
 	}
 	PerfLoopTraceNoteIGetEvent(peekedMessages);
 

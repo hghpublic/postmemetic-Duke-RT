@@ -3,6 +3,7 @@
 #include "serializer.h"
 #include "coreplayer.h"
 #include "d_net.h"
+#include "input_lineage.h"
 
 enum : unsigned
 {
@@ -74,6 +75,7 @@ public:
 	// Clear all values within this object.
 	void Clear()
 	{
+		PerfInputLineageDiscardPendingMouse();
 		memset(this, 0, sizeof(*this));
 	}
 
