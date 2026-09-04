@@ -345,7 +345,6 @@ void PerfLoopTraceNotePlayerPitchApply(float pitchDegrees)
 
 void PerfLoopTraceNoteFastCameraApply(float yawDegrees, float pitchDegrees)
 {
-	PerfInputLineageNoteFastCameraApply(yawDegrees, pitchDegrees);
 	if (!PerfLoopTraceActive())
 		return;
 

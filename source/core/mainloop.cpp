@@ -61,6 +61,7 @@
 
 
 #include <chrono>
+#include <exception>
 #include <thread>
 #include "c_cvars.h"
 #include "i_time.h"
@@ -98,6 +99,7 @@
 #include "texinfo.h"
 #include "texturemanager.h"
 #include "gameinput.h"
+#include "g_input.h"
 #include "d_eventbase.h"
 #include "input_lineage.h"
 #include "perf_capture.h"
@@ -1158,6 +1160,47 @@ void Display()
 			stageStart = I_msTimeF();
 			screen->FrameTime = I_msTimeFS();
 			screen->BeginFrame();
+			const auto lateMouseEligible = [&]()
+			{
+				return gamestate == GS_LEVEL && gametic != 0 && AppActive && !paused &&
+					!M_Active() && !System_WantGuiCapture() && !gameInput.SyncInput();
+			};
+			if (gameInput.LateMouseLatchEnabled() && screen->HasActiveSceneFrame() &&
+				lateMouseEligible())
+			{
+				const uint64_t latePumpStartUs = PerfInputLineageActive() ? PerfInputLineageNowUs() : 0;
+				bool latePumpSafe = false;
+				try
+				{
+					latePumpSafe = I_GetLateMouseMotion();
+				}
+				catch (...)
+				{
+					const auto latePumpException = std::current_exception();
+					const uint64_t latePumpEndUs = PerfInputLineageActive() ? PerfInputLineageNowUs() : 0;
+					PerfInputLineageNoteLatePump(
+						latePumpEndUs >= latePumpStartUs ? latePumpEndUs - latePumpStartUs : 0,
+						true,
+						false);
+					gameInput.CancelLateMouseLook();
+					// End/reset the already acquired backend frame before propagating quit
+					// or another event-dispatch exception.
+					screen->Update();
+					std::rethrow_exception(latePumpException);
+				}
+				const uint64_t latePumpEndUs = PerfInputLineageActive() ? PerfInputLineageNowUs() : 0;
+				const bool routingInvalidated = !latePumpSafe || !screen->HasActiveSceneFrame() || !lateMouseEligible();
+				const bool latchApplied = !routingInvalidated && gameInput.ApplyLateMouseLook();
+				if (!lateMouseEligible()) gameInput.CancelLateMouseLook();
+				PerfInputLineageNoteLatePump(
+					latePumpEndUs >= latePumpStartUs ? latePumpEndUs - latePumpStartUs : 0,
+					routingInvalidated,
+					latchApplied);
+			}
+			else if (!gameInput.LateMouseLatchEnabled() || !lateMouseEligible())
+			{
+				gameInput.CancelLateMouseLook();
+			}
 			screen->SetSceneRenderTarget(gl_ssao != 0);
 			//updateModelInterpolation();
 			gi->Render();

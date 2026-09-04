@@ -14,6 +14,7 @@ struct PerfInputLineageViewSnapshot
 	uint64_t commandConsumedThrough = 0;
 	uint64_t commandBuiltThrough = 0;
 	uint64_t renderConsumedThrough = 0;
+	uint64_t renderCursorThrough = 0;
 	uint64_t captureUs = 0;
 	float yawDegrees = 0.0f;
 	float pitchDegrees = 0.0f;
@@ -43,7 +44,13 @@ void PerfInputLineageNoteMouseRoute(bool yawLook, bool pitchLook);
 void PerfInputLineageNoteCommandSample(bool processedByMovement);
 void PerfInputLineageDiscardPendingMouse();
 void PerfInputLineageNoteTiccmdBuild(float yawDegrees, float pitchDegrees);
-void PerfInputLineageNoteFastCameraApply(float yawDegrees, float pitchDegrees);
+void PerfInputLineageNoteRenderMouseSample(
+	bool yawLook,
+	bool pitchLook,
+	float yawDegrees,
+	float pitchDegrees,
+	bool lateLatch);
+void PerfInputLineageNoteLatePump(uint64_t durationUs, bool routingInvalidated, bool latchApplied);
 void PerfInputLineageNoteInputMode(bool syncInput);
 void PerfInputLineageNoteViewCapture(float yawDegrees, float pitchDegrees);
 PerfInputLineageViewSnapshot PerfInputLineageGetLatestViewSnapshot();

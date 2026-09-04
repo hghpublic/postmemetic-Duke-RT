@@ -53,12 +53,15 @@ namespace
 		int rawY = 0;
 		float postX = 0.0f;
 		float postY = 0.0f;
-		uint8_t route = 0;
+		uint8_t commandRoute = 0;
+		uint8_t renderRoute = 0;
 		bool windowsTimingValid = false;
 		bool syncInput = false;
 		bool gameplayDispatched = false;
 		bool excluded = false;
 		bool discarded = false;
+		bool renderConsidered = false;
+		bool cameraLateLatched = false;
 	};
 
 	struct FrameRecord
@@ -70,11 +73,14 @@ namespace
 		uint64_t commandThrough = 0;
 		uint64_t buildThrough = 0;
 		uint64_t renderThrough = 0;
+		uint64_t renderCursorThrough = 0;
 		uint32_t posted = 0;
 		uint32_t dispatched = 0;
 		uint32_t commandConsumed = 0;
 		uint32_t commandBuilt = 0;
 		uint32_t renderConsumed = 0;
+		uint32_t renderEarlyConsumed = 0;
+		uint32_t renderLateConsumed = 0;
 		float postedX = 0.0f;
 		float postedY = 0.0f;
 		float commandX = 0.0f;
@@ -85,6 +91,12 @@ namespace
 		float ticcmdPitchDegrees = 0.0f;
 		float cameraYawDegrees = 0.0f;
 		float cameraPitchDegrees = 0.0f;
+		float lateCameraYawDegrees = 0.0f;
+		float lateCameraPitchDegrees = 0.0f;
+		uint64_t latePumpUs = 0;
+		uint32_t latePumpCalls = 0;
+		uint32_t latePumpInvalidations = 0;
+		uint32_t lateLatchApplies = 0;
 		uint64_t maxQueueUs = 0;
 		uint64_t maxDispatchToCommandUs = 0;
 		uint64_t maxDispatchToCameraUs = 0;
@@ -129,9 +141,8 @@ namespace
 		uint64_t commandThrough = 0;
 		uint64_t buildThrough = 0;
 		uint64_t renderThrough = 0;
+		uint64_t renderCursorThrough = 0;
 		uint64_t viewThrough = 0;
-		uint64_t routeFirst = 0;
-		uint64_t routeLast = 0;
 		uint32_t requestedFrames = 0;
 		uint32_t observedFrames = 0;
 		uint32_t drainFramesRemaining = 0;
@@ -214,7 +225,7 @@ namespace
 		}
 		const uint64_t p50 = Percentile(count, 50, 100);
 		const uint64_t p95 = Percentile(count, 95, 100);
-		Printf("PERF input lineage bucket: schema=1 window=%llu bucket=%s samples=%u p50_us=%llu p95_us=%llu max_us=%llu\n",
+		Printf("PERF input lineage bucket: schema=2 window=%llu bucket=%s samples=%u p50_us=%llu p95_us=%llu max_us=%llu\n",
 			(unsigned long long)gCapture.window,
 			bucket,
 			count,
@@ -225,7 +236,7 @@ namespace
 
 	void PrintCapture()
 	{
-		Printf("PERF input lineage start: schema=1 window=%llu requested_frames=%u capacity=%u first_presentation=%llu clock=steady_us windows_queue=MSG.time_estimate render_view=duke_render_drawrooms actual_display_timestamp=unavailable\n",
+		Printf("PERF input lineage start: schema=2 window=%llu requested_frames=%u capacity=%u first_presentation=%llu clock=steady_us windows_queue=MSG.time_estimate render_view=duke_render_drawrooms late_latch=provisional actual_display_timestamp=unavailable\n",
 			(unsigned long long)gCapture.window,
 			gCapture.requestedFrames,
 			MaxMouseRecords,
@@ -238,7 +249,7 @@ namespace
 			const uint64_t submitToPresentUs = frame.submitSeen && frame.presentSeen && frame.presentEndUs >= frame.submitStartUs
 				? frame.presentEndUs - frame.submitStartUs : 0;
 			Printf(
-				"PERF input lineage frame: schema=1 window=%llu ordinal=%u presentation_gen=%llu first_seq=%llu last_seq=%llu produced_through=%llu command_through=%llu build_through=%llu render_through=%llu posted=%u dispatched=%u command=%u built=%u render=%u posted_delta=(%.3f,%.3f) sampled_post_delta=(%.3f,%.3f) render_eligible_post_delta=(%.3f,%.3f) ticcmd_deg=(%.4f,%.4f) camera_apply_deg=(%.4f,%.4f) max_queue_us=%llu max_dispatch_command_us=%llu max_dispatch_camera_us=%llu max_camera_render_view_us=%llu render_view_valid=%d render_view_seq=%llu render_view_us=%llu render_view_angles=(%.4f,%.4f) sync=%d nri_submit=%d nri_frame=%llu queued_frame=%u image=%u attempted_fence=%llu fence_snapshot_valid=%d completed_fence_pre_submit=%llu depth_inference_valid=%d depth_before_submit=%u depth_after_submit_upper_bound=%u submit_ok=%d submit_result=%d submit_call_us=%llu submit_presentation_match=%d submit_view_match=%d render_view_submit_us=%llu present_seen=%d present_ok=%d causal_present_ok=%d present_result=%d present_call_us=%llu present_join_match=%d submit_present_us=%llu framegen=%d actual_display_timestamp=unavailable\n",
+				"PERF input lineage frame: schema=2 window=%llu ordinal=%u presentation_gen=%llu first_seq=%llu last_seq=%llu produced_through=%llu command_through=%llu build_through=%llu render_through=%llu render_cursor_through=%llu posted=%u dispatched=%u command=%u built=%u render=%u render_early=%u render_late=%u posted_delta=(%.3f,%.3f) sampled_post_delta=(%.3f,%.3f) render_eligible_post_delta=(%.3f,%.3f) ticcmd_deg=(%.4f,%.4f) mouse_camera_apply_deg=(%.4f,%.4f) late_mouse_camera_apply_deg=(%.4f,%.4f) late_pump_calls=%u late_pump_us=%llu late_pump_invalidations=%u late_latch_calls=%u max_queue_us=%llu max_dispatch_command_us=%llu max_dispatch_camera_us=%llu max_camera_render_view_us=%llu render_view_valid=%d render_view_seq=%llu render_view_cursor=%llu render_view_us=%llu render_view_angles=(%.4f,%.4f) sync=%d nri_submit=%d nri_frame=%llu queued_frame=%u image=%u attempted_fence=%llu fence_snapshot_valid=%d completed_fence_pre_submit=%llu depth_inference_valid=%d depth_before_submit=%u depth_after_submit_upper_bound=%u submit_ok=%d submit_result=%d submit_call_us=%llu submit_presentation_match=%d submit_view_match=%d render_view_submit_us=%llu present_seen=%d present_ok=%d causal_present_ok=%d present_result=%d present_call_us=%llu present_join_match=%d submit_present_us=%llu framegen=%d actual_display_timestamp=unavailable\n",
 				(unsigned long long)gCapture.window,
 				index,
 				(unsigned long long)frame.presentation,
@@ -248,16 +259,24 @@ namespace
 				(unsigned long long)frame.commandThrough,
 				(unsigned long long)frame.buildThrough,
 				(unsigned long long)frame.renderThrough,
+				(unsigned long long)frame.renderCursorThrough,
 				frame.posted, frame.dispatched, frame.commandConsumed, frame.commandBuilt, frame.renderConsumed,
+				frame.renderEarlyConsumed, frame.renderLateConsumed,
 				frame.postedX, frame.postedY, frame.commandX, frame.commandY, frame.renderX, frame.renderY,
 				frame.ticcmdYawDegrees, frame.ticcmdPitchDegrees,
 				frame.cameraYawDegrees, frame.cameraPitchDegrees,
+				frame.lateCameraYawDegrees, frame.lateCameraPitchDegrees,
+				frame.latePumpCalls,
+				(unsigned long long)frame.latePumpUs,
+				frame.latePumpInvalidations,
+				frame.lateLatchApplies,
 				(unsigned long long)frame.maxQueueUs,
 				(unsigned long long)frame.maxDispatchToCommandUs,
 				(unsigned long long)frame.maxDispatchToCameraUs,
 				(unsigned long long)frame.maxCameraToViewUs,
 				frame.view.valid ? 1 : 0,
 				(unsigned long long)frame.view.renderConsumedThrough,
+				(unsigned long long)frame.view.renderCursorThrough,
 				(unsigned long long)frame.view.captureUs,
 				frame.view.yawDegrees, frame.view.pitchDegrees,
 				frame.view.syncInput ? 1 : 0,
@@ -294,7 +313,7 @@ namespace
 			const MouseRecord* record = FindMouse(sequence);
 			if (record == nullptr) continue;
 			Printf(
-				"PERF input lineage event: schema=1 window=%llu seq=%llu raw=(%d,%d) post=(%.4f,%.4f) msg_time_ms32=%u windows_queue_us_est=%llu post_us=%llu dispatch_us=%llu command_us=%llu build_us=%llu camera_us=%llu render_view_us=%llu post_presentation=%llu command_presentation=%llu build_presentation=%llu camera_presentation=%llu render_view_presentation=%llu gameplay_dispatch=%d excluded=%d discarded=%d route_yaw=%d route_pitch=%d sync=%d command_consumed=%d command_built=%d camera_applied=%d render_viewed=%d\n",
+				"PERF input lineage event: schema=2 window=%llu seq=%llu raw=(%d,%d) post=(%.4f,%.4f) msg_time_ms32=%u windows_queue_us_est=%llu post_us=%llu dispatch_us=%llu command_us=%llu build_us=%llu camera_us=%llu render_view_us=%llu post_presentation=%llu command_presentation=%llu build_presentation=%llu camera_presentation=%llu render_view_presentation=%llu gameplay_dispatch=%d excluded=%d discarded=%d command_route_yaw=%d command_route_pitch=%d render_route_yaw=%d render_route_pitch=%d render_considered=%d camera_phase=%s sync=%d command_consumed=%d command_built=%d camera_applied=%d render_viewed=%d\n",
 				(unsigned long long)gCapture.window,
 				(unsigned long long)record->sequence,
 				record->rawX, record->rawY, record->postX, record->postY,
@@ -314,8 +333,12 @@ namespace
 				record->gameplayDispatched ? 1 : 0,
 				record->excluded ? 1 : 0,
 				record->discarded ? 1 : 0,
-				(record->route & RouteYaw) != 0 ? 1 : 0,
-				(record->route & RoutePitch) != 0 ? 1 : 0,
+				(record->commandRoute & RouteYaw) != 0 ? 1 : 0,
+				(record->commandRoute & RoutePitch) != 0 ? 1 : 0,
+				(record->renderRoute & RouteYaw) != 0 ? 1 : 0,
+				(record->renderRoute & RoutePitch) != 0 ? 1 : 0,
+				record->renderConsidered ? 1 : 0,
+				record->cameraUs == 0 ? "none" : (record->cameraLateLatched ? "late" : "early"),
 				record->syncInput ? 1 : 0,
 				record->commandUs != 0 ? 1 : 0,
 				record->buildUs != 0 ? 1 : 0,
@@ -341,6 +364,7 @@ namespace
 		uint32_t unresolvedBuild = 0;
 		uint32_t unresolvedCamera = 0;
 		uint32_t unresolvedSyncCamera = 0;
+		uint32_t unresolvedRenderDecision = 0;
 		uint32_t unresolvedView = 0;
 		uint32_t frameJoinMismatches = 0;
 		uint32_t missingSubmits = 0;
@@ -351,9 +375,11 @@ namespace
 			if (!record.gameplayDispatched && !record.excluded) unresolvedDispatch++;
 			if (record.gameplayDispatched && record.commandUs == 0 && !record.discarded) unresolvedCommand++;
 			if (record.commandUs != 0 && record.buildUs == 0) unresolvedBuild++;
-			const bool eligible = ((record.route & RouteYaw) != 0 && record.postX != 0.0f) ||
-				((record.route & RoutePitch) != 0 && record.postY != 0.0f);
-			if (eligible && record.commandUs != 0 && record.cameraUs == 0)
+			if (record.gameplayDispatched && !record.excluded && !record.discarded && !record.renderConsidered)
+				unresolvedRenderDecision++;
+			const bool eligible = ((record.renderRoute & RouteYaw) != 0 && record.postX != 0.0f) ||
+				((record.renderRoute & RoutePitch) != 0 && record.postY != 0.0f);
+			if (record.renderConsidered && eligible && record.cameraUs == 0)
 			{
 				if (record.syncInput) unresolvedSyncCamera++;
 				else unresolvedCamera++;
@@ -370,11 +396,12 @@ namespace
 		}
 		const bool incomplete = gCapture.overwritten != 0 || gCapture.missingStageRecords != 0 ||
 			gCapture.duplicateStages != 0 || unresolvedDispatch != 0 || unresolvedCommand != 0 ||
-			unresolvedBuild != 0 || unresolvedCamera != 0 || unresolvedView != 0 || frameJoinMismatches != 0 ||
+			unresolvedBuild != 0 || unresolvedCamera != 0 || unresolvedRenderDecision != 0 ||
+			unresolvedView != 0 || frameJoinMismatches != 0 ||
 			missingSubmits != 0 || missingPresents != 0 ||
 			(gCapture.abortReason != nullptr && gCapture.abortReason[0] != 'n');
 		Printf(
-			"PERF input lineage complete: schema=1 window=%llu status=%s reason=%s requested_frames=%u observed_frames=%u capacity=%u mouse_high_water=%u overwritten=%u missing_stage=%u duplicate_stage=%u first_seq=%llu produced_through=%llu dispatched_through=%llu command_through=%llu build_through=%llu render_through=%llu excluded=%u discarded=%u unresolved_dispatch=%u unresolved_command=%u unresolved_build=%u unresolved_camera=%u unresolved_sync_camera=%u unresolved_render_view=%u missing_submit=%u missing_present=%u frame_join_mismatch=%u posted=%llu dispatched=%llu command=%llu render=%llu posted_delta=(%.6f,%.6f) command_delta=(%.6f,%.6f) render_eligible_delta=(%.6f,%.6f) actual_display_timestamp=unavailable\n",
+			"PERF input lineage complete: schema=2 window=%llu status=%s reason=%s requested_frames=%u observed_frames=%u capacity=%u mouse_high_water=%u overwritten=%u missing_stage=%u duplicate_stage=%u first_seq=%llu produced_through=%llu dispatched_through=%llu command_through=%llu build_through=%llu render_through=%llu render_cursor_through=%llu excluded=%u discarded=%u unresolved_dispatch=%u unresolved_command=%u unresolved_build=%u unresolved_render_decision=%u unresolved_camera=%u unresolved_sync_camera=%u unresolved_render_view=%u missing_submit=%u missing_present=%u frame_join_mismatch=%u posted=%llu dispatched=%llu command=%llu render=%llu posted_delta=(%.6f,%.6f) command_delta=(%.6f,%.6f) render_eligible_delta=(%.6f,%.6f) actual_display_timestamp=unavailable\n",
 			(unsigned long long)gCapture.window,
 			incomplete ? "incomplete" : "complete",
 			gCapture.abortReason,
@@ -391,11 +418,13 @@ namespace
 			(unsigned long long)gCapture.commandThrough,
 			(unsigned long long)gCapture.buildThrough,
 			(unsigned long long)gCapture.renderThrough,
+			(unsigned long long)gCapture.renderCursorThrough,
 			gCapture.excludedEvents,
 			gCapture.discardedEvents,
 			unresolvedDispatch,
 			unresolvedCommand,
 			unresolvedBuild,
+			unresolvedRenderDecision,
 			unresolvedCamera,
 			unresolvedSyncCamera,
 			unresolvedView,
@@ -463,6 +492,7 @@ void PerfInputLineageEndPresentation()
 		frame->commandThrough = gCapture.commandThrough;
 		frame->buildThrough = gCapture.buildThrough;
 		frame->renderThrough = gCapture.renderThrough;
+		frame->renderCursorThrough = gCapture.renderCursorThrough;
 		gCapture.observedFrames++;
 	}
 	if (gCapture.admittingMouse && gCapture.observedFrames >= gCapture.requestedFrames)
@@ -565,15 +595,13 @@ void PerfInputLineageNoteMouseRoute(bool yawLook, bool pitchLook)
 	if (!gCapture.active) return;
 	const uint64_t first = gCapture.commandThrough + 1;
 	const uint64_t last = gCapture.dispatchedThrough;
-	if (last < first) { gCapture.routeFirst = gCapture.routeLast = 0; return; }
+	if (last < first) return;
 	ForSequenceRange(first, last, [&](MouseRecord& record)
 	{
 		if (!record.gameplayDispatched || record.excluded) return;
-		record.route = (yawLook ? RouteYaw : 0) | (pitchLook ? RoutePitch : 0);
+		record.commandRoute = (yawLook ? RouteYaw : 0) | (pitchLook ? RoutePitch : 0);
 		record.syncInput = gCapture.syncInput;
 	});
-	gCapture.routeFirst = first;
-	gCapture.routeLast = last;
 }
 
 void PerfInputLineageNoteCommandSample(bool processedByMovement)
@@ -606,7 +634,6 @@ void PerfInputLineageNoteCommandSample(bool processedByMovement)
 		}
 	});
 	if (last >= first) gCapture.commandThrough = last;
-	gCapture.routeFirst = gCapture.routeLast = 0;
 }
 
 void PerfInputLineageDiscardPendingMouse()
@@ -636,20 +663,31 @@ void PerfInputLineageNoteTiccmdBuild(float yawDegrees, float pitchDegrees)
 	}
 }
 
-void PerfInputLineageNoteFastCameraApply(float yawDegrees, float pitchDegrees)
+void PerfInputLineageNoteRenderMouseSample(
+	bool yawLook,
+	bool pitchLook,
+	float yawDegrees,
+	float pitchDegrees,
+	bool lateLatch)
 {
-	if (!gCapture.active || gCapture.routeFirst == 0) return;
+	if (!gCapture.active) return;
 	const uint64_t nowUs = PerfInputLineageNowUs();
-	ForSequenceRange(gCapture.routeFirst, gCapture.routeLast, [&](MouseRecord& record)
+	const uint64_t first = gCapture.renderCursorThrough + 1;
+	const uint64_t last = gCapture.dispatchedThrough;
+	ForSequenceRange(first, last, [&](MouseRecord& record)
 	{
 		if (!record.gameplayDispatched || record.excluded || record.discarded) return;
-		const bool eligibleX = (record.route & RouteYaw) != 0 && record.postX != 0.0f;
-		const bool eligibleY = (record.route & RoutePitch) != 0 && record.postY != 0.0f;
+		if (record.renderConsidered) { gCapture.duplicateStages++; return; }
+		record.renderConsidered = true;
+		record.renderRoute = (yawLook ? RouteYaw : 0) | (pitchLook ? RoutePitch : 0);
+		record.syncInput = gCapture.syncInput;
+		const bool eligibleX = (record.renderRoute & RouteYaw) != 0 && record.postX != 0.0f;
+		const bool eligibleY = (record.renderRoute & RoutePitch) != 0 && record.postY != 0.0f;
 		if (!eligibleX && !eligibleY) return;
-		if (record.cameraUs != 0) { gCapture.duplicateStages++; return; }
+		if (record.syncInput) return;
 		record.cameraUs = nowUs;
 		record.cameraPresentation = gCapture.currentPresentation;
-		record.syncInput = false;
+		record.cameraLateLatched = lateLatch;
 		gCapture.renderThrough = std::max(gCapture.renderThrough, record.sequence);
 		gCapture.totalRender++;
 		gCapture.totalRenderX += eligibleX ? record.postX : 0.0f;
@@ -657,16 +695,34 @@ void PerfInputLineageNoteFastCameraApply(float yawDegrees, float pitchDegrees)
 		if (FrameRecord* frame = CurrentFrame())
 		{
 			frame->renderConsumed++;
+			if (lateLatch) frame->renderLateConsumed++;
+			else frame->renderEarlyConsumed++;
 			frame->renderX += eligibleX ? record.postX : 0.0f;
 			frame->renderY += eligibleY ? record.postY : 0.0f;
 			if (nowUs >= record.dispatchUs) frame->maxDispatchToCameraUs = std::max(frame->maxDispatchToCameraUs, nowUs - record.dispatchUs);
 		}
 	});
+	if (last >= first) gCapture.renderCursorThrough = last;
 	if (FrameRecord* frame = CurrentFrame())
 	{
 		frame->cameraYawDegrees += yawDegrees;
 		frame->cameraPitchDegrees += pitchDegrees;
+		if (lateLatch)
+		{
+			frame->lateCameraYawDegrees += yawDegrees;
+			frame->lateCameraPitchDegrees += pitchDegrees;
+		}
 	}
+}
+
+void PerfInputLineageNoteLatePump(uint64_t durationUs, bool routingInvalidated, bool latchApplied)
+{
+	FrameRecord* frame = CurrentFrame();
+	if (frame == nullptr) return;
+	frame->latePumpCalls++;
+	frame->latePumpUs += durationUs;
+	if (routingInvalidated) frame->latePumpInvalidations++;
+	if (latchApplied) frame->lateLatchApplies++;
 }
 
 void PerfInputLineageNoteInputMode(bool syncInput)
@@ -687,6 +743,7 @@ void PerfInputLineageNoteViewCapture(float yawDegrees, float pitchDegrees)
 	view.commandConsumedThrough = gCapture.commandThrough;
 	view.commandBuiltThrough = gCapture.buildThrough;
 	view.renderConsumedThrough = gCapture.renderThrough;
+	view.renderCursorThrough = gCapture.renderCursorThrough;
 	view.captureUs = nowUs;
 	view.yawDegrees = yawDegrees;
 	view.pitchDegrees = pitchDegrees;
