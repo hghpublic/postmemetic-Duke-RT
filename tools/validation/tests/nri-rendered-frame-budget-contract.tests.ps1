@@ -87,7 +87,7 @@ Require-Order $beginFrame @(
 	'WaitForRenderedFrameAdmission(',
 	'mFrameGeneration.BeginFrame(*this);',
 	'EnsureSwapChainSize()'
-) 'Frame admission must precede frame-generation latency sleep/markers and swapchain acquisition.'
+) 'Frame admission must precede frame-generation lifecycle work and swapchain acquisition.'
 
 # The physical resource/streamer/swapchain contract remains overallocated at
 # three; changing latency policy must not force resource or swapchain rebuilds.

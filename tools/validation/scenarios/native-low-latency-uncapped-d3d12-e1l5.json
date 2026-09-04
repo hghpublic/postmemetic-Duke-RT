@@ -1,0 +1,95 @@
+{
+  "name": "native-low-latency-uncapped-d3d12-e1l5",
+  "backend": "d3d12",
+  "map": "e1l5",
+  "debugMode": 0,
+  "traceFrames": 48,
+  "captureWhenPassed": true,
+  "minSelfTestFrames": 16,
+  "extraArgs": [
+    "+set",
+    "nri_framegen",
+    "false",
+    "+set",
+    "cl_capfps",
+    "false",
+    "+set",
+    "nri_lowlatency",
+    "true",
+    "+set",
+    "nri_ptframesinflight",
+    "3",
+    "+set",
+    "nri_ptloadingvoxelvariants",
+    "128",
+    "+set",
+    "nri_ptloadingvoxelblockoptional",
+    "false"
+  ],
+  "commands": "+wait 45; map e1l5; wait 1; closemenu",
+  "requiredPrefixes": [
+    "NRI PT selftest:",
+    "NRI PT frame boundary:",
+    "NRI PT low-latency:"
+  ],
+  "prefixAssertions": [
+    {
+      "prefix": "NRI PT low-latency:",
+      "minCount": 16,
+      "applyTo": "all",
+      "fields": {
+        "schema": { "exact": 2 },
+        "request": { "exact": "on" },
+        "owner": { "exact": "native-nri" },
+        "framegen": { "exact": "off" },
+        "feature": { "exact": "yes" },
+        "iface": { "exact": "yes" },
+        "swapchain": { "exact": "yes" },
+        "operational": { "exact": "yes" },
+        "configured": { "exact": "yes" },
+        "canonical_sample": { "exact": "first-input-gather" },
+        "submit_associated": { "exact": "yes" },
+        "sleep": { "exact": "yes" },
+        "aborted": { "exact": 0 },
+        "contract": { "exact": "valid" },
+        "sleep_seq": { "exact": 1 },
+        "sim_start_seq": { "exact": 2 },
+        "input_seq": { "exact": 3 },
+        "sim_end_seq": { "exact": 4 },
+        "submit_start_seq": { "exact": 5 },
+        "submit_end_seq": { "exact": 6 },
+        "present_start_seq": { "exact": 7 },
+        "present_end_seq": { "exact": 8 },
+        "present": { "exact": "yes" },
+        "submit_ok": { "exact": "yes" },
+        "present_ok": { "exact": "yes" },
+        "runtime_suppressed": { "exact": "no" },
+        "runtime_failure": { "exact": "none" },
+        "set_mode": { "exact": "success" },
+        "sleep_result": { "exact": "success" },
+        "input_result": { "exact": "success" },
+        "sim": { "exact": "success/success" },
+        "submit": { "exact": "success/success" },
+        "report_scope": { "exact": "latest_available_unjoined" }
+      }
+    },
+    {
+      "prefix": "NRI PT frame boundary:",
+      "minCount": 16,
+      "applyTo": "all",
+      "fields": {
+        "rendered_limit": { "exact": 3 },
+        "physical_qframes": { "exact": 3 },
+        "admission_waited": { "exact": 0 }
+      }
+    }
+  ],
+  "forbiddenPatterns": [
+    "Device removed",
+    "device lost",
+    "validation error",
+    "failed to create",
+    "assertion failed",
+    "fatal error"
+  ]
+}
