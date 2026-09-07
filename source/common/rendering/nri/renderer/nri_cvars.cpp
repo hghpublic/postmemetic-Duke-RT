@@ -1783,6 +1783,10 @@ CVAR(Bool, nri_ptdynamicoverlayblasbuild, false, 0)
 CVAR(Bool, nri_ptdynamicoverlayblasroute, false, 0)
 
 CVAR(Int, nri_ptdynamicoverlayblasbuilds, 1, 0)
+// Session-only construction trial: 0 preserves fast-build, 1 prefers fast-trace.
+// Effective flags participate in the retained BLAS key, so live A/B switching
+// cannot silently reuse an AS built under the other policy.
+CVAR(Int, nri_ptdynamicoverlayblaspolicy, 0, 0)
 
 
 // Moved from source/common/rendering/nri/renderer/nri_renderer_settings.cpp

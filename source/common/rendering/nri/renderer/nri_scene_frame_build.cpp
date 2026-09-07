@@ -237,8 +237,9 @@ namespace
 		NRIRenderer::PerfShellTraceStats& stats,
 		const std::vector<NRIRenderer::SceneBufferUploadDomainSpan>& uploadSpans)
 	{
-		stats.dynamicOverlayBlasBuildEnabled = (bool)nri_ptdynamicoverlayblasbuild;
-		stats.dynamicOverlayBlasRouteEnabled = (bool)nri_ptdynamicoverlayblasroute;
+		const bool filterPartitionEnabled = (bool)nri_ptfilterquery;
+		stats.dynamicOverlayBlasBuildEnabled = (bool)nri_ptdynamicoverlayblasbuild || filterPartitionEnabled;
+		stats.dynamicOverlayBlasRouteEnabled = (bool)nri_ptdynamicoverlayblasroute || filterPartitionEnabled;
 		stats.dynamicOverlayBlasBuildBudget = (uint32_t)std::max(0, (int)nri_ptdynamicoverlayblasbuilds);
 
 		for (const NRIRenderer::SceneBufferUploadDomainSpan& span : uploadSpans)
@@ -262,6 +263,18 @@ namespace
 				stats.dynamicOverlayBlasRejectDisabled += span.primitiveCount;
 			}
 
+			if (filterPartitionEnabled)
+			{
+				// Candidate filtering partitions every valid geometry domain,
+				// including local-player reflection and surface-light overlays.
+				// Actual malformed/run-budget failures retain the fallback totals.
+				if (span.primitiveCount != 0u && span.indexCount != 0u && span.vertexCount != 0u)
+				{
+					stats.dynamicOverlayBlasEligibleDomains++;
+					stats.dynamicOverlayBlasEligiblePrimitives += span.primitiveCount;
+				}
+				continue;
+			}
 			switch (span.domain)
 			{
 			case NRIRenderer::SceneBufferUploadDomain::Dynamic:

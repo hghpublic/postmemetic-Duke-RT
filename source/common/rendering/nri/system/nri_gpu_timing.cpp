@@ -105,6 +105,10 @@ void NRIGpuTiming::RetireSlot(nri::CoreInterface& core, uint32_t slotIndex)
 	double voxelFinalizeMs = 0.0;
 	double voxelBlasMs = 0.0;
 	double worldTlasMs = 0.0;
+	double overlayBlasMs = 0.0;
+	uint32_t overlayBlasScopeCount = 0;
+	uint32_t validOverlayBlasScopes = 0;
+	uint32_t invalidOverlayBlasScopes = 0;
 	double smokeSimulationMs = 0.0;
 	double smokeVolumeMs = 0.0;
 	uint32_t voxelScopeCount = 0;
@@ -131,6 +135,11 @@ void NRIGpuTiming::RetireSlot(nri::CoreInterface& core, uint32_t slotIndex)
 				smokeScopeCount++;
 				invalidSmokeScopes++;
 			}
+			if (slot.markers[i].scope == NRIGpuTimingScope::DynamicOverlayBlas)
+			{
+				overlayBlasScopeCount++;
+				invalidOverlayBlasScopes++;
+			}
 		}
 	}
 	else
@@ -155,18 +164,22 @@ void NRIGpuTiming::RetireSlot(nri::CoreInterface& core, uint32_t slotIndex)
 			const Marker& marker = slot.markers[i];
 			const bool voxelScope = IsVoxelTimingScope(marker.scope);
 			const bool smokeScope = IsSmokeTimingScope(marker.scope);
+			const bool overlayBlasScope = marker.scope == NRIGpuTimingScope::DynamicOverlayBlas;
 			if (voxelScope) voxelScopeCount++;
 			if (smokeScope) smokeScopeCount++;
+			if (overlayBlasScope) overlayBlasScopeCount++;
 			const double value = TimestampDeltaMs(readTimestamp(marker.beginQuery), readTimestamp(marker.endQuery), mFrequencyHz);
 			if (value < 0.0)
 			{
 				timing.invalidPairs++;
 				if (voxelScope) invalidVoxelScopes++;
 				if (smokeScope) invalidSmokeScopes++;
+				if (overlayBlasScope) invalidOverlayBlasScopes++;
 				continue;
 			}
 			if (voxelScope) validVoxelScopes++;
 			if (smokeScope) validSmokeScopes++;
+			if (overlayBlasScope) validOverlayBlasScopes++;
 			switch (marker.scope)
 			{
 			case NRIGpuTimingScope::Scene: timing.sceneMs += value; break;
@@ -185,6 +198,7 @@ void NRIGpuTiming::RetireSlot(nri::CoreInterface& core, uint32_t slotIndex)
 			case NRIGpuTimingScope::VoxelFinalize: voxelFinalizeMs += value; break;
 			case NRIGpuTimingScope::VoxelBlas: voxelBlasMs += value; break;
 			case NRIGpuTimingScope::WorldTlas: worldTlasMs += value; break;
+			case NRIGpuTimingScope::DynamicOverlayBlas: overlayBlasMs += value; break;
 			case NRIGpuTimingScope::SmokeSimulation: smokeSimulationMs += value; break;
 			case NRIGpuTimingScope::SmokeVolume: smokeVolumeMs += value; break;
 			case NRIGpuTimingScope::SmokeGridAllocate: timing.smokeGridAllocateMs += value; break;
@@ -299,6 +313,22 @@ void NRIGpuTiming::RetireSlot(nri::CoreInterface& core, uint32_t slotIndex)
 		(unsigned long long)slot.token.epoch,
 		slot.token.recordIndex);
 	PerfCompactCaptureResolveGpuSegment(slot.token, timing);
+	// Keep this additive attribution row outside PerfCompactGpuTiming's ABI.
+	// Join presentation_gen to the compact loop row, then epoch/sample to GPU
+	// totals. Raw record is an observed-record index, not an eligible sample.
+	Printf("PERF pt dynamic overlay blas gpu timing NRI: renderer_frame=%llu presentation_gen=%llu queued_slot=%u segment=%.6f segment_valid=%u overlay_blas=%.6f scopes=%u valid=%u invalid=%u dropped=%u compact=1 epoch=%llu record=%u\n",
+		(unsigned long long)slot.rendererFrame,
+		(unsigned long long)slot.token.presentationGeneration,
+		slotIndex,
+		timing.segmentMs,
+		segmentValid ? 1u : 0u,
+		overlayBlasMs,
+		overlayBlasScopeCount,
+		validOverlayBlasScopes,
+		invalidOverlayBlasScopes,
+		slot.droppedOverlayBlasScopes,
+		(unsigned long long)slot.token.epoch,
+		slot.token.recordIndex);
 	slot.pending = false;
 	slot.token = {};
 	slot.queryCount = 0;
@@ -306,6 +336,7 @@ void NRIGpuTiming::RetireSlot(nri::CoreInterface& core, uint32_t slotIndex)
 	slot.droppedScopes = 0;
 	slot.droppedVoxelScopes = 0;
 	slot.droppedSmokeScopes = 0;
+	slot.droppedOverlayBlasScopes = 0;
 	slot.rendererFrame = 0;
 }
 
@@ -322,6 +353,7 @@ void NRIGpuTiming::BeginSegment(nri::CoreInterface& core, nri::CommandBuffer& co
 	slot.droppedScopes = 0;
 	slot.droppedVoxelScopes = 0;
 	slot.droppedSmokeScopes = 0;
+	slot.droppedOverlayBlasScopes = 0;
 	slot.rendererFrame = rendererFrame;
 	slot.segmentBeginQuery = 0;
 	slot.segmentEndQuery = 1;
@@ -339,6 +371,7 @@ uint32_t NRIGpuTiming::BeginScope(nri::CoreInterface& core, nri::CommandBuffer& 
 		slot.droppedScopes++;
 		if (IsVoxelTimingScope(scope)) slot.droppedVoxelScopes++;
 		if (IsSmokeTimingScope(scope)) slot.droppedSmokeScopes++;
+		if (scope == NRIGpuTimingScope::DynamicOverlayBlas) slot.droppedOverlayBlasScopes++;
 		return UINT32_MAX;
 	}
 	const uint32_t markerIndex = slot.markerCount++;
@@ -374,6 +407,7 @@ void NRIGpuTiming::FinalizeSegment(nri::CoreInterface& core, nri::CommandBuffer&
 			slot.droppedScopes++;
 			if (IsVoxelTimingScope(slot.markers[i].scope)) slot.droppedVoxelScopes++;
 			if (IsSmokeTimingScope(slot.markers[i].scope)) slot.droppedSmokeScopes++;
+			if (slot.markers[i].scope == NRIGpuTimingScope::DynamicOverlayBlas) slot.droppedOverlayBlasScopes++;
 		}
 	}
 	core.CmdEndQuery(commandBuffer, *slot.queryPool, slot.segmentEndQuery);

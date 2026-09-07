@@ -5,6 +5,7 @@
 #include "nri_debug_reporters.h"
 #include "nri_blue_noise.h"
 #include "nri_descriptor_sets.h"
+#include "nri_dynamic_overlay_blas_diagnostics.h"
 #include "nri_exposure.h"
 #include "nri_frame_graph.h"
 #include "nri_frame_resources.h"
@@ -1389,6 +1390,7 @@ public:
 		uint32_t dynamicOverlayBlasBuildBudget = 0;
 		bool dynamicOverlayBlasBuildEnabled = false;
 		bool dynamicOverlayBlasRouteEnabled = false;
+		NRIDynamicOverlayBlasPolicyStats dynamicOverlayBlasPolicy = {};
 		uint32_t filterCandidateOccurrences = 0;
 		uint32_t filterCandidateCertifiedOccurrences = 0;
 		uint32_t filterCandidateCertifiedPrimitives = 0;
@@ -2527,7 +2529,8 @@ private:
 		NRIAccelerationStructureResource& outAccelerationStructure,
 		bool updateDynamicPerfStats,
 		NRIBufferResource* buildScratchBuffer = nullptr,
-		nri::AccelerationStructureBits buildFlags = nri::AccelerationStructureBits::PREFER_FAST_BUILD);
+		nri::AccelerationStructureBits buildFlags = nri::AccelerationStructureBits::PREFER_FAST_BUILD,
+		bool recordDynamicOverlayGpuTiming = false);
 	void NoteWorldBlasContentChanged();
 	bool PreloadStaticMapResources();
 	bool PreloadPersistentVoxelResources();

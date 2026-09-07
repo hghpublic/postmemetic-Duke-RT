@@ -2,6 +2,7 @@
 #include "nri_gpu_timing.h"
 #include "../renderer/nri_cvars.h"
 #include "../renderer/nri_diagnostic_cadence.h"
+#include "../renderer/nri_dynamic_overlay_blas_diagnostics.h"
 #include "../renderer/nri_occurrence_workload_mask_diagnostics.h"
 
 #include "../framegen/nri_framegen.h"
@@ -4735,6 +4736,7 @@ bool NRIRenderDevice::RenderPathTracedScene(HWDrawInfo& di, int drawmode, bool p
 			shell.dynamicOverlayBlasCacheMisses,
 			shell.dynamicOverlayBlasRoutedInstances,
 			shell.dynamicOverlayBlasMonolithicRefs);
+		LogNRIDynamicOverlayBlasPolicyStats(mLastFrameBoundaryStats.frameNumber, shell.dynamicOverlayBlasPolicy);
 		Printf(
 			"PERF pt filter candidate certificate NRI: frame=%llu enabled=%u occurrences=%u certified=%u certified_prims=%u reject_empty=%u reject_range=%u reject_mixed=%u\n",
 			(unsigned long long)mLastFrameBoundaryStats.frameNumber,
