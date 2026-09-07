@@ -240,12 +240,28 @@ Actor and event rules also own representation and responsiveness policy:
 
 | Field | Default and accepted values | Effect |
 | --- | --- | --- |
-| `representation <mode>` | `grid`; `grid` or `analytic` | `grid` routes the emission through sparse-grid admission, simulation, and the grid's recovery path. `analytic` selects the dedicated ungridded carrier path for short-lived effects. Omitting the field preserves existing grid behavior. |
+| `representation <mode>` | `grid`; `grid`, `analytic`, or `transient-cloud` | `grid` routes through sparse-grid admission and simulation. `analytic` retains the legacy one/few-carrier comparison path. `transient-cloud` creates one event-owned group containing deterministic billowy lobes. Omitting the field preserves existing grid behavior. |
 | `queuepolicy <mode>` | `retry`; `retry`, `drop`, or `latest` | Controls what happens when the selected representation cannot accept the emission immediately. `retry` retains existing grid work, `drop` discards work that cannot be presented promptly, and `latest` keeps only the newest work for a stable source. Analytic one-shot effects should use `drop`; they must not use delayed replay. |
 | `maxlatencyseconds <seconds>` | omitted; minimum `0` | Optional maximum gameplay/presentation age at first publication. Work older than the bound is discarded instead of appearing belatedly. This clock is independent of smoke simulation debt. Omitting the field leaves the current representation's existing latency behavior unchanged. |
 | `analyticcarriers <count>` | `1`; `1` through `8` | Fixed carrier quantity for each analytic emission. Authored particle mass is divided exactly across the carriers; the quantity does not vary with frame time or available GPU headroom. Use multiple carriers to avoid collapsing a broad impact into one opaque kernel. |
+| `effectclass <class>` | `diagnostic`; `explosion`, `trail`, `fire`, `muzzle`, `impact`, or `diagnostic` | Selects deterministic transient-cloud placement and lifecycle behavior. This is independent of representation. `transientclass` is accepted as a compatibility input alias; normalized output writes `effectclass`. |
+| `lobecount <count>` | `8`; `1` through `16` | Spatial complexity of one transient-cloud group. It is deliberately independent of `count`: changing lobe count redistributes the same authored optical quantity instead of changing smoke mass. |
 
-Representation is source policy rather than style policy. A style can therefore be reused by grid and analytic rules, but their motion is not identical: grid smoke receives deposition, neighbor transport, thermal buoyancy, and grid turbulence, while analytic smoke uses closed-form carrier expansion, fading, and motion. Prefer analytic representation for immediate, short-lived muzzle or impact feedback; use grid representation for persistent plumes, trails, and fire whose transport matters.
+Representation is source policy rather than style policy. A style can therefore be reused by all three routes. Grid smoke receives deposition, neighbor transport, thermal buoyancy, and grid turbulence. Legacy analytic smoke uses closed-form carrier expansion and fading. Transient clouds use event-owned, deterministic lobe groups with independent radius, density, and intrinsic-emission envelopes; they do not deposit into the grid.
+
+`nri_ptsmoketransientmask` is the session rollback gate for explicitly authored transient sources. Its bits are explosion `1`, trail `2`, fire `4`, muzzle `8`, impact `16`, and diagnostic `32`; `63` enables all classes. Clearing a class returns explosion/trail/fire to their original grid route and muzzle/impact/diagnostic to legacy analytic. Map `smokeemitter` sources remain grid-only.
+
+The mount-ready validation overlay is `tools/validation/overlays/smoke-transient-fixtures`. Pass that directory to `-file`; it contains the required literal `LIGHTOVR` file. In a live map, the existing event test command gives a repeatable camera-relative source without gameplay input:
+
+```text
+nri_ptsmoketransientmask 1
+nri_ptsmokereset
+nri_ptsmoke_test transient.explosion.fixture
+```
+
+Replace the bit and event id with `2`/`transient.trail.fixture`, `4`/`transient.fire.fixture`, `8`/`transient.muzzle.fixture`, or `16`/`transient.impact.fixture`. Use mask `0` with the same new executable and fixture for a matched rollback capture. Repeating the event command creates a deterministic burst suitable for capacity/overflow captures. The fixture also contains actor rules suffixed `.actor.fixture` for moving RPG trail, explosion-actor, and sustained-fire lifecycle checks; it is intentionally separate from `release-overlay/LIGHTOVR`.
+
+With smoke trace mode enabled, `NRI PT smoke routing: event=source` reports the actual source id, authored/effective representation, class, summed authored `count`, grid-command count, legacy carrier count, and transient group/lobe counts. `PERF pt smoke route frame NRI` joins the gather id to the renderer/simulation frame and reports class-mask fallbacks and grid-bridge observations. These are measured gather results; a zero means no matching work was routed in that gather.
 
 ### Minimal Actor Smoke Example
 
@@ -322,6 +338,19 @@ Time and half-life values are seconds of smoke simulation time. Distances are en
 | `temperature <value>` | `1.0`, minimum `0` | Initial thermal content used by sparse-grid buoyancy. It has no independent optical effect and is grid-oriented. |
 | `momentumscale <scale>` | `1.0`, minimum `0` | Additional multiplier on inherited source momentum in sparse-grid mode. It does not multiply radial expansion, rise velocity, or stochastic launch speed. |
 | `coolinghalflife <seconds>` | `2.0`, minimum `0.001` | Time for thermal buoyancy to fall by half in sparse-grid mode. Longer values keep a hot plume rising farther. |
+| `densityattackseconds <seconds>` | `0`, minimum `0` | Transient-cloud density ramp-in. Zero starts at full authored density. |
+| `densitysustainseconds <seconds>` | `0`, minimum `0` | Transient-cloud time before release begins. Zero derives the release start from lifetime. |
+| `densityreleaseseconds <seconds>` | `0`, minimum `0` | Transient-cloud density release. Zero uses `densityhalflife`; nonzero makes density independent of radius growth. |
+| `radiusexponent <value>` | `1`, minimum `0.01` | Shapes transient-cloud radius growth without implicitly diluting density by current volume. |
+| `intrinsicemission <value>` | `0`, minimum `0` | Immediate local source strength for hot transient smoke. It requires no scene-light sampling and is separate from externally incident light. |
+| `emissionhalflife <seconds>` | `0.25`, minimum `0.001` | Independent decay of intrinsic emission. |
+| `clusterspread <scale>` | `0.75`; `[0,4]` | Class-oriented spacing of correlated lobes in units of base lobe radius. Trail hitch chunks may raise the effective spread to cover their complete spatial interval. |
+| `loberadiusrandom <min> <max>` | `0.75 1.25`; each `[0.1,4]` | Deterministic per-lobe radius range. Reversed inputs are normalized into ascending order. |
+| `curlvelocity <units/s>` | `0`, minimum `0` | Deterministic class-space curl applied to transient lobe motion. |
+| `coreplateau <fraction>` | `0.58`; `[0,0.95]` | Width/strength of each compact lobe's dense plateau before its soft shoulder. |
+| `edgeerosion <fraction>` | `0.12`; `[0,0.9]` | Boundary-only erosion; dense cores remain protected. |
+| `noisescale <1/units>` | `0.035`, minimum `0.0001` | Stable group-space macro-detail frequency. |
+| `noisestrength <fraction>` | `0.18`; `[0,0.8]` | Boundary detail amplitude. It does not globally modulate the dense core. |
 
 Opacity is approximately driven by `density × densityscale × count × extinction`. Scattered brightness and tint additionally depend on `albedo`, lighting, and anisotropy. Increasing `radius`, `radiusscale`, or `spawnradius` spreads the source across more space, so local density may fall even when total deposited mass is unchanged.
 
@@ -345,9 +374,11 @@ Opacity is approximately driven by `density × densityscale × count × extincti
 | `trigger <mode>` | `spawn`; `spawn` or `interval` | `spawn` emits once when eligible. `interval` emits once when eligible and then continues using spatial or timed cadence. |
 | `activation <mode>` | `immediate`; `immediate` or `surface` | `immediate` starts when the live actor/rule is first observed. `surface` waits until renderer appearance evidence exists, then latches; use it for hidden or scripted fire actors. |
 | `emitterforeground <state>` | `off`; `on` or `off` | With `on`, matching actor sprite/voxel pixels remain in front of smoke. This is a coarse actor mask: it suppresses **all** smoke at those pixels, not only smoke from this source. |
-| `representation <mode>` | `grid`; `grid` or `analytic` | Selects the source representation described above. |
+| `representation <mode>` | `grid`; `grid`, `analytic`, or `transient-cloud` | Selects the source representation described above. |
 | `queuepolicy <mode>` | `retry`; `retry`, `drop`, or `latest` | Selects overload handling described above. |
 | `maxlatencyseconds <seconds>` | Omitted; minimum `0` | Optional first-publication freshness bound in gameplay/presentation time. |
+| `effectclass <class>` | `diagnostic`; see the representation table | Selects the transient placement/lifecycle preset and rollback-mask bit. |
+| `lobecount <count>` | `8`; `[1,16]` | Lobe complexity for each transient group, independent of `count`. |
 | `style <id>` | Empty; a resolvable style is required | `smokestyle` used by emitted commands. An unresolved reference makes the rule inert. |
 | `count <integer>` | `1`; `[1,256]` | Particle carriers per source in particle mode; deposited-mass multiplier in grid mode. This is a strong source-density control and directly affects compatibility-mode particle work. |
 | `offset <x> <y> <z>` | `0 0 0` | Actor-local right, forward, and Build/world-Z offset. Negative Z moves visually upward; positive Z moves downward. |
@@ -387,9 +418,11 @@ Thermal buoyancy and turbulence then continue to modify the field while drag dam
 | Field | Default and accepted values | Effect |
 | --- | --- | --- |
 | `style <id>` | Empty; a resolvable style is required | Smoke style emitted by the event. |
-| `representation <mode>` | `grid`; `grid` or `analytic` | Selects the source representation described above. |
+| `representation <mode>` | `grid`; `grid`, `analytic`, or `transient-cloud` | Selects the source representation described above. |
 | `queuepolicy <mode>` | `retry`; `retry`, `drop`, or `latest` | Selects overload handling described above. Analytic impacts and muzzle puffs normally use `drop`. |
 | `maxlatencyseconds <seconds>` | Omitted; minimum `0` | Optional first-publication freshness bound in gameplay/presentation time. |
+| `effectclass <class>` | `diagnostic`; see the representation table | Selects the transient placement/lifecycle preset and rollback-mask bit. |
+| `lobecount <count>` | `8`; `[1,16]` | Lobe complexity for each transient group, independent of `count`. |
 | `count <integer>` | `1`; `[1,256]` | Particle count or grid deposited-mass multiplier, as described for actor rules. |
 | `offset <x> <y> <z>` | `0 0 0` | Event-local right, forward, and producer-supplied third-basis offset. Current Duke weapon producers use positive Build Z for that third vector at level aim, so a negative third offset moves visually upward. With no basis, this offset is ignored. |
 | `offsetrandom <right> <forward> <up>` | `0 0 0`; each component is finite and nonnegative | Per-event local-axis jitter half-extents added to `offset`. Each event deterministically samples right, forward, and up within the corresponding `[-extent,+extent]` interval. One sampled origin is shared by the complete event rather than changing per frame; zero leaves the fixed offset unchanged. With no producer basis, this jitter is ignored. |

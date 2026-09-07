@@ -5,6 +5,7 @@ $header = Get-Content (Join-Path $root 'source\core\lightoverlay.h') -Raw
 $implementation = Get-Content (Join-Path $root 'source\core\lightoverlay.cpp') -Raw
 $authored = Get-Content (Join-Path $root 'release-overlay\LIGHTOVR') -Raw
 $authoringGuide = Get-Content (Join-Path $root 'LIGHTOVR-AUTHORING.md') -Raw
+$transientFixture = Get-Content (Join-Path $root 'tools\validation\overlays\smoke-transient-fixtures\LIGHTOVR') -Raw
 
 function Assert-Contains([string]$Text, [string]$Pattern, [string]$Message) {
     if ($Text -notmatch $Pattern) { throw $Message }
@@ -16,6 +17,8 @@ Assert-Contains $header 'bool styleResolved = false' 'Smoke rule style resolutio
 Assert-Contains $header 'LightOverlaySmokeTrigger[\s\S]*?Spawn,[\s\S]*?Interval' 'Smoke actor triggers must preserve spawn and add interval.'
 Assert-Contains $header 'LightOverlaySmokeDirectionPolicy[\s\S]*?Aim,[\s\S]*?Normal,[\s\S]*?Incoming' 'Smoke event direction policy is incomplete.'
 Assert-Contains $header 'LightOverlaySmokeRepresentation[\s\S]*?Grid,[\s\S]*?Analytic' 'Smoke representation policy is incomplete.'
+Assert-Contains $header 'LightOverlaySmokeRepresentation[\s\S]*?TransientCloud' 'Transient-cloud representation authority is missing.'
+Assert-Contains $header 'LightOverlaySmokeTransientClass[\s\S]*?Explosion[\s\S]*?TrailChunk[\s\S]*?FirePacket[\s\S]*?Muzzle[\s\S]*?Impact' 'Transient effect classes are incomplete.'
 Assert-Contains $header 'LightOverlaySmokeQueuePolicy[\s\S]*?Retry,[\s\S]*?Drop,[\s\S]*?Latest' 'Smoke queue policy is incomplete.'
 Assert-Contains $header 'LightOverlaySmokeTrigger trigger = LightOverlaySmokeTrigger::Spawn' 'Existing actor rules must remain spawn-triggered by default.'
 Assert-Contains $header 'LightOverlayActorActivationPolicy activationPolicy = LightOverlayActorActivationPolicy::Immediate' 'Existing smoke actor rules must remain immediately activated by default.'
@@ -50,7 +53,10 @@ foreach ($field in @(
     'density', 'extinction', 'albedo', 'anisotropy', 'radius', 'expansionvelocity',
     'lifetime', 'densityhalflife', 'risevelocity', 'velocityrandom', 'velocityinherit',
     'buoyancy', 'drag', 'turbulence', 'turbulencescale', 'temperature',
-    'momentumscale', 'coolinghalflife')) {
+    'momentumscale', 'coolinghalflife', 'densityattackseconds', 'densitysustainseconds',
+    'densityreleaseseconds', 'radiusexponent', 'intrinsicemission', 'emissionhalflife',
+    'clusterspread', 'loberadiusrandom', 'curlvelocity', 'coreplateau', 'edgeerosion',
+    'noisescale', 'noisestrength')) {
     Assert-Contains $implementation ('sc\.Compare\("' + $field + '"\)') "Smoke style parser is missing $field."
 }
 
@@ -78,7 +84,13 @@ foreach ($policy in @('aim', 'normal', 'incoming')) {
     Assert-Contains $implementation ('stricmp\(sc\.String, "' + $policy + '"\)') "Smoke event parser is missing direction policy $policy."
 }
 Assert-Contains $implementation 'expected aim, normal, or incoming' 'Invalid event direction diagnostics are missing.'
-Assert-Contains $implementation 'expected grid or analytic' 'Invalid smoke representation diagnostics are missing.'
+Assert-Contains $implementation 'expected grid, analytic, or transient-cloud' 'Invalid smoke representation diagnostics are missing.'
+Assert-Contains $implementation '"transient-cloud"' 'Transient-cloud normalized spelling is missing.'
+Assert-Contains $implementation 'sc\.Compare\("effectclass"\)' 'Transient effect-class parsing is missing.'
+Assert-Contains $implementation 'FStringf\("effectclass %s"' 'Transient effect-class serialization is missing.'
+Assert-Contains $implementation 'sc\.Compare\("lobecount"\)' 'Transient lobe-count parsing is missing.'
+Assert-Contains $implementation 'FStringf\("lobecount %u"' 'Transient lobe-count serialization is missing.'
+Assert-Contains $implementation 'lobeRadiusRandom\[0\] > rule\.lobeRadiusRandom\[1\][\s\S]*std::swap' 'Transient lobe-radius ranges must normalize to ascending order.'
 Assert-Contains $implementation 'expected retry, drop, or latest' 'Invalid smoke queue-policy diagnostics are missing.'
 Assert-Contains $implementation 'maxLatencySeconds = std::max\(0\.0f' 'Negative smoke freshness bounds must clamp to zero.'
 Assert-Contains $implementation 'offsetRandom[\s\S]*?std::isfinite\(value\) \? std::max\(value, 0\.0f\) : 0\.0f' 'Smoke event random-offset extents must normalize nonfinite and negative values to zero.'
@@ -137,9 +149,13 @@ foreach ($eventId in @('duke.pistol.primary', 'duke.shotgun.primary', 'duke.chai
     Assert-Contains $authored ('smokeeventrule\s+"' + [regex]::Escape($eventId) + '"[\s\S]*?representation\s+analytic[\s\S]*?queuepolicy\s+drop[\s\S]*?maxlatencyseconds\s+0\.075') "Muzzle smoke must use fresh immediate-or-drop analytic presentation: $eventId"
 }
 foreach ($eventId in @('duke.hitscan.impact.plane', 'duke.hitscan.impact.wall')) {
-    Assert-Contains $authored ('smokeeventrule\s+"' + [regex]::Escape($eventId) + '"[\s\S]*?representation\s+analytic[\s\S]*?queuepolicy\s+drop[\s\S]*?maxlatencyseconds\s+0\.050') "Impact smoke must use fresh immediate-or-drop analytic presentation: $eventId"
+    Assert-Contains $authored ('smokeeventrule\s+"' + [regex]::Escape($eventId) + '"[\s\S]*?representation\s+analytic[\s\S]*?queuepolicy\s+drop[\s\S]*?maxlatencyseconds\s+0\.05(?:0)?') "Impact smoke must use fresh immediate-or-drop analytic presentation: $eventId"
 }
 Assert-Contains $authored 'smokeeventrule\s+"nri\.smoke\.test"' 'Missing smoke-only diagnostic event rule.'
+Assert-Contains $transientFixture 'representation\s+transient-cloud' 'Transient validation fixture is missing the explicit route.'
+foreach ($class in @('explosion', 'trail', 'fire', 'muzzle', 'impact')) {
+    Assert-Contains $transientFixture ('effectclass\s+' + $class) "Transient validation fixture is missing $class."
+}
 Assert-Contains $authored 'smokeeventrule\s+"duke\.shotgun\.primary"[\s\S]*?velocitycone\s+22\.0' 'Shotgun smoke must retain authored directional spread.'
 foreach ($eventId in @('duke.pistol.primary', 'duke.chaingun.primary')) {
     Assert-Contains $authored ('smokeeventrule\s+"' + [regex]::Escape($eventId) + '"[\s\S]*?spawnradius\s+3\.0[\s\S]*?densityscale\s+1(?:\.0)?(?:\s|$)') "Pistol/chaingun muzzle smoke must retain enlarged analytic support without doubled opacity: $eventId"

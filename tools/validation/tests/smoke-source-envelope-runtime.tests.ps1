@@ -9,8 +9,8 @@ function Assert-Match([string]$Text, [string]$Pattern, [string]$Message) {
     if ($Text -notmatch $Pattern) { throw $Message }
 }
 
-Assert-Match $source 'TimedEmission[\s\S]*cadenceOrdinal[\s\S]*cadenceStepsBeforeInterval[\s\S]*skipped[\s\S]*emissionIndex' 'Pulse phase must follow logical cadence crossings, including a retained hitch suffix.'
-Assert-Match $source 'NRIEvaluateSmokeSourceEnvelope\([\s\S]*emission\.cadenceOrdinal[\s\S]*command\.densityScale = rule\.densityScale \* pulseWeight' 'Actor command mass must be sampled from its logical cadence ordinal.'
+Assert-Match $source 'TimedEmission[\s\S]*firstCadenceOrdinal[\s\S]*lastCadenceOrdinal[\s\S]*cadenceStepsBeforeInterval[\s\S]*skipped[\s\S]*emissionIndex' 'Pulse phase must retain exact logical cadence ranges across bounded hitch work.'
+Assert-Match $source 'emission\.firstCadenceOrdinal ==[\s\S]*NRIEvaluateSmokeSourceEnvelope\([\s\S]*emission\.lastCadenceOrdinal[\s\S]*NRISumSmokeSourceEnvelope\([\s\S]*emission\.firstCadenceOrdinal, emission\.lastCadenceOrdinal\)[\s\S]*command\.densityScale = rule\.densityScale \* pulseWeight' 'Actor command mass must sample one cadence or sum every compressed trail cadence exactly.'
 Assert-Match $source 'state\.continuousCadenceOrdinal \+= continuousCadenceSteps[\s\S]*observation\.cadenceOrdinal = state\.continuousCadenceOrdinal' 'Persistent observations must publish the complete logical cadence range.'
 Assert-Match $source 'observation\.pulseEnvelope = sourceEnvelope' 'Persistent observations must retain their authored pulse function.'
 Assert-Match $source 'cadence_ordinal=%llu pulse_weight=%.4f density_scale=%.4f' 'Bounded source traces must expose pulse selection.'

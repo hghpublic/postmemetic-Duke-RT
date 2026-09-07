@@ -362,6 +362,58 @@ void TestCapacityAndOpticalReduction()
 		"reduction below the configured floor must reject the whole group atomically");
 }
 
+void TestIntrinsicEmissionOpticalInvariant()
+{
+	NRISmokeTransientGroupShapeInput input = {};
+	input.velocity[2] = 1.0f;
+	input.initialRadius = 2.0f;
+	input.initialDensity = 1.5f;
+	input.opticalAmount = 12.0f;
+	input.expansionVelocity = 1.0f;
+	input.densityHalfLife = 2.0f;
+	input.lobeLifetimeSeconds = 4.0f;
+	input.groupLifetimeSeconds = 4.0f;
+	input.densitySustainSeconds = 3.0f;
+	input.densityReleaseSeconds = 1.0f;
+	input.intrinsicEmission = 3.0f;
+	input.requestedLobeCount = 8u;
+	input.sourceId = 44u;
+	input.epoch = 13u;
+	input.sourceEventSerial = 900u;
+	input.transientClass = NRISmokeTransientClass::Explosion;
+	NRISmokeTransientLobeRequest requests[16] = {};
+	Require(NRIBuildSmokeTransientLobes(input, requests, 16u) == 8u,
+		"intrinsic-emission fixture must produce its full lobe batch");
+
+	auto fullProfile = NRISmokeTransientClouds::ProfileForQuality(1u);
+	NRISmokeTransientClouds full;
+	full.Reset(13u);
+	full.BeginFrame(0.0, 256u, fullProfile);
+	Require(full.AdmitBatch(requests, 8u).admittedLobes == 8u,
+		"intrinsic-emission fixture must admit its full representation");
+	auto reducedProfile = fullProfile;
+	reducedProfile.maximumActiveLobes = 4u;
+	reducedProfile.maximumLobesPerGroup = 4u;
+	reducedProfile.minimumReducedLobes = 4u;
+	NRISmokeTransientClouds reduced;
+	reduced.Reset(13u);
+	reduced.BeginFrame(0.0, 4u, reducedProfile);
+	Require(reduced.AdmitBatch(requests, 8u).admittedLobes == 4u,
+		"intrinsic-emission fixture must exercise deterministic owner reduction");
+	float fullSource = 0.0f;
+	for (const auto& lobe : full.GetGpuLobes())
+	{
+		Require(Near(lobe.emissionScale, input.intrinsicEmission),
+			"GPU emission scale must be a coefficient, not another optical weight");
+		fullSource += lobe.densityScale * lobe.emissionScale;
+	}
+	float reducedSource = 0.0f;
+	for (const auto& lobe : reduced.GetGpuLobes())
+		reducedSource += lobe.densityScale * lobe.emissionScale;
+	Require(Near(fullSource, reducedSource),
+		"intrinsic source must remain invariant when equal-field lobes are reduced");
+}
+
 void TestAbsoluteCurvesAndDtInvariance()
 {
 	auto profile = NRISmokeTransientClouds::ProfileForQuality(2u);
@@ -620,6 +672,7 @@ int main()
 	TestTrailCoverage();
 	TestIdentityLifetimeAndReservation();
 	TestCapacityAndOpticalReduction();
+	TestIntrinsicEmissionOpticalInvariant();
 	TestAbsoluteCurvesAndDtInvariance();
 	TestValidationAndBatchIdentity();
 	TestReplacementAndLightScheduling();

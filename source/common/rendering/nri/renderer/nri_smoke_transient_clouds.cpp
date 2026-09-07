@@ -976,7 +976,7 @@ void NRISmokeTransientClouds::Refresh()
 			gpu.densityScale = slot.request.initialDensity *
 				slot.request.opticalWeight * envelope;
 			gpu.emissionScale = slot.request.intrinsicEmission *
-				slot.request.opticalWeight * std::exp2(-localAge /
+				std::exp2(-localAge /
 					std::max(slot.request.emissionHalfLife, 0.001f));
 			gpu.groupSlot = groupIndex;
 			gpu.groupGeneration = group.generation;
