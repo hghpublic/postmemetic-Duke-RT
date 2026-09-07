@@ -574,6 +574,22 @@ bool NRIPassDispatcher::DispatchTraceOpaque(NRIPassDispatchContext& context, HWD
 	constants.PrevTanHalfFovY = context.mFrame.previousTanHalfFovY;
 	constants.SceneInstanceCount = context.mSceneStats.sceneInstanceCount;
 	constants.DebugMode = GetEffectivePtDebugMode();
+	const bool rawDebugLightingIndependent = IsNRIFrameGraphLightingIndependentDebugMode(constants.DebugMode);
+	const bool rawDebugLeanEligible =
+		rawDebugLightingIndependent && !nri_ptbootstrap && !directSceneTrace &&
+		// A requested cache must keep its full producer and lifecycle even when
+		// resource preparation fails or cache acceptance is temporarily disabled.
+		!nri_ptindirectradiancecache &&
+		context.mPipelines.Get(NRIRenderer::PipelineSlot::TraceOpaqueLeanDebug) != nullptr;
+	const bool rawDebugLeanActive = nri_ptrawdebuglightingelision && rawDebugLeanEligible;
+	if (ShouldCollectPtPerfTiming() && (nri_ptrawdebuglightingelision || rawDebugLightingIndependent))
+	{
+		Printf("PERF pt raw debug variant NRI: nri_frame=%llu debug=%u requested=%u eligible=%u active=%u shader=%s\n",
+			(unsigned long long)context.mFrame.frameIndex + 1ull, constants.DebugMode,
+			nri_ptrawdebuglightingelision ? 1u : 0u, rawDebugLeanEligible ? 1u : 0u,
+			rawDebugLeanActive ? 1u : 0u,
+			rawDebugLeanActive ? "TraceOpaqueLeanDebug" : (indirectRadianceCacheActive ? "TraceOpaqueCache" : "TraceOpaque"));
+	}
 	constants.StaticPrimitiveCount = context.mSceneStats.staticPrimitiveCount;
 	constants.FrameIndex = context.mFrame.frameIndex;
 	constants.DynamicPrimitiveCount = context.mSceneStats.dynamicPrimitiveCount;
@@ -770,6 +786,8 @@ bool NRIPassDispatcher::DispatchTraceOpaque(NRIPassDispatchContext& context, HWD
 		(uint32_t)resolvedMainUpscaler, (uint32_t)resolvedUpscalerMode
 	};
 	for (uint64_t value : settingsValues) settingsKey = AppendTraceWorkloadHash(settingsKey, value);
+	// Preserve control/beauty keys, but distinguish the selected pipeline in A/B captures.
+	if (rawDebugLeanActive) settingsKey = AppendTraceWorkloadHash(settingsKey, 0x4c45414e44454247ull);
 	tracePerf.traceSettingsKey = settingsKey;
 	uint64_t workloadKey = settingsKey;
 	const uint64_t workloadValues[] = {
@@ -798,7 +816,8 @@ bool NRIPassDispatcher::DispatchTraceOpaque(NRIPassDispatchContext& context, HWD
 		context.mTraceShaderStats.ResetBuffer(context.mResources.BuildResourceServices(), ShouldCollectTraceShaderStats(context.mResources.frameBuffer));
 		context.mCommands.core->CmdBeginAnnotation(*context.mCommands.commandBuffer, "Raze.TraceOpaque.Dispatch", nri::BGRA_UNUSED);
 		context.mCommands.SetPipeline(context.mPipelines.Get(
-			indirectRadianceCacheActive ? NRIRenderer::PipelineSlot::TraceOpaqueCache : NRIRenderer::PipelineSlot::TraceOpaque));
+			indirectRadianceCacheActive ? NRIRenderer::PipelineSlot::TraceOpaqueCache :
+			(rawDebugLeanActive ? NRIRenderer::PipelineSlot::TraceOpaqueLeanDebug : NRIRenderer::PipelineSlot::TraceOpaque)));
 		{
 			NRIScopedGpuTiming dispatchGpuTiming(context.mResources.frameBuffer, NRIGpuTimingScope::TraceDispatch);
 			context.mCommands.Dispatch(dispatchX, dispatchY, dispatchZ);

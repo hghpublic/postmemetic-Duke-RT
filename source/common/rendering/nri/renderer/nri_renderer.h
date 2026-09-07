@@ -2164,6 +2164,7 @@ public:
 	{
 		TraceOpaque,
 		TraceOpaqueCache,
+		TraceOpaqueLeanDebug,
 		Composition,
 		TraceTransparent,
 		ExposureHistogramClear,

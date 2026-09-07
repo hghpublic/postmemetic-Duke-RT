@@ -755,6 +755,9 @@ CUSTOM_CVAR(Int, nri_ptbloomdebug, 0, 0)
 
 // Moved from source/common/rendering/nri/renderer/nri_renderer.cpp
 
+// Session-only A/B switch for lighting-independent raw debug views.
+CVAR(Bool, nri_ptrawdebuglightingelision, false, 0)
+
 CUSTOM_CVAR(Int, nri_ptdebug, 0, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 {
 	const int resolvedMode = ResolvePtDebugModeFromMenuIndex(ResolvePtDebugMenuIndexFromMode(self));

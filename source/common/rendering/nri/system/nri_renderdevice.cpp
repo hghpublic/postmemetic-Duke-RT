@@ -11535,6 +11535,8 @@ bool NRIRenderDevice::LoadShaderBlob(const char* fileName, std::vector<uint8_t>&
 		FString(nri_shadervariant).CompareNoCase("diagnostic") == 0;
 	const bool diagnosticCandidate = std::strcmp(fileName, "TraceOpaque.cs.dxil") == 0 ||
 		std::strcmp(fileName, "TraceOpaque.cs.spirv") == 0 ||
+		std::strcmp(fileName, "TraceOpaqueLeanDebug.cs.dxil") == 0 ||
+		std::strcmp(fileName, "TraceOpaqueLeanDebug.cs.spirv") == 0 ||
 		std::strcmp(fileName, "TraceOpaqueCache.cs.dxil") == 0 ||
 		std::strcmp(fileName, "TraceOpaqueCache.cs.spirv") == 0 ||
 		std::strcmp(fileName, "TraceOpaqueTyped.cs.dxil") == 0 ||

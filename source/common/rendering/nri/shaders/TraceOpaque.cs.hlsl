@@ -1,3 +1,7 @@
+#if defined(NRI_TRACE_GEOMETRY_DEBUG_ONLY) && defined(NRI_INDIRECT_RADIANCE_CACHE)
+#error Geometry debug elision must not remove the indirect radiance cache producer.
+#endif
+
 #define NRI_ENABLE_PERSISTENT_VOXEL_SCENE 1
 #include "Include/Shared.hlsli"
 #include "Include/RaytracingShared.hlsli"
@@ -1860,6 +1864,10 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 			const float metalness = GetSurfaceMetalness(material, hit.uv);
 			const float3 diffuseAlbedo = GetSurfaceDiffuseColor(albedo.rgb, metalness);
 			const float materialID = GetSurfaceMaterialID(material);
+#if !defined(NRI_TRACE_GEOMETRY_DEBUG_ONLY)
+			// Lean raw/debug consumers need the exact primary/material/temporal guides
+			// but never read hit radiance. Keep their initialized output values and
+			// compile out sun, analytic, emissive, indirect and mirror-glint shading.
 			if (bootstrapBaseColor)
 			{
 				diffuse = albedo.rgb;
@@ -2143,6 +2151,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 				directEmission *= plainMirrorThroughput;
 				deferredDirectionalLighting *= plainMirrorThroughput;
 			}
+#endif
 			gNormalRoughnessOutput[pixelPos] = NRD_FrontEnd_PackNormalAndRoughness(guideNormal, roughness, materialID);
 			gBaseColorOutput[pixelPos] = float4(bootstrapFlat ? diffuse : albedo.rgb, metalness);
 		}
