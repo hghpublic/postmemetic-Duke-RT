@@ -10,6 +10,7 @@
 #include "nri_frame_resources.h"
 #include "nri_indirect_radiance_cache.h"
 #include "nri_nrd.h"
+#include "nri_occurrence_workload_mask_policy.h"
 #include "nri_persistent_voxels.h"
 #include "nri_pipeline_state.h"
 #include "nri_renderer_context.h"
@@ -1395,6 +1396,7 @@ public:
 		uint32_t filterCandidateRejectRange = 0;
 		uint32_t filterCandidateRejectMixed = 0;
 		bool filterCandidateEnabled = false;
+		NRIOccurrenceWorkloadMaskStats occurrenceWorkloadMasks = {};
 		uint32_t persistentVoxelAsCalls = 0;
 		uint32_t persistentVoxelAsBuilds = 0;
 		uint32_t persistentVoxelAsUniqueMeshBuilds = 0;

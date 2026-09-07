@@ -7,6 +7,7 @@
 #include "nri_frame_resources.h"
 #include "nri_filter_candidate_policy.h"
 #include "nri_material_policy.h"
+#include "nri_occurrence_workload_mask_policy.h"
 #include "nri_pass_dispatch.h"
 #include "nri_persistent_voxel_services.h"
 #include "nri_ray_scene_builder.h"
@@ -710,6 +711,16 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 	NRILocalPlayerReflectionCaptureStats localPlayerReflectionCaptureStats = {};
 	nri_scene::GeometryBuildTraceStats localPlayerReflectionGeometryTraceStats = {};
 	std::vector<SceneBufferUploadDomainSpan> sceneUploadDomainSpans;
+	const NRISmokeSettings workloadMaskSmokeSettings = BuildNRISmokeSettingsFromCVars();
+	NRIOccurrenceWorkloadMaskFacts workloadMaskFacts = {};
+	workloadMaskFacts.enabled = (bool)nri_ptoccurrenceworkloadmasks;
+	// Smoke can fall back to force-opaque shadow visibility even with filtered
+	// visibility requested: final descriptor readiness is resolved after TLAS
+	// assembly. Retain SHADOW until all of its consumers have a current proof.
+	workloadMaskFacts.shadowRemovalPermitted = !workloadMaskSmokeSettings.enabled;
+	// SmokeTraceIndirectClosest deliberately does not reject ReflectionOnly.
+	workloadMaskFacts.giRemovalPermitted = !workloadMaskSmokeSettings.enabled || !workloadMaskSmokeSettings.indirect;
+	mLastPerfShellTraceStats.occurrenceWorkloadMasks.facts = workloadMaskFacts;
 	uint32_t activeStaticProbePrimitiveCount = 0;
 	EmissiveSamplingBuildContext emissiveSamplingContext = {};
 	NRIActorOccurrenceFrame actorOccurrenceFrame = {};
@@ -1765,6 +1776,10 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 								occurrence.span.primitiveCount,
 								dynamicInstance,
 								mLastPerfShellTraceStats);
+							dynamicInstance.mask = ApplyNRIOccurrenceWorkloadMaskPolicy(
+								overlayGeometry, dynamicGpuMaterials, occurrence.span,
+								NRIOccurrenceWorkloadMaskScope::UploadSpan, dynamicInstance.mask,
+								workloadMaskFacts, mLastPerfShellTraceStats.occurrenceWorkloadMasks);
 							dynamicInstance.accelerationStructureHandle =
 								mFrameBuffer->mRayTracing.GetAccelerationStructureHandle(*occurrence.accelerationStructure->accelerationStructure);
 							SceneInstanceData sceneRecord = {};
@@ -1806,6 +1821,14 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 							liveOverlayPrimitiveCount,
 							dynamicInstance,
 							mLastPerfShellTraceStats);
+						const SceneBufferUploadDomainSpan* coveringMaskSpan = FindNRIUniqueCoveringWorkloadMaskSpan(
+							sceneUploadDomainSpans, 0u, liveOverlayPrimitiveCount, liveOverlayIndexOffset, liveOverlayIndexCount);
+						SceneBufferUploadDomainSpan aggregateMaskSpan = {};
+						aggregateMaskSpan.primitiveCount = liveOverlayPrimitiveCount;
+						dynamicInstance.mask = ApplyNRIOccurrenceWorkloadMaskPolicy(
+							overlayGeometry, dynamicGpuMaterials, coveringMaskSpan != nullptr ? *coveringMaskSpan : aggregateMaskSpan,
+							coveringMaskSpan != nullptr ? NRIOccurrenceWorkloadMaskScope::UploadSpan : NRIOccurrenceWorkloadMaskScope::AmbiguousAggregate,
+							dynamicInstance.mask, workloadMaskFacts, mLastPerfShellTraceStats.occurrenceWorkloadMasks);
 						dynamicInstance.accelerationStructureHandle = mFrameBuffer->mRayTracing.GetAccelerationStructureHandle(*dynamicBottomLevelAS.accelerationStructure);
 						NRIRaySceneBuilder builder(instances, sceneInstances);
 						SceneInstanceData sceneRecord = {};
@@ -2217,6 +2240,11 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 					(uint32_t)capturedGeometry.primitives.size(),
 					instance,
 					mLastPerfShellTraceStats);
+				SceneBufferUploadDomainSpan capturedMaskSpan = {};
+				capturedMaskSpan.primitiveCount = (uint32_t)capturedGeometry.primitives.size();
+				instance.mask = ApplyNRIOccurrenceWorkloadMaskPolicy(
+					capturedGeometry, capturedGpuMaterials, capturedMaskSpan, NRIOccurrenceWorkloadMaskScope::CapturedGeometry,
+					instance.mask, workloadMaskFacts, mLastPerfShellTraceStats.occurrenceWorkloadMasks);
 				instance.accelerationStructureHandle = mFrameBuffer->mRayTracing.GetAccelerationStructureHandle(*dynamicBottomLevelAS.accelerationStructure);
 
 				auto& instances = mSelectCapturedTopLevelInstanceScratch;

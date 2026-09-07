@@ -1662,6 +1662,9 @@ CVAR(Bool, nri_ptvisiblechunkgate, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 // into the existing inline ray query. Session-only and independently
 // reversible for focused diagnosis; production uses the validated route.
 CVAR(Bool, nri_ptfilterquery, true, 0)
+// Whole-occurrence workload certificates are independently benchmarkable.
+// Keep this trial session-only; optional smoke consumers can withhold bits.
+CVAR(Bool, nri_ptoccurrenceworkloadmasks, false, 0)
 CVAR(Int, nri_ptfilterpolicymask, 0x1, 0)
 // Developer-shader oracle: runs legacy and candidate traversal for the same
 // segment, returns the legacy result, and records exact mismatch categories.
