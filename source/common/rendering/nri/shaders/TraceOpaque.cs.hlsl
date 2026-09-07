@@ -714,15 +714,31 @@ float3 OverlayBlend(float3 target, float3 blend)
 float GetEmissiveMaterialResponseScale(uint dataSource, uint primitiveIndex)
 {
 	const uint responseCount = gEmissiveMaterialResponses[0].dataSource;
+#if NRI_SHADER_DIAGNOSTICS
+	uint scannedResponseCount = 0u;
+#endif
 	[loop]
 	for (uint i = 1u; i <= responseCount; ++i)
 	{
+#if NRI_SHADER_DIAGNOSTICS
+		scannedResponseCount++;
+#endif
 		const EmissiveMaterialResponseData response = gEmissiveMaterialResponses[i];
 		if (response.dataSource == dataSource && response.primitiveIndex == primitiveIndex)
 		{
+#if NRI_SHADER_DIAGNOSTICS
+			TraceShaderStatAdd(TRACE_STAT_PROFILE_EMISSIVE_RESPONSE_SCAN_ITERATIONS, scannedResponseCount);
+			TraceShaderStatAdd(TRACE_STAT_PROFILE_EMISSIVE_RESPONSE_SCAN_HITS, 1u);
+			TraceShaderStatMax(TRACE_STAT_PROFILE_EMISSIVE_RESPONSE_SCAN_MAX_ITERATIONS, scannedResponseCount);
+#endif
 			return max(response.materialScale, 0.0);
 		}
 	}
+#if NRI_SHADER_DIAGNOSTICS
+	TraceShaderStatAdd(TRACE_STAT_PROFILE_EMISSIVE_RESPONSE_SCAN_ITERATIONS, scannedResponseCount);
+	TraceShaderStatAdd(TRACE_STAT_PROFILE_EMISSIVE_RESPONSE_SCAN_MISSES, 1u);
+	TraceShaderStatMax(TRACE_STAT_PROFILE_EMISSIVE_RESPONSE_SCAN_MAX_ITERATIONS, scannedResponseCount);
+#endif
 	return 1.0;
 }
 
@@ -1164,6 +1180,9 @@ float3 TraceIndirectDiffuse(HitData surfaceHit, float3 surfaceAlbedo, uint2 pixe
 	for (uint bounce = 0u; bounce < bounceCount; ++bounce)
 	{
 		TraceShaderStatAdd(TRACE_STAT_INDIRECT_DIFFUSE_BOUNCES, 1u);
+#if NRI_SHADER_DIAGNOSTICS
+		TraceShaderStatAdd(TRACE_STAT_PROFILE_DIFFUSE_BOUNCE_DEPTH_BASE + min(bounce, 3u), 1u);
+#endif
 		float3 tracedDirection = direction;
 		const HitData bounceHit = TraceIndirectUngated(origin, direction, tracedDirection);
 		if (!bounceHit.hit)
@@ -1294,6 +1313,9 @@ float3 TraceIndirectSpecular(HitData surfaceHit, float4 surfaceAlbedo, float3 vi
 	for (uint bounce = 0u; bounce < bounceCount; ++bounce)
 	{
 		TraceShaderStatAdd(TRACE_STAT_INDIRECT_SPECULAR_BOUNCES, 1u);
+#if NRI_SHADER_DIAGNOSTICS
+		TraceShaderStatAdd(TRACE_STAT_PROFILE_SPECULAR_BOUNCE_DEPTH_BASE + min(bounce, 3u), 1u);
+#endif
 		float3 tracedDirection = direction;
 		const HitData bounceHit = TraceReflectionUngated(origin, direction, tracedDirection);
 		if (!bounceHit.hit)
@@ -1528,6 +1550,13 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 	}
 
 	const uint2 pixelPos = dispatchThreadId.xy;
+#if NRI_SHADER_DIAGNOSTICS
+	if (all(pixelPos == 0u) && TraceShaderStatsEnabled())
+	{
+		gTraceShaderStats[TRACE_STAT_PROFILE_EMISSIVE_RESPONSE_RECORD_COUNT] =
+			gEmissiveMaterialResponses[0].dataSource;
+	}
+#endif
 	const bool spatialProbeTargetPixel = IsSpatialAbsenceProbeTargetPixel(pixelPos);
 	float3 visibleRayDirection = GeneratePrimaryRay(pixelPos);
 	const float3 primaryRayDirection = visibleRayDirection;
@@ -1561,6 +1590,12 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 	float3 plainMirrorPlaneNormal = 0.0;
 	HitData plainMirrorHit = hit;
 	const bool plainMirrorPrimaryReplacement = !directSceneTrace && TryApplyPlainMirrorPrimaryReplacement(hit, primaryRayDirection, visibleRayDirection, plainMirrorThroughput, plainMirrorPlanePosition, plainMirrorPlaneNormal);
+#if NRI_SHADER_DIAGNOSTICS
+	if (plainMirrorPrimaryReplacement)
+	{
+		TraceShaderStatAdd(TRACE_STAT_PROFILE_PLAIN_MIRROR_PRIMARY_REPLACEMENTS, 1u);
+	}
+#endif
 
 	float4 color = 0.0;
 	if (!hit.hit)
@@ -1936,6 +1971,24 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 				const uint lightBounceCount = GetLightBounceCount();
 				if (!directSceneTrace && lightBounceCount > 0u)
 				{
+#if NRI_SHADER_DIAGNOSTICS
+					TraceShaderStatAdd(TRACE_STAT_PROFILE_INDIRECT_ELIGIBLE_PIXELS, 1u);
+					if (useProbabilisticIndirect)
+					{
+						TraceShaderStatAdd(TRACE_STAT_PROFILE_INDIRECT_SINGLE_LOBE_PIXELS, 1u);
+						TraceShaderStatAdd(
+							indirectDiffuseSelected ? TRACE_STAT_PROFILE_INDIRECT_DIFFUSE_SELECTED_PIXELS : TRACE_STAT_PROFILE_INDIRECT_SPECULAR_SELECTED_PIXELS,
+							1u);
+					}
+					else
+					{
+						TraceShaderStatAdd(TRACE_STAT_PROFILE_INDIRECT_DUAL_LOBE_PIXELS, 1u);
+						if (plainMirrorPrimaryReplacement)
+						{
+							TraceShaderStatAdd(TRACE_STAT_PROFILE_INDIRECT_PLAIN_MIRROR_FORCED_DUAL_PIXELS, 1u);
+						}
+					}
+#endif
 					if (!useProbabilisticIndirect || indirectDiffuseSelected)
 					{
 						indirectTransportDiffuse = TraceIndirectDiffuse(hit, diffuseAlbedo, pixelPos, gTraceConstants.FrameIndex, lightBounceCount, diffuseHitDistance) / nrdDiffuseFactor;

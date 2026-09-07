@@ -810,6 +810,13 @@ bool NRIPassDispatcher::DispatchTraceOpaque(NRIPassDispatchContext& context, HWD
 		NRITraceShaderStatsCopyInput input = {};
 		input.enabled = ShouldCollectTraceShaderStats(context.mResources.frameBuffer);
 		input.frameNumber = (uint64_t)context.mFrame.frameIndex;
+		input.dispatchMetadata.traceFlags = constants.Flags;
+		input.dispatchMetadata.renderWidth = constants.RenderWidth;
+		input.dispatchMetadata.renderHeight = constants.RenderHeight;
+		input.dispatchMetadata.lightBounceCount = traceSettings.lightBounceCount;
+		input.dispatchMetadata.indirectSamplingRequested = traceSettings.indirectSamplingMode;
+		input.dispatchMetadata.indirectSamplingEffective = context.mEffectiveIndirectSamplingMode;
+		input.dispatchMetadata.indirectSamplingActive = context.mActiveIndirectSamplingMode;
 		input.fences = BuildTraceShaderStatsFenceServices(context.mResources.frameBuffer);
 		input.boundSceneInstances = &context.mBoundSceneInstances;
 		input.staticPrimitiveCount = context.mSceneStats.staticPrimitiveCount;

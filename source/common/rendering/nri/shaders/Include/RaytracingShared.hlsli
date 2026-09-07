@@ -230,6 +230,27 @@ static const uint TRACE_STAT_INSTANCE_COMMITTED_BASE =
 	TRACE_STAT_MOTION_AUDIT_BASE + TRACE_STAT_MOTION_AUDIT_COUNT;
 static const uint TRACE_STAT_INSTANCE_ACCEPTED_BASE = TRACE_STAT_INSTANCE_COMMITTED_BASE + TRACE_STAT_INSTANCE_BUCKET_COUNT;
 static const uint TRACE_STAT_INSTANCE_KIND_COMMITTED_BASE = TRACE_STAT_INSTANCE_ACCEPTED_BASE + TRACE_STAT_INSTANCE_BUCKET_COUNT;
+static const uint TRACE_STAT_PROFILE_BASE =
+	TRACE_STAT_INSTANCE_KIND_COMMITTED_BASE + TRACE_STATS_KIND_COUNT * TRACE_STAT_INSTANCE_BUCKET_COUNT;
+static const uint TRACE_STAT_PROFILE_INDIRECT_ELIGIBLE_PIXELS = TRACE_STAT_PROFILE_BASE + 0u;
+static const uint TRACE_STAT_PROFILE_INDIRECT_SINGLE_LOBE_PIXELS = TRACE_STAT_PROFILE_BASE + 1u;
+static const uint TRACE_STAT_PROFILE_INDIRECT_DUAL_LOBE_PIXELS = TRACE_STAT_PROFILE_BASE + 2u;
+static const uint TRACE_STAT_PROFILE_INDIRECT_DIFFUSE_SELECTED_PIXELS = TRACE_STAT_PROFILE_BASE + 3u;
+static const uint TRACE_STAT_PROFILE_INDIRECT_SPECULAR_SELECTED_PIXELS = TRACE_STAT_PROFILE_BASE + 4u;
+static const uint TRACE_STAT_PROFILE_INDIRECT_PLAIN_MIRROR_FORCED_DUAL_PIXELS = TRACE_STAT_PROFILE_BASE + 5u;
+static const uint TRACE_STAT_PROFILE_PLAIN_MIRROR_PRIMARY_REPLACEMENTS = TRACE_STAT_PROFILE_BASE + 6u;
+static const uint TRACE_STAT_PROFILE_MIRROR_CONTINUATION_BASE = TRACE_STAT_PROFILE_BASE + 7u;
+static const uint TRACE_STAT_PROFILE_PORTAL_CONTINUATION_BASE = TRACE_STAT_PROFILE_BASE + 13u;
+static const uint TRACE_STAT_PROFILE_CONTINUATION_LIMIT_BASE = TRACE_STAT_PROFILE_BASE + 19u;
+static const uint TRACE_STAT_PROFILE_DIFFUSE_BOUNCE_DEPTH_BASE = TRACE_STAT_PROFILE_BASE + 25u;
+static const uint TRACE_STAT_PROFILE_SPECULAR_BOUNCE_DEPTH_BASE = TRACE_STAT_PROFILE_BASE + 29u;
+static const uint TRACE_STAT_PROFILE_RESTART_HISTOGRAM_BASE = TRACE_STAT_PROFILE_BASE + 33u;
+static const uint TRACE_STAT_PROFILE_RESTART_HISTOGRAM_STRIDE = TRACE_FILTER_SKIP_LIMIT + 1u;
+static const uint TRACE_STAT_PROFILE_EMISSIVE_RESPONSE_RECORD_COUNT = TRACE_STAT_PROFILE_BASE + 423u;
+static const uint TRACE_STAT_PROFILE_EMISSIVE_RESPONSE_SCAN_ITERATIONS = TRACE_STAT_PROFILE_BASE + 424u;
+static const uint TRACE_STAT_PROFILE_EMISSIVE_RESPONSE_SCAN_HITS = TRACE_STAT_PROFILE_BASE + 425u;
+static const uint TRACE_STAT_PROFILE_EMISSIVE_RESPONSE_SCAN_MISSES = TRACE_STAT_PROFILE_BASE + 426u;
+static const uint TRACE_STAT_PROFILE_EMISSIVE_RESPONSE_SCAN_MAX_ITERATIONS = TRACE_STAT_PROFILE_BASE + 427u;
 
 bool TraceShaderStatsEnabled()
 {
@@ -327,6 +348,40 @@ void TraceShaderStatInstanceKind(uint kind, uint instanceId)
 		TraceShaderStatAdd(TRACE_STAT_INSTANCE_KIND_COMMITTED_BASE + clampedKind * TRACE_STAT_INSTANCE_BUCKET_COUNT + instanceId, 1u);
 	}
 }
+
+#if NRI_SHADER_DIAGNOSTICS
+void TraceShaderProfileRecordRestartDistribution(uint kind, uint restartCount)
+{
+	const uint clampedKind = min(kind, TRACE_STATS_KIND_FAST_EMISSIVE);
+	const uint clampedRestartCount = min(restartCount, TRACE_FILTER_SKIP_LIMIT);
+	TraceShaderStatAdd(
+		TRACE_STAT_PROFILE_RESTART_HISTOGRAM_BASE +
+		clampedKind * TRACE_STAT_PROFILE_RESTART_HISTOGRAM_STRIDE +
+		clampedRestartCount,
+		1u);
+}
+
+void TraceShaderProfileRecordMirrorContinuation(uint kind)
+{
+	TraceShaderStatAdd(
+		TRACE_STAT_PROFILE_MIRROR_CONTINUATION_BASE + min(kind, TRACE_STATS_KIND_FAST_EMISSIVE),
+		1u);
+}
+
+void TraceShaderProfileRecordPortalContinuation(uint kind)
+{
+	TraceShaderStatAdd(
+		TRACE_STAT_PROFILE_PORTAL_CONTINUATION_BASE + min(kind, TRACE_STATS_KIND_FAST_EMISSIVE),
+		1u);
+}
+
+void TraceShaderProfileRecordContinuationLimit(uint kind)
+{
+	TraceShaderStatAdd(
+		TRACE_STAT_PROFILE_CONTINUATION_LIMIT_BASE + min(kind, TRACE_STATS_KIND_FAST_EMISSIVE),
+		1u);
+}
+#endif
 
 HitData MakeEmptyHitData()
 {
@@ -2011,6 +2066,9 @@ bool TraceClosestSurfaceRoute(float3 startOrigin, float3 direction, float maxDis
 		const float traceMinDistance = accumulatedDistance > 0.0 ? (accumulatedDistance + TRACE_FILTER_CONTINUE_BIAS) : TRACE_MIN_DISTANCE;
 		if (traceMinDistance >= maxDistance)
 		{
+#if NRI_SHADER_DIAGNOSTICS
+			TraceShaderProfileRecordRestartDistribution(statsKind, skipCount);
+#endif
 			return false;
 		}
 
@@ -2310,6 +2368,9 @@ bool TraceClosestSurfaceRoute(float3 startOrigin, float3 direction, float maxDis
 		if (!hasCommittedTriangle)
 		{
 			TraceShaderStatAdd(TRACE_STAT_MISS, 1u);
+#if NRI_SHADER_DIAGNOSTICS
+			TraceShaderProfileRecordRestartDistribution(statsKind, skipCount);
+#endif
 			return false;
 		}
 		TraceShaderStatAdd(TRACE_STAT_COMMITTED, 1u);
@@ -2550,10 +2611,16 @@ bool TraceClosestSurfaceRoute(float3 startOrigin, float3 direction, float maxDis
 		}
 		TraceShaderStatSource(TRACE_STAT_ACCEPT_STATIC, TRACE_STAT_ACCEPT_DYNAMIC, TRACE_STAT_ACCEPT_VOXEL, instanceData.dataSource);
 		TraceShaderStatInstance(TRACE_STAT_INSTANCE_ACCEPTED_BASE, TRACE_STAT_INSTANCE_ACCEPTED_OVERFLOW, committedInstanceId);
+#if NRI_SHADER_DIAGNOSTICS
+		TraceShaderProfileRecordRestartDistribution(statsKind, skipCount);
+#endif
 		return true;
 	}
 
 	TraceShaderStatAdd(TRACE_STAT_SKIP_LIMIT, 1u);
+#if NRI_SHADER_DIAGNOSTICS
+	TraceShaderProfileRecordRestartDistribution(statsKind, TRACE_FILTER_SKIP_LIMIT);
+#endif
 	skipLimitReached = true;
 	return false;
 }
@@ -2690,6 +2757,9 @@ bool TraceScenePath(float3 startOrigin, float3 startDirection, float maxDistance
 
 		if (reflectivePortal && mirrorBudget > 0u)
 		{
+#if NRI_SHADER_DIAGNOSTICS
+			TraceShaderProfileRecordMirrorContinuation(statsKind);
+#endif
 #if defined(NRI_INDIRECT_RADIANCE_CACHE)
 			pathFlags |= HIT_PATH_FLAG_REFLECTION;
 #endif
@@ -2707,6 +2777,9 @@ bool TraceScenePath(float3 startOrigin, float3 startDirection, float maxDistance
 
 		if (transferPortal && portalBudget > 0u)
 		{
+#if NRI_SHADER_DIAGNOSTICS
+			TraceShaderProfileRecordPortalContinuation(statsKind);
+#endif
 #if defined(NRI_INDIRECT_RADIANCE_CACHE)
 			pathFlags |= HIT_PATH_FLAG_SPACE_TRANSFER;
 #endif
@@ -2729,6 +2802,9 @@ bool TraceScenePath(float3 startOrigin, float3 startDirection, float maxDistance
 
 	exitDirection = direction;
 	hitData.temporalFlags = traversalTemporalFlags;
+#if NRI_SHADER_DIAGNOSTICS
+	TraceShaderProfileRecordContinuationLimit(statsKind);
+#endif
 	return false;
 }
 
