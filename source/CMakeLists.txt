@@ -1055,6 +1055,7 @@ set (NRI_SOURCES
 	common/rendering/nri/renderer/nri_surface_probe.cpp
 	common/rendering/nri/renderer/nri_surface_light_overlay.cpp
 	common/rendering/nri/renderer/nri_trace_stats.cpp
+	common/rendering/nri/renderer/nri_primary_temporal_geometry_diagnostics.cpp
 	common/rendering/nri/renderer/nri_upscaler.cpp
 	common/rendering/nri/renderer/nri_voxel_compute_preload.cpp
 	common/rendering/nri/renderer/nri_voxel_compute_batch_plan.cpp

@@ -2,6 +2,7 @@
 #include "nri_gpu_timing.h"
 #include "../renderer/nri_cvars.h"
 #include "../renderer/nri_diagnostic_cadence.h"
+#include "../renderer/nri_primary_temporal_geometry_diagnostics.h"
 #include "../renderer/nri_dynamic_overlay_blas_diagnostics.h"
 #include "../renderer/nri_occurrence_workload_mask_diagnostics.h"
 
@@ -4976,6 +4977,7 @@ bool NRIRenderDevice::RenderPathTracedScene(HWDrawInfo& di, int drawmode, bool p
 				c[NRI_TRACE_SHADER_FILTER_UNEXPECTED_COMMITS],
 				c[NRI_TRACE_SHADER_FILTER_POSTCOMMIT_RESTARTS]);
 			const auto& profileMetadata = shader.dispatchMetadata;
+			LogNRIPrimaryTemporalGeometryOracle(mLastFrameBoundaryStats.frameNumber, shader);
 			Printf("PERF pt shader emissive response lookup NRI: frame=%llu stats_frame=%llu mode=%u binary_calls=%u oracle_calls=%u oracle_mismatches=%u oracle_iterations=%u\n",
 				(unsigned long long)mLastFrameBoundaryStats.frameNumber,
 				(unsigned long long)shader.frameNumber,

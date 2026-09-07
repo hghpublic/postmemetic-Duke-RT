@@ -1,6 +1,10 @@
 #define NRI_ENABLE_PERSISTENT_VOXEL_SCENE 1
 #include "Include/Shared.hlsli"
 #include "Include/RaytracingShared.hlsli"
+#include "Include/PrimaryTemporalGeometry.hlsli"
+#if NRI_SHADER_DIAGNOSTICS
+#include "Include/PrimaryTemporalGeometryOracle.hlsli"
+#endif
 #include "Include/AnalyticLightSampling.hlsli"
 #include "Include/DirectionalLightSampling.hlsli"
 #include "Include/EmissiveResponseLookup.hlsli"
@@ -179,12 +183,6 @@ float3 DecodeTemporalNormal(float2 encoded)
 		normal.xy = (1.0 - abs(normal.yx)) * float2(normal.x < 0.0 ? -1.0 : 1.0, normal.y < 0.0 ? -1.0 : 1.0);
 	}
 	return normalize(normal);
-}
-
-uint4 GetPrimaryTemporalIdentity(HitData hit)
-{
-	const PrimitiveData primitive = GetPrimitiveData(hit.dataSource, hit.primitiveIndex);
-	return uint4(primitive.temporalSurfaceId, primitive.temporalGeneration, primitive.temporalFlags);
 }
 
 bool IsTemporalHistoryReset()
@@ -1687,28 +1685,98 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 	{
 		TraceShaderStatAdd(TRACE_STAT_PRIMARY_HIT_PIXELS, 1u);
 		TraceShaderStatSource(TRACE_STAT_PRIMARY_HIT_STATIC, TRACE_STAT_PRIMARY_HIT_DYNAMIC, TRACE_STAT_PRIMARY_HIT_VOXEL, hit.dataSource);
-		float3 currentHitPosition = ResolveHitVertexPosition(hit, false);
-		float3 previousHitPosition = ResolveHitVertexPosition(hit, true);
 		float3 guideNormal = hit.normal;
-		if (plainMirrorPrimaryReplacement)
+		float currentViewZ;
+		float4 motionOutput;
+		uint temporalValidityReason;
+		// Finish temporal geometry and its consumers before lighting; only these
+		// compact guide/debug outputs need to remain live across the lighting work.
 		{
-			currentHitPosition = ReflectPointAcrossPlane(currentHitPosition, plainMirrorPlanePosition, plainMirrorPlaneNormal);
-			previousHitPosition = ReflectPointAcrossPlane(previousHitPosition, plainMirrorPlanePosition, plainMirrorPlaneNormal);
-			guideNormal = normalize(ReflectVectorAcrossPlane(hit.normal, plainMirrorPlaneNormal));
-		}
-		const float currentViewZ = dot(currentHitPosition - gTraceConstants.CameraPos, gTraceConstants.CameraForward);
-		float2 currentUvRaw = 0.0;
-		float2 prevUvRaw = 0.0;
-		uint currentProjectionReason = MOTION_VALIDITY_VALID;
-		uint previousProjectionReason = MOTION_VALIDITY_VALID;
-		const bool currentUvValid = ProjectWorldToUvMatrixRaw(currentHitPosition, false, currentUvRaw, currentProjectionReason);
-		const bool prevUvValid = ProjectWorldToUvMatrixRaw(previousHitPosition, true, prevUvRaw, previousProjectionReason);
-		const float previousViewZ = dot(previousHitPosition - gTraceConstants.PrevCameraPos, gTraceConstants.PrevCameraForward);
-		float3 motion = 0.0;
-		if (currentUvValid && prevUvValid)
-		{
-			motion.xy = (prevUvRaw - currentUvRaw) * float2(gTraceConstants.RenderWidth, gTraceConstants.RenderHeight);
-			motion.z = previousViewZ - currentViewZ;
+			float3 currentHitPosition;
+			float3 previousHitPosition;
+			float3 currentGeometricNormal;
+			float3 previousGeometricNormal;
+			uint4 currentTemporalIdentity;
+			ResolvePrimaryTemporalGeometry(
+				hit,
+				currentHitPosition,
+				previousHitPosition,
+				currentGeometricNormal,
+				previousGeometricNormal,
+				currentTemporalIdentity);
+#if NRI_SHADER_DIAGNOSTICS
+			RecordPrimaryTemporalGeometryOracle(
+				hit,
+				currentHitPosition,
+				previousHitPosition,
+				currentGeometricNormal,
+				previousGeometricNormal,
+				currentTemporalIdentity);
+#endif
+			if (plainMirrorPrimaryReplacement)
+			{
+				currentHitPosition = ReflectPointAcrossPlane(currentHitPosition, plainMirrorPlanePosition, plainMirrorPlaneNormal);
+				previousHitPosition = ReflectPointAcrossPlane(previousHitPosition, plainMirrorPlanePosition, plainMirrorPlaneNormal);
+				guideNormal = normalize(ReflectVectorAcrossPlane(hit.normal, plainMirrorPlaneNormal));
+				// Preserve the existing unreflected geometric normals for temporal guides.
+			}
+			currentViewZ = dot(currentHitPosition - gTraceConstants.CameraPos, gTraceConstants.CameraForward);
+			float2 currentUvRaw = 0.0;
+			float2 prevUvRaw = 0.0;
+			uint currentProjectionReason = MOTION_VALIDITY_VALID;
+			uint previousProjectionReason = MOTION_VALIDITY_VALID;
+			const bool currentUvValid = ProjectWorldToUvMatrixRaw(currentHitPosition, false, currentUvRaw, currentProjectionReason);
+			const bool prevUvValid = ProjectWorldToUvMatrixRaw(previousHitPosition, true, prevUvRaw, previousProjectionReason);
+			const float previousViewZ = dot(previousHitPosition - gTraceConstants.PrevCameraPos, gTraceConstants.PrevCameraForward);
+			float3 motion = 0.0;
+			if (currentUvValid && prevUvValid)
+			{
+				motion.xy = (prevUvRaw - currentUvRaw) * float2(gTraceConstants.RenderWidth, gTraceConstants.RenderHeight);
+				motion.z = previousViewZ - currentViewZ;
+			}
+
+			// A primary traversal which skipped a player-census-absent actor exposes
+			// a newly visible background sample. Keep the raw wall hit, but reject
+			// application history at this pixel so the prior actor cannot be
+			// reprojected into the foreign locality for one frame.
+			const bool actorCensusHistoryInvalid =
+				(hit.temporalFlags & HIT_TEMPORAL_FLAG_ACTOR_CENSUS_REJECTED) != 0u;
+			const bool producerCorrespondenceValid =
+				currentUvValid && prevUvValid &&
+				((currentTemporalIdentity.w & TEMPORAL_SURFACE_FLAG_LEGACY_FALLBACK) != 0u ||
+					(currentTemporalIdentity.w & TEMPORAL_SURFACE_FLAG_CORRESPONDENCE_VALID) != 0u) &&
+				!actorCensusHistoryInvalid;
+			temporalValidityReason = EvaluateTemporalCorrespondence(
+				pixelPos,
+				currentTemporalIdentity,
+				motion,
+				previousViewZ,
+				previousGeometricNormal,
+				currentUvValid,
+				currentProjectionReason,
+				prevUvValid,
+				previousProjectionReason);
+			if (actorCensusHistoryInvalid)
+			{
+				temporalValidityReason = MOTION_VALIDITY_ACTOR_CENSUS;
+			}
+			motionOutput = float4(motion, producerCorrespondenceValid ? currentViewZ : -1.0);
+			gMotionOutput[pixelPos] = motionOutput;
+			WriteTemporalOutputs(pixelPos, currentTemporalIdentity, currentViewZ, currentGeometricNormal, temporalValidityReason);
+			RecordMotionAudit(
+				pixelPos,
+				hit,
+				currentHitPosition,
+				previousHitPosition,
+				currentUvRaw,
+				prevUvRaw,
+				currentViewZ,
+				previousViewZ,
+				motionOutput,
+				currentTemporalIdentity,
+				temporalValidityReason,
+				currentProjectionReason,
+				previousProjectionReason);
 		}
 
 		float4 albedo = 1.0;
@@ -2078,49 +2146,6 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 			gNormalRoughnessOutput[pixelPos] = NRD_FrontEnd_PackNormalAndRoughness(guideNormal, roughness, materialID);
 			gBaseColorOutput[pixelPos] = float4(bootstrapFlat ? diffuse : albedo.rgb, metalness);
 		}
-		// A primary traversal which skipped a player-census-absent actor exposes
-		// a newly visible background sample. Keep the raw wall hit, but reject
-		// application history at this pixel so the prior actor cannot be
-		// reprojected into the foreign locality for one frame.
-		const bool actorCensusHistoryInvalid =
-			(hit.temporalFlags & HIT_TEMPORAL_FLAG_ACTOR_CENSUS_REJECTED) != 0u;
-		const uint4 currentTemporalIdentity = GetPrimaryTemporalIdentity(hit);
-		const bool producerCorrespondenceValid =
-			currentUvValid && prevUvValid &&
-			((currentTemporalIdentity.w & TEMPORAL_SURFACE_FLAG_LEGACY_FALLBACK) != 0u ||
-				(currentTemporalIdentity.w & TEMPORAL_SURFACE_FLAG_CORRESPONDENCE_VALID) != 0u) &&
-			!actorCensusHistoryInvalid;
-		uint temporalValidityReason = EvaluateTemporalCorrespondence(
-			pixelPos,
-			currentTemporalIdentity,
-			motion,
-			previousViewZ,
-			ResolveHitGeometricNormal(hit, true),
-			currentUvValid,
-			currentProjectionReason,
-			prevUvValid,
-			previousProjectionReason);
-		if (actorCensusHistoryInvalid)
-		{
-			temporalValidityReason = MOTION_VALIDITY_ACTOR_CENSUS;
-		}
-		const float4 motionOutput = float4(motion, producerCorrespondenceValid ? currentViewZ : -1.0);
-		gMotionOutput[pixelPos] = motionOutput;
-		WriteTemporalOutputs(pixelPos, currentTemporalIdentity, currentViewZ, ResolveHitGeometricNormal(hit, false), temporalValidityReason);
-		RecordMotionAudit(
-			pixelPos,
-			hit,
-			currentHitPosition,
-			previousHitPosition,
-			currentUvRaw,
-			prevUvRaw,
-			currentViewZ,
-			previousViewZ,
-			motionOutput,
-			currentTemporalIdentity,
-			temporalValidityReason,
-			currentProjectionReason,
-			previousProjectionReason);
 		gViewZOutput[pixelPos] = float4(currentViewZ, smokeForeground ? 1.0 : 0.0, 0.0, 1.0);
 		const float4 packedDiffuse = PackDiffuseRadiance(diffuse, diffuseHitDistance, currentViewZ);
 		const float4 packedSpecular = PackSpecularRadiance(specular, specularHitDistance, currentViewZ, roughness);
