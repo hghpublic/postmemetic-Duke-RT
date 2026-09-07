@@ -1,6 +1,7 @@
 #include "perf_capture.h"
 
 #include "c_cvars.h"
+#include "c_dispatch.h"
 #include "printf.h"
 
 #include <algorithm>
@@ -20,6 +21,27 @@ CUSTOM_CVAR(Int, perf_compactwarmupframes, 0, 0)
 {
 	if (self < 0) self = 0;
 	else if (self > 2048) self = 2048;
+}
+
+// Only a named, explicitly defined console alias can continue a capture. This
+// is session-only; command strings and arguments are intentionally not accepted.
+CUSTOM_CVAR(String, perf_compactnext, "", 0)
+{
+	const char* name = self;
+	if (name[0] == '\0') return;
+	bool valid = !UnsafeExecutionContext && !ParsingKeyConf;
+	uint32_t length = 0;
+	for (const char* c = name; *c != '\0'; ++c)
+	{
+		valid = valid && ((*c >= 'a' && *c <= 'z') || (*c >= 'A' && *c <= 'Z') ||
+			(*c >= '0' && *c <= '9') || *c == '_');
+		if (++length > 63u) { valid = false; break; }
+	}
+	if (!valid)
+	{
+		self = "";
+		Printf("PERF compact sequence rejected: reason=alias-name-or-execution-context\n");
+	}
 }
 
 namespace
@@ -67,6 +89,18 @@ namespace
 		const char* abortReason = "none";
 	};
 	Capture gCapture;
+	constexpr uint32_t MaxAutomaticAdvances = 16u;
+	FString gPendingNextAlias;
+	uint64_t gPendingNextEpoch = 0;
+	uint32_t gAutomaticAdvances = 0;
+
+	void ClearCompactContinuation()
+	{
+		perf_compactnext = "";
+		gPendingNextAlias = "";
+		gPendingNextEpoch = 0;
+		gAutomaticAdvances = 0;
+	}
 
 	bool TokenMatches(const PerfCompactCaptureToken& token)
 	{
@@ -353,6 +387,16 @@ void PerfCompactCaptureFlushIfReady()
 	FlushFirstUseRecords();
 	uint32_t firstUsePending = 0, firstUseDuplicates = 0, firstUseUnresolved = 0;
 	MeasureFirstUseClosure(firstUsePending, firstUseDuplicates, firstUseUnresolved);
+	bool cleanCompletion = gCapture.state == CaptureState::Draining &&
+		gCapture.eligible == gCapture.requested && gCapture.observed == gCapture.eligible &&
+		gCapture.pendingGpu == 0 && firstUsePending == 0 && gCapture.firstUseDropped == 0 &&
+		firstUseDuplicates == 0 && firstUseUnresolved == 0;
+	for (uint32_t i = 0; cleanCompletion && i < gCapture.observed; ++i)
+	{
+		const Record& record = gCapture.records[i];
+		cleanCompletion = record.resolvedGpuSegments == record.expectedGpuSegments &&
+			record.gpu.invalidPairs == 0 && record.gpu.droppedScopes == 0;
+	}
 	Printf("PERF compact capture complete: epoch=%llu status=%s requested=%u eligible=%u observed=%u pending_gpu=%u dropped=0 readback_drain_frames=%u first_use_records=%u first_use_pending=%u first_use_dropped=%u first_use_duplicates=%u first_use_unresolved=%u first_use_drain_frames=%u reject_state=%u reject_level_rendered=%u reject_nri_active=%u reject_nri_invalid=%u reject_nri_not_rendered=%u reject_boundary_invalid=%u reject_not_path_traced=%u reject_present=%u reject_frame_join=%u reason=%s\n",
 		(unsigned long long)gCapture.epoch,
 		gCapture.state == CaptureState::Draining ? "complete" : "aborted",
@@ -364,12 +408,49 @@ void PerfCompactCaptureFlushIfReady()
 		gCapture.rejectNriInvalid, gCapture.rejectNriNotRendered, gCapture.rejectBoundaryInvalid,
 		gCapture.rejectNotPathTraced, gCapture.rejectPresent, gCapture.rejectFrameJoin,
 		gCapture.abortReason);
+	if (cleanCompletion && ((const char*)perf_compactnext)[0] != '\0' && gAutomaticAdvances < MaxAutomaticAdvances)
+	{
+		gPendingNextAlias = (const char*)perf_compactnext;
+		gPendingNextEpoch = gCapture.epoch;
+		perf_compactnext = "";
+	}
+	else
+	{
+		if (((const char*)perf_compactnext)[0] != '\0')
+			Printf("PERF compact sequence stopped: epoch=%llu reason=%s\n",
+				(unsigned long long)gCapture.epoch, cleanCompletion ? "advance-limit" : "capture-not-clean");
+		ClearCompactContinuation();
+	}
 	ResetCapture();
 }
 
 void PerfCompactCaptureBeginOuterFrame(uint64_t presentationGeneration)
 {
 	PerfCompactCaptureFlushIfReady();
+	if (!gPendingNextAlias.IsEmpty())
+	{
+		// The preceding capture is fully drained. Consume before invoking user
+		// code, and invoke at most one alias at this pre-TryRunTics boundary.
+		const FString nextAlias = gPendingNextAlias;
+		const uint64_t completedEpoch = gPendingNextEpoch;
+		gPendingNextAlias = "";
+		gPendingNextEpoch = 0;
+		FConsoleCommand* command = FConsoleCommand::FindByName(nextAlias.GetChars());
+		if (command != nullptr && command->IsAlias())
+		{
+			++gAutomaticAdvances;
+			Printf("PERF compact sequence advance: after_epoch=%llu presentation_gen=%llu step=%u alias=%s\n",
+				(unsigned long long)completedEpoch, (unsigned long long)presentationGeneration,
+				gAutomaticAdvances, nextAlias.GetChars());
+			C_DoCommand(nextAlias.GetChars());
+		}
+		else
+		{
+			ClearCompactContinuation();
+			Printf("PERF compact sequence stopped: epoch=%llu reason=missing-alias\n",
+				(unsigned long long)completedEpoch);
+		}
+	}
 	if (gCapture.state == CaptureState::Idle &&
 		(int)perf_compactframes > 0 &&
 		(int)perf_compactwarmupframes > 0)
@@ -559,6 +640,9 @@ void PerfCompactCaptureEndOuterFrame(const PerfCompactOuterFrame& frame)
 
 void PerfCompactCaptureAbort(const char* reason)
 {
+	ClearCompactContinuation();
+	perf_compactframes = 0;
+	perf_compactwarmupframes = 0;
 	if (gCapture.state == CaptureState::Idle) return;
 	gCapture.current = {};
 	gCapture.abortReason = reason != nullptr ? reason : "unknown";
