@@ -443,6 +443,12 @@ void PerfCompactCaptureBeginOuterFrame(uint64_t presentationGeneration)
 				(unsigned long long)completedEpoch, (unsigned long long)presentationGeneration,
 				gAutomaticAdvances, nextAlias.GetChars());
 			C_DoCommand(nextAlias.GetChars());
+			// A final alias may intentionally leave the application running.
+			// Once it returns idle with no immediate capture/continuation armed,
+			// a later manual sequence starts with its own bounded step budget.
+			if (gCapture.state == CaptureState::Idle && (int)perf_compactframes == 0 &&
+				(int)perf_compactwarmupframes == 0 && ((const char*)perf_compactnext)[0] == '\0')
+				ClearCompactContinuation();
 		}
 		else
 		{
