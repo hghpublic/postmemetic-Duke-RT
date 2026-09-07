@@ -5,6 +5,7 @@
 #include "../scene/nri_map_world.h"
 #include "../scene/nri_scene_bridge.h"
 #include "nri_emissive_sampling_distribution.h"
+#include "nri_emissive_response_lookup.h"
 #include "nri_runtime_light_shadow_selection.h"
 #include "lightoverlay.h"
 #include "v_video.h"
@@ -213,14 +214,6 @@ inline NRIEmissivePrimitiveShaderData PackNRIEmissivePrimitiveShaderData(
 	target.materialResponseScale = source.materialResponseScale;
 	return target;
 }
-
-struct NRIEmissiveMaterialResponseGpuData
-{
-	uint32_t dataSource = 0;
-	uint32_t primitiveIndex = UINT32_MAX;
-	float materialScale = 1.0f;
-	uint32_t flags = 0;
-};
 
 struct NRIEmissivePrimitiveDebugRecord
 {

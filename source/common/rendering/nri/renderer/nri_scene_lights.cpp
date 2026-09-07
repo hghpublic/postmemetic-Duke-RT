@@ -5800,7 +5800,7 @@ void SceneLightSystem::BuildEmissiveSamplingUpload(
 
 	outHeader.activeCount = (uint32_t)outPrimitives.size();
 	outHeader.totalPower = totalPower;
-	outMaterialResponses[0].dataSource = (uint32_t)outMaterialResponses.size() - 1u;
+	FinalizeNRIEmissiveMaterialResponses(outMaterialResponses, (int)nri_ptemissiveresponselookup);
 	if (outStats != nullptr)
 	{
 		*outStats = localStats;
@@ -5811,6 +5811,9 @@ void SceneLightSystem::BuildEmissiveSamplingUpload(
 uint64_t SceneLightSystem::BuildEmissiveSamplingPayloadHash(const EmissiveSamplingBuildContext& context) const
 {
 	uint64_t hash = 1469598103934665603ull;
+	// Lookup policy changes the uploaded order/header even when scene content is
+	// unchanged. Include it in shared and frame-slot payload reuse identity.
+	hash = nri_scene::HashCombine64(hash, ResolveNRIEmissiveResponseLookupMode((int)nri_ptemissiveresponselookup));
 	hash = nri_scene::HashCombine64(hash, HashGeometryForEmissiveSampling(context.staticGeometry));
 	hash = nri_scene::HashCombine64(hash, HashGeometryForEmissiveSampling(context.capturedGeometry));
 	hash = nri_scene::HashCombine64(hash, HashGeometryForEmissiveSampling(context.runtimeMutationGeometry));

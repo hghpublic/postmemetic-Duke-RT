@@ -4974,6 +4974,14 @@ bool NRIRenderDevice::RenderPathTracedScene(HWDrawInfo& di, int drawmode, bool p
 				c[NRI_TRACE_SHADER_FILTER_UNEXPECTED_COMMITS],
 				c[NRI_TRACE_SHADER_FILTER_POSTCOMMIT_RESTARTS]);
 			const auto& profileMetadata = shader.dispatchMetadata;
+			Printf("PERF pt shader emissive response lookup NRI: frame=%llu stats_frame=%llu mode=%u binary_calls=%u oracle_calls=%u oracle_mismatches=%u oracle_iterations=%u\n",
+				(unsigned long long)mLastFrameBoundaryStats.frameNumber,
+				(unsigned long long)shader.frameNumber,
+				c[NRI_TRACE_SHADER_RESPONSE_LOOKUP_MODE],
+				c[NRI_TRACE_SHADER_RESPONSE_LOOKUP_BINARY_CALLS],
+				c[NRI_TRACE_SHADER_RESPONSE_LOOKUP_ORACLE_CALLS],
+				c[NRI_TRACE_SHADER_RESPONSE_LOOKUP_ORACLE_MISMATCHES],
+				c[NRI_TRACE_SHADER_RESPONSE_LOOKUP_ORACLE_ITERATIONS]);
 			Printf(
 				"PERF pt shader profile NRI: schema=1 frame=%llu stats_frame=%llu reset=%u stats=%u render_w=%u render_h=%u light_bounces=%u indirect_requested=%u indirect_effective=%u indirect_active=%u eligible=%u single=%u dual=%u diffuse_selected=%u specular_selected=%u plain_mirror_forced_dual=%u diffuse_calls=%u specular_calls=%u diffuse_depth_1=%u diffuse_depth_2=%u diffuse_depth_3=%u diffuse_depth_4plus=%u specular_depth_1=%u specular_depth_2=%u specular_depth_3=%u specular_depth_4plus=%u response_records=%u response_lookups=%u response_iterations=%u response_hits=%u response_misses=%u response_max_iterations=%u\n",
 				(unsigned long long)mLastFrameBoundaryStats.frameNumber,

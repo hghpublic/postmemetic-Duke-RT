@@ -210,6 +210,12 @@ CVAR(Bool, nri_ptscenedataring, true, 0)
 CVAR(Bool, nri_ptscenedataringtrace, false, 0)
 
 CVAR(Bool, nri_ptemissivestabilitytrace, false, 0)
+// Session-only trial: 0=legacy, 1=reuse resolved scale, 2=sorted binary lookup.
+CUSTOM_CVAR(Int, nri_ptemissiveresponselookup, 0, 0)
+{
+	if (self < 0) self = 0;
+	else if (self > 2) self = 2;
+}
 CVAR(Bool, nri_ptindirectradiancecache, false, 0)
 CVAR(Bool, nri_ptindirectradiancecacheaccept, false, 0)
 

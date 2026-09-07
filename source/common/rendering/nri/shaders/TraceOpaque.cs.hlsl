@@ -3,6 +3,7 @@
 #include "Include/RaytracingShared.hlsli"
 #include "Include/AnalyticLightSampling.hlsli"
 #include "Include/DirectionalLightSampling.hlsli"
+#include "Include/EmissiveResponseLookup.hlsli"
 #if defined(NRI_INDIRECT_RADIANCE_CACHE)
 #include "Include/IndirectRadianceCacheTrace.hlsli"
 #endif
@@ -711,35 +712,50 @@ float3 OverlayBlend(float3 target, float3 blend)
 	return lerp(low, high, step(0.5.xxx, target));
 }
 
-float GetEmissiveMaterialResponseScale(uint dataSource, uint primitiveIndex)
+// Keep the diagnostic lookup/oracle shared; expanding it into each caller
+// overflows DXC's SPIR-V compiler stack in the cache variants.
+#if defined(__spirv__) && NRI_SHADER_DIAGNOSTICS
+[noinline]
+#endif
+float GetEmissiveMaterialResponseScale(uint dataSource, uint primitiveIndex, out bool reuseVisibleResponse)
 {
-	const uint responseCount = gEmissiveMaterialResponses[0].dataSource;
-#if NRI_SHADER_DIAGNOSTICS
-	uint scannedResponseCount = 0u;
-#endif
-	[loop]
-	for (uint i = 1u; i <= responseCount; ++i)
+	const EmissiveMaterialResponseData header = gEmissiveMaterialResponses[0];
+	const uint mode = GetEmissiveResponseLookupMode(header.flags);
+	reuseVisibleResponse = mode != 0u;
+	EmissiveResponseLookupResult result;
+	if (mode == 2u)
 	{
-#if NRI_SHADER_DIAGNOSTICS
-		scannedResponseCount++;
-#endif
-		const EmissiveMaterialResponseData response = gEmissiveMaterialResponses[i];
-		if (response.dataSource == dataSource && response.primitiveIndex == primitiveIndex)
-		{
-#if NRI_SHADER_DIAGNOSTICS
-			TraceShaderStatAdd(TRACE_STAT_PROFILE_EMISSIVE_RESPONSE_SCAN_ITERATIONS, scannedResponseCount);
-			TraceShaderStatAdd(TRACE_STAT_PROFILE_EMISSIVE_RESPONSE_SCAN_HITS, 1u);
-			TraceShaderStatMax(TRACE_STAT_PROFILE_EMISSIVE_RESPONSE_SCAN_MAX_ITERATIONS, scannedResponseCount);
-#endif
-			return max(response.materialScale, 0.0);
-		}
+		result = FindEmissiveResponseBinary(gEmissiveMaterialResponses, header.dataSource, dataSource, primitiveIndex);
+	}
+	else
+	{
+		result = FindEmissiveResponseLinear(gEmissiveMaterialResponses, header.dataSource, dataSource, primitiveIndex);
 	}
 #if NRI_SHADER_DIAGNOSTICS
-	TraceShaderStatAdd(TRACE_STAT_PROFILE_EMISSIVE_RESPONSE_SCAN_ITERATIONS, scannedResponseCount);
-	TraceShaderStatAdd(TRACE_STAT_PROFILE_EMISSIVE_RESPONSE_SCAN_MISSES, 1u);
-	TraceShaderStatMax(TRACE_STAT_PROFILE_EMISSIVE_RESPONSE_SCAN_MAX_ITERATIONS, scannedResponseCount);
+	TraceShaderStatAdd(TRACE_STAT_PROFILE_EMISSIVE_RESPONSE_SCAN_ITERATIONS, result.examined);
+	TraceShaderStatAdd(result.found != 0u ? TRACE_STAT_PROFILE_EMISSIVE_RESPONSE_SCAN_HITS : TRACE_STAT_PROFILE_EMISSIVE_RESPONSE_SCAN_MISSES, 1u);
+	TraceShaderStatMax(TRACE_STAT_PROFILE_EMISSIVE_RESPONSE_SCAN_MAX_ITERATIONS, result.examined);
+	if (mode == 2u && TraceShaderStatsEnabled())
+	{
+		TraceShaderStatAdd(TRACE_STAT_RESPONSE_LOOKUP_BINARY_CALLS, 1u);
+		const EmissiveResponseLookupResult oracle =
+			FindEmissiveResponseLinear(gEmissiveMaterialResponses, header.dataSource, dataSource, primitiveIndex);
+		TraceShaderStatAdd(TRACE_STAT_RESPONSE_LOOKUP_ORACLE_CALLS, 1u);
+		TraceShaderStatAdd(TRACE_STAT_RESPONSE_LOOKUP_ORACLE_ITERATIONS, oracle.examined);
+		if (result.found != oracle.found || asuint(result.scale) != asuint(oracle.scale))
+		{
+			TraceShaderStatAdd(TRACE_STAT_RESPONSE_LOOKUP_ORACLE_MISMATCHES, 1u);
+			return oracle.scale;
+		}
+	}
 #endif
-	return 1.0;
+	return result.scale;
+}
+
+float GetEmissiveMaterialResponseScale(uint dataSource, uint primitiveIndex)
+{
+	bool ignoredReuse;
+	return GetEmissiveMaterialResponseScale(dataSource, primitiveIndex, ignoredReuse);
 }
 
 float3 EvaluateMaterialEmission(uint materialIndex, uint dataSource, uint primitiveIndex, MaterialData material, float2 uv)
@@ -753,7 +769,8 @@ float3 EvaluateMaterialEmission(uint materialIndex, uint dataSource, uint primit
 
 float3 EvaluateVisibleMaterialEmission(uint materialIndex, uint dataSource, uint primitiveIndex, MaterialData material, float3 albedo, float2 uv)
 {
-	const float materialResponseScale = GetEmissiveMaterialResponseScale(dataSource, primitiveIndex);
+	bool reuseVisibleResponse;
+	const float materialResponseScale = GetEmissiveMaterialResponseScale(dataSource, primitiveIndex, reuseVisibleResponse);
 	if (material.emissiveMode == 3u)
 	{
 		const float3 glow = SampleMaterialEmissionSource(materialIndex, dataSource, uv);
@@ -765,7 +782,19 @@ float3 EvaluateVisibleMaterialEmission(uint materialIndex, uint dataSource, uint
 		return OverlayBlend(albedo, glow) * glowCoverage * material.emissiveIntensity * visibleBlend * materialResponseScale;
 	}
 
-	return EvaluateMaterialEmission(materialIndex, dataSource, primitiveIndex, material, uv);
+	if (material.emissiveMode == 0u)
+	{
+		return 0.0;
+	}
+	// Share the non-overlay sampler between legacy and reuse modes. Keep the
+	// second legacy lookup explicit so reuse never evaluates it eagerly.
+	const float3 emissionSource = SampleMaterialEmissionSource(materialIndex, dataSource, uv);
+	float responseScale = materialResponseScale;
+	if (!reuseVisibleResponse)
+	{
+		responseScale = GetEmissiveMaterialResponseScale(dataSource, primitiveIndex);
+	}
+	return emissionSource * material.emissiveIntensity * responseScale;
 }
 
 uint GetEmissivePrimitiveCount()
@@ -1555,6 +1584,8 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 	{
 		gTraceShaderStats[TRACE_STAT_PROFILE_EMISSIVE_RESPONSE_RECORD_COUNT] =
 			gEmissiveMaterialResponses[0].dataSource;
+		gTraceShaderStats[TRACE_STAT_RESPONSE_LOOKUP_MODE] =
+			GetEmissiveResponseLookupMode(gEmissiveMaterialResponses[0].flags);
 	}
 #endif
 	const bool spatialProbeTargetPixel = IsSpatialAbsenceProbeTargetPixel(pixelPos);

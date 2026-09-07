@@ -441,6 +441,15 @@ bool NRIRenderer::UpdateEmissiveSamplingBuffers(
 	mBoundEmissivePrimitiveRecords = std::move(emissiveDebugRecords);
 
 	commitEmissiveDescriptors();
+	const uint32_t responseMode = GetNRIEmissiveResponseHeaderMode(emissiveMaterialResponses[0].flags);
+	static uint32_t lastResponseMode = UINT32_MAX;
+	if (lastResponseMode != responseMode)
+	{
+		Printf("NRI PT emissive response lookup: requested=%u mode=%u records=%u marker=0x%x\n",
+			ResolveNRIEmissiveResponseLookupMode((int)nri_ptemissiveresponselookup), responseMode,
+			emissiveMaterialResponses[0].dataSource, emissiveMaterialResponses[0].flags);
+		lastResponseMode = responseMode;
+	}
 	if (frameSlot != nullptr)
 	{
 		frameSlot->emissiveSamplingPayloadValid = true;
