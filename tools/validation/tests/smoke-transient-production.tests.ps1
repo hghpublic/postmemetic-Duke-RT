@@ -9,6 +9,7 @@ $release = Get-Content -LiteralPath (Join-Path $root 'release-overlay/LIGHTOVR')
 $cutovers = @{
     duke_explosion_cloud = @{ Class = 'explosion'; Lobes = 12; Legacy = 'grid' }
     duke_rpg_trail_continuous = @{ Class = 'trail'; Lobes = 4; Legacy = 'grid' }
+    duke_fire_sustained = @{ Class = 'fire'; Lobes = 5; Legacy = 'grid' }
 }
 
 # Canonical field hashes at 64e8366e7a. Strip only the explicitly transient-only
@@ -60,6 +61,14 @@ foreach ($block in $blocks) {
         }
         $body = [regex]::Replace($body, 'representation\s+"?transient-cloud"?', 'representation ' + $cutover.Legacy)
         $body = [regex]::Replace($body, '(?m)^\s*(effectclass|lobecount)\s+[^\r\n]+', '')
+        if ($name -eq 'duke_fire_sustained') {
+            # Deliberate common placement correction, verified against a Grid
+            # control at the same offset. All other legacy fields remain exact.
+            if ($body -notmatch 'offset\s+0\.0\s+0\.0\s+-32\.0') {
+                throw 'Fire must start inside the authored floor-anchored flame volume.'
+            }
+            $body = $body -replace 'offset\s+0\.0\s+0\.0\s+-32\.0', 'offset 0.0 0.0 0.0'
+        }
     }
     elseif ($isTransient) { throw "Production $name has no accepted cutover entry." }
 

@@ -346,12 +346,14 @@ LIGHTOVR
     smokestyle "duke_fire_smoke"
     {
         density 3.0
+        opticalamountscale 0.2
         extinction 0.008
         albedo 0.3 0.29 0.28
         anisotropy 0.12
         radius 7.0
         expansionvelocity 10.0
         lifetime 18.0
+        transientlifetimeseconds 3.0
         densityhalflife 6.0
         risevelocity 32.0
         velocityrandom 20.0
@@ -363,6 +365,19 @@ LIGHTOVR
         temperature 5.5
         momentumscale 1.0
         coolinghalflife 5.0
+        densityattackseconds 0.08
+        densitysustainseconds 1.5
+        densityreleaseseconds 1.42
+        radiusexponent 0.90
+        intrinsicemission 0.5
+        emissionhalflife 0.18
+        clusterspread 0.45
+        loberadiusrandom 0.40 0.70
+        curlvelocity 4.0
+        coreplateau 0.60
+        edgeerosion 0.16
+        noisescale 0.035
+        noisestrength 0.20
     }
 
     smokestyle "duke_impact_smoke"
@@ -496,13 +511,17 @@ LIGHTOVR
         actorclass "DukeFire"
         trigger interval
         activation surface
-        representation grid
+        representation "transient-cloud"
+        effectclass fire
+        lobecount 5
         queuepolicy retry
         analyticcarriers 1
         emitterforeground on
         style "duke_fire_smoke"
         count 9
-        offset 0.0 0.0 0.0
+        // Start the plume inside the floor-anchored FIRE/FIRE2 flame volume.
+        // This shared placement improvement also applies to Grid rollback.
+        offset 0.0 0.0 -32.0
         spawnradius 4.0
         densityscale 3.0
         radiusscale 3.0
