@@ -239,6 +239,19 @@ void NRISmokeEmitterSystem::SetMapEmittersEnabled(bool enabled)
 	mEditorPreviewRuleId = "";
 }
 
+void NRISmokeEmitterSystem::SetActorEmittersEnabled(bool enabled)
+{
+	if (mActorEmittersEnabled == enabled)
+		return;
+	mActorEmittersEnabled = enabled;
+	// A transition starts a fresh actor observation epoch. This prevents a
+	// re-enabled actor from inheriting activation, cadence, or persistent-source
+	// identity from the interval in which actor production was suppressed.
+	mActorStates.clear();
+	mContinuousSources.Reset();
+	mNextContinuousSourceGeneration = 0u;
+}
+
 void NRISmokeEmitterSystem::SetSourceClassMask(uint32_t mask)
 {
 	mask &= 0x3fu;
@@ -266,6 +279,7 @@ void NRISmokeEmitterSystem::Reset()
 	mRouteSnapshot = {};
 	mRouteSnapshot.classMask = mTransientClassMask;
 	mRouteSnapshot.sourceClassMask = mSourceClassMask;
+	mRouteSnapshot.actorEmittersEnabled = mActorEmittersEnabled;
 	mRouteSnapshot.mapEmittersEnabled = mMapEmittersEnabled;
 }
 
@@ -323,11 +337,13 @@ void NRISmokeEmitterSystem::Gather(uint32_t epoch, double gameplayTimeSeconds, c
 	mRouteSnapshot.gatherId = ++mNextRouteGatherId;
 	mRouteSnapshot.classMask = mTransientClassMask;
 	mRouteSnapshot.sourceClassMask = mSourceClassMask;
+	mRouteSnapshot.actorEmittersEnabled = mActorEmittersEnabled;
 	mRouteSnapshot.mapEmittersEnabled = mMapEmittersEnabled;
 	for (const auto& rule : resolved.smokeActorRules)
 	{
 		if (rule.actorClassResolved && rule.styleResolved &&
-			(mSourceClassMask & TransientClassBit(rule.transientClass)) == 0u)
+			(!mActorEmittersEnabled ||
+				(mSourceClassMask & TransientClassBit(rule.transientClass)) == 0u))
 			mRouteSnapshot.suppressedActorRules++;
 	}
 	for (const auto& rule : resolved.smokeEventRules)
@@ -547,9 +563,11 @@ void NRISmokeEmitterSystem::Gather(uint32_t epoch, double gameplayTimeSeconds, c
 	}
 	uint32_t verbosePrinted = 0;
 	TSpriteIterator<DCoreActor> iterator;
-	while (DCoreActor* actor = iterator.Next())
+	while (mActorEmittersEnabled)
 	{
-		if (actor == nullptr || !actor->exists() || (actor->ObjectFlags & OF_EuthanizeMe) != 0 || actor->GetClass() == nullptr) continue;
+		DCoreActor* actor = iterator.Next();
+		if (actor == nullptr) break;
+		if (!actor->exists() || (actor->ObjectFlags & OF_EuthanizeMe) != 0 || actor->GetClass() == nullptr) continue;
 		for (uint32_t ruleIndex = 0; ruleIndex < resolved.smokeActorRules.Size(); ++ruleIndex)
 		{
 			const auto& rule = resolved.smokeActorRules[ruleIndex];
@@ -1337,9 +1355,10 @@ void NRISmokeEmitterSystem::Gather(uint32_t epoch, double gameplayTimeSeconds, c
 		mRouteSnapshot.suppressedMapRules != 0u ||
 		mRouteSnapshot.suppressedMapPreviews != 0u))
 	{
-		Printf("NRI PT smoke routing: event=frame-summary gather=%llu class_mask=%u source_mask=%u suppressed_actor_rules=%u suppressed_event_rules=%u map_emitters=%u map_rules_suppressed=%u map_previews_suppressed=%u ambient_map_commands=%u preview_map_commands=%u sources=%u grid_commands=%u analytic_carriers=%u transient_groups=%u transient_lobes=%u fallback_grid=%u fallback_analytic=%u bridge_observations=%u\n",
+		Printf("NRI PT smoke routing: event=frame-summary gather=%llu class_mask=%u source_mask=%u actor_emitters=%u suppressed_actor_rules=%u suppressed_event_rules=%u map_emitters=%u map_rules_suppressed=%u map_previews_suppressed=%u ambient_map_commands=%u preview_map_commands=%u sources=%u grid_commands=%u analytic_carriers=%u transient_groups=%u transient_lobes=%u fallback_grid=%u fallback_analytic=%u bridge_observations=%u\n",
 			(unsigned long long)mRouteSnapshot.gatherId, mRouteSnapshot.classMask,
-			mRouteSnapshot.sourceClassMask, mRouteSnapshot.suppressedActorRules,
+			mRouteSnapshot.sourceClassMask, mRouteSnapshot.actorEmittersEnabled ? 1u : 0u,
+			mRouteSnapshot.suppressedActorRules,
 			mRouteSnapshot.suppressedEventRules,
 			mRouteSnapshot.mapEmittersEnabled ? 1u : 0u, mRouteSnapshot.suppressedMapRules,
 			mRouteSnapshot.suppressedMapPreviews, mRouteSnapshot.ambientMapCommands,

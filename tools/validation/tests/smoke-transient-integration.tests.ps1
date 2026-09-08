@@ -20,6 +20,7 @@ $constants = Read-Source 'source/common/rendering/nri/shaders/Include/SmokeConst
 $resources = Read-Source 'source/common/rendering/nri/shaders/Include/SmokeResources.hlsli'
 $transient = Read-Source 'source/common/rendering/nri/shaders/Include/SmokeTransientData.hlsli'
 $cmake = Read-Source 'source/CMakeLists.txt'
+Require ($smoke -match 'representationEffective == 0u && !mMayHaveParticleSmoke &&\s*mAnalyticCarriers\.GetGpuCarriers\(\)\.empty\(\) &&\s*mTransientClouds\.GetSnapshot\(\)\.visibleGroups == 0u') 'The particle-empty route must not skip independent visible analytic or transient clouds.'
 Require ($smoke -match 'kSmokeTransientStorageBase == 61u') 'Transient UAVs must not replace live dormant storage u54..60.'
 Require ($smoke -match 'input.descriptorNum = nri_smoke_descriptors::InputCount;') 'Keep the input layout synchronized with the shared smoke descriptor budget.'
 Require ($resources -match 'gSmokeAnalyticCarriers : register\(t2, space0\)') 'Legacy carrier ABI binding changed.'

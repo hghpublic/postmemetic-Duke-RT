@@ -9,6 +9,8 @@ $emitterHeader = Get-Content (Join-Path $root 'source\common\rendering\nri\rende
 $emitterSource = Get-Content (Join-Path $root 'source\common\rendering\nri\renderer\nri_smoke_emitters.cpp') -Raw
 $smokeOwner = Get-Content (Join-Path $root 'source\common\rendering\nri\renderer\nri_smoke.cpp') -Raw
 $lightOverlayHeader = Get-Content (Join-Path $root 'source\core\lightoverlay.h') -Raw
+$eventRunner = Get-Content (Join-Path $root 'tools\validation\run-smoke-transient-repro.ps1') -Raw
+$actorRunner = Get-Content (Join-Path $root 'tools\validation\run-smoke-transient-actor-repro.ps1') -Raw
 
 function Assert-Match([string]$Text, [string]$Pattern, [string]$Message) {
     if ($Text -notmatch $Pattern) { throw $Message }
@@ -34,6 +36,14 @@ Assert-Match $settingsHeader 'uint32_t sourceClassMask = 63;' `
 Assert-Match $settingsSource `
     'settings\.sourceClassMask = \(uint32_t\)std::clamp\(\(int\)nri_ptsmokesourceclassmask, 0, 63\);' `
     'The CVar must be clamped before entering the immutable settings snapshot.'
+Assert-Match $cvarsHeader 'EXTERN_CVAR\(Bool, nri_ptsmokeactoremitters\)' `
+    'The actor-emitter isolation CVar declaration is missing.'
+Assert-Match $cvarsSource 'CVAR\(Bool, nri_ptsmokeactoremitters, true, 0\)' `
+    'Actor smoke production must remain default-on and session-only.'
+Assert-Match $settingsHeader 'bool actorEmitters = true;' `
+    'The immutable per-frame smoke settings snapshot must carry actor-emitter state.'
+Assert-Match $settingsSource 'settings\.actorEmitters = nri_ptsmokeactoremitters;' `
+    'The actor-emitter CVar must enter the immutable settings snapshot.'
 
 Assert-Match $lightOverlayHeader `
     'enum class LightOverlaySmokeTransientClass : uint8_t\s*\{\s*Explosion,\s*TrailChunk,\s*FirePacket,\s*Muzzle,\s*Impact,\s*Diagnostic,' `
@@ -43,7 +53,7 @@ Assert-Match $emitterSource `
     'The legacy diagnostic class must remain bit 32.'
 
 Assert-Match $emitterHeader `
-    'NRISmokeEmitterRouteSnapshot[\s\S]*sourceClassMask = 0x3fu;[\s\S]*suppressedActorRules = 0u;[\s\S]*suppressedEventRules = 0u;' `
+    'NRISmokeEmitterRouteSnapshot[\s\S]*sourceClassMask = 0x3fu;[\s\S]*actorEmittersEnabled = true;[\s\S]*suppressedActorRules = 0u;[\s\S]*suppressedEventRules = 0u;' `
     'Route snapshots must expose the effective mask and both suppressed-rule counts.'
 Assert-Match $emitterHeader `
     'SetSourceClassMask\(uint32_t mask\)[\s\S]*mSourceClassMask = 0x3fu;' `
@@ -51,6 +61,11 @@ Assert-Match $emitterHeader `
 Assert-Match $emitterSource `
     'SetSourceClassMask\(uint32_t mask\)[\s\S]*mask &= 0x3fu;[\s\S]*if \(mSourceClassMask == mask\)[\s\S]*mSourceClassMask = mask;[\s\S]*Reset\(\);' `
     'Only a changed source mask may reset emitter cadence and identity state.'
+Assert-Match $emitterHeader 'SetActorEmittersEnabled\(bool enabled\)[\s\S]*mActorEmittersEnabled = true;' `
+    'The emitter owner must expose a default-on actor producer switch.'
+Assert-Match $emitterSource `
+    'SetActorEmittersEnabled\(bool enabled\)[\s\S]*mActorEmittersEnabled == enabled[\s\S]*mActorEmittersEnabled = enabled;[\s\S]*mActorStates\.clear\(\);[\s\S]*mContinuousSources\.Reset\(\);[\s\S]*mNextContinuousSourceGeneration = 0u;' `
+    'An actor-emitter transition must clear actor cadence and persistent-source identity.'
 
 $setterStart = $emitterSource.IndexOf('void NRISmokeEmitterSystem::SetSourceClassMask', [StringComparison]::Ordinal)
 $setterEnd = $emitterSource.IndexOf('void NRISmokeEmitterSystem::Reset', $setterStart + 1, [StringComparison]::Ordinal)
@@ -65,21 +80,26 @@ Assert-Match $emitterSource `
     'void NRISmokeEmitterSystem::Reset\(\)[\s\S]*mActorStates\.clear\(\);[\s\S]*mContinuousSources\.Reset\(\);[\s\S]*mNextContinuousSourceGeneration = 0u;[\s\S]*mEditorPreviewState = \{\}' `
     'A source-filter transition must clear actor cadence, continuous-source identity, and preview state.'
 Assert-Match $emitterSource `
-    'mRouteSnapshot\.classMask = mTransientClassMask;\s*mRouteSnapshot\.sourceClassMask = mSourceClassMask;\s*mRouteSnapshot\.mapEmittersEnabled = mMapEmittersEnabled;' `
+    'mRouteSnapshot\.classMask = mTransientClassMask;\s*mRouteSnapshot\.sourceClassMask = mSourceClassMask;\s*mRouteSnapshot\.actorEmittersEnabled = mActorEmittersEnabled;\s*mRouteSnapshot\.mapEmittersEnabled = mMapEmittersEnabled;' `
     'Reset and gather snapshots must preserve all independent route controls.'
 
 $snapshotStart = $emitterSource.IndexOf('mRouteSnapshot.gatherId = ++mNextRouteGatherId;', [StringComparison]::Ordinal)
+$actorGate = $emitterSource.IndexOf('while (mActorEmittersEnabled)', $snapshotStart, [StringComparison]::Ordinal)
 $actorLoop = $emitterSource.IndexOf('for (uint32_t ruleIndex = 0; ruleIndex < resolved.smokeActorRules.Size(); ++ruleIndex)', $snapshotStart, [StringComparison]::Ordinal)
 $actorFilter = $emitterSource.IndexOf('if ((mSourceClassMask & TransientClassBit(rule.transientClass)) == 0u) continue;', $actorLoop, [StringComparison]::Ordinal)
 $actorState = $emitterSource.IndexOf('auto stateIt = mActorStates.find(identity);', $actorLoop, [StringComparison]::Ordinal)
 $actorRoute = $emitterSource.IndexOf('const bool routed = routeCommand(', $actorLoop, [StringComparison]::Ordinal)
 Assert-OrderedOffsets ([ordered]@{
     Snapshot = $snapshotStart
+    ActorGate = $actorGate
     ActorLoop = $actorLoop
     ActorFilter = $actorFilter
     ActorState = $actorState
     ActorRoute = $actorRoute
 }) 'Actor source filtering must precede state, cadence, and emission'
+Assert-Match $emitterSource `
+    'rule\.actorClassResolved && rule\.styleResolved &&\s*\(!mActorEmittersEnabled \|\|\s*\(mSourceClassMask & TransientClassBit\(rule\.transientClass\)\) == 0u\)[\s\S]*suppressedActorRules\+\+;' `
+    'Actor suppression telemetry must count resolved rules once when either producer or class isolation suppresses them.'
 
 $eventCounters = $emitterSource.IndexOf('uint32_t eventCommands = 0;', [StringComparison]::Ordinal)
 $eventLoop = $emitterSource.IndexOf('for (const PathTracingWeaponLightEvent& event : weaponEvents)', $eventCounters, [StringComparison]::Ordinal)
@@ -113,17 +133,30 @@ if ($mapBody -match 'mSourceClassMask') {
 }
 
 $setSourceOffset = $smokeOwner.IndexOf('mEmitters.SetSourceClassMask(mSettings.sourceClassMask);', [StringComparison]::Ordinal)
+$setActorOffset = $smokeOwner.IndexOf('mEmitters.SetActorEmittersEnabled(mSettings.actorEmitters);', $setSourceOffset, [StringComparison]::Ordinal)
 $gatherOffset = $smokeOwner.IndexOf('mEmitters.Gather(', $setSourceOffset, [StringComparison]::Ordinal)
 Assert-OrderedOffsets ([ordered]@{
     SetSourceMask = $setSourceOffset
+    SetActorEmitters = $setActorOffset
     Gather = $gatherOffset
 }) 'PrepareFrame must apply the immutable source mask before gathering emitters'
 Assert-Match $smokeOwner `
-    'PERF pt smoke route frame NRI:[^\n]*source_mask=%u suppressed_actor_rules=%u suppressed_event_rules=%u' `
+    'PERF pt smoke route frame NRI:[^\n]*source_mask=%u actor_emitters=%u suppressed_actor_rules=%u suppressed_event_rules=%u' `
     'Frame-linked route telemetry must expose source-isolation proof.'
 Assert-Match $emitterSource `
-    'NRI PT smoke routing: event=frame-summary[^\n]*source_mask=%u suppressed_actor_rules=%u suppressed_event_rules=%u' `
+    'NRI PT smoke routing: event=frame-summary[^\n]*source_mask=%u actor_emitters=%u suppressed_actor_rules=%u suppressed_event_rules=%u' `
     'Emitter gather telemetry must expose source-isolation proof.'
+Assert-Match $eventRunner `
+    'nri_ptsmokeactoremitters = \(\[string\]\[bool\]\$IncludeOtherSources\)\.ToLowerInvariant\(\)[\s\S]*RequireActorEmittersDisabled' `
+    'Event captures must suppress actor producers by default and strictly prove that isolation.'
+Assert-Match $eventRunner `
+    '\$sourceClassMask = if \(\$IncludeOtherSources\) \{ 63 \} else \{[\s\S]*\$classBits\[\$Effect\] -bor \$\(if \(\$MixedGrid\) \{ 32 \} else \{ 0 \}\)[\s\S]*nri_ptsmoke_test nri\.smoke\.test \$Distance' `
+    'A mixed event capture must explicitly admit and emit the diagnostic Grid rule at the selected cloud distance.'
+Assert-Match $eventRunner `
+    'mixedGridEventRule[\s\S]*nri\.smoke\.test[\s\S]*mixedGridClassBit[\s\S]*32' `
+    'Mixed-Grid scenario provenance must record the explicit rule and diagnostic class bit.'
+Assert-Match $actorRunner "nri_ptsmokeactoremitters = 'true'" `
+    'Real-actor captures must explicitly keep actor smoke production enabled.'
 
 $classBits = @(1, 2, 4, 8, 16, 32)
 if (($classBits | Measure-Object -Sum).Sum -ne 63 -or $classBits[-1] -ne 32) {

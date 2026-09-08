@@ -14,12 +14,13 @@ function Quote-PsLiteral([string]$Value) {
 
 function Invoke-Analyzer([string[]]$Paths, [bool]$AllowLegacy, [string]$SummaryName,
         [bool]$RequireMapIsolation = $false, [int]$MinimumSuppressedMapRules = 0,
-        [int]$ExpectedSourceClassMask = -1) {
+        [int]$ExpectedSourceClassMask = -1, [bool]$RequireActorIsolation = $false) {
     $summaryPath = Join-Path $scratch $SummaryName
     $pathExpression = '@(' + (($Paths | ForEach-Object { Quote-PsLiteral $_ }) -join ',') + ')'
     $command = "& $(Quote-PsLiteral $analyzer) -LogPath $pathExpression -SummaryOutput $(Quote-PsLiteral $summaryPath)"
     if ($AllowLegacy) { $command += ' -AllowLegacyControl' }
     if ($ExpectedSourceClassMask -ge 0) { $command += " -ExpectedSourceClassMask $ExpectedSourceClassMask" }
+    if ($RequireActorIsolation) { $command += ' -RequireActorEmittersDisabled' }
     if ($RequireMapIsolation) {
         $command += " -RequireMapEmittersDisabled -MinimumSuppressedMapRules $MinimumSuppressedMapRules"
     }
@@ -83,6 +84,15 @@ try {
     Require ($wrongSourceMask.exitCode -ne 0 -and (@($wrongSourceMask.summary.errors) -join "`n") -match 'source_mask=1 expected=2') 'Wrong source mask passed isolation validation.'
     $missingSourceMask = Invoke-Analyzer @($isolatedPath) $false 'missing-source-mask.json' $true 4 1
     Require ($missingSourceMask.exitCode -ne 0 -and (@($missingSourceMask.summary.errors) -join "`n") -match "missing 'source_mask'") 'Missing source-mask telemetry passed isolation validation.'
+
+    $actorIsolatedPath = Join-Path $scratch 'actor-isolated.log'
+    Set-Content -LiteralPath $actorIsolatedPath -Value ($isolatedText -replace 'map_emitters=0', 'actor_emitters=0 suppressed_actor_rules=3 map_emitters=0') -Encoding UTF8
+    $actorIsolated = Invoke-Analyzer @($actorIsolatedPath) $false 'actor-isolated.json' $true 4 -1 $true
+    Require ($actorIsolated.exitCode -eq 0 -and $actorIsolated.summary.runs[0].actorEmitterIsolation.maximumSuppressedRules -eq 3) 'Valid actor-emitter isolation failed or was not summarized.'
+    $actorLeakPath = Join-Path $scratch 'actor-leak.log'
+    Set-Content -LiteralPath $actorLeakPath -Value ((Get-Content -LiteralPath $actorIsolatedPath -Raw) -replace 'actor_emitters=0', 'actor_emitters=1') -Encoding UTF8
+    $actorLeak = Invoke-Analyzer @($actorLeakPath) $false 'actor-leak.json' $true 4 -1 $true
+    Require ($actorLeak.exitCode -ne 0 -and (@($actorLeak.summary.errors) -join "`n") -match 'actor_emitters=1') 'An actor-emitter leak passed isolation validation.'
 
     $leakingPath = Join-Path $scratch 'isolated-leak.log'
     Set-Content -LiteralPath $leakingPath -Value ($isolatedText -replace 'ambient_map_commands=0', 'ambient_map_commands=1') -Encoding UTF8

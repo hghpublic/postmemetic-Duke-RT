@@ -2,6 +2,7 @@
 param(
     [Parameter(Mandatory = $true)][string[]]$LogPath,
     [switch]$AllowLegacyControl,
+    [switch]$RequireActorEmittersDisabled,
     [switch]$RequireMapEmittersDisabled,
     [ValidateRange(0, 65535)][int]$MinimumSuppressedMapRules = 0,
     [ValidateRange(-1, 63)][int]$ExpectedSourceClassMask = -1,
@@ -115,6 +116,7 @@ foreach ($inputPath in $LogPath) {
     [uint64]$validTimingRows = 0
     [uint64]$invalidTimingTotal = 0
     [uint64]$droppedTimingTotal = 0
+    [uint64]$maximumSuppressedActorRules = 0
     [uint64]$maximumSuppressedMapRules = 0
     [uint64]$ambientMapCommandTotal = 0
     [uint64]$previewMapCommandTotal = 0
@@ -177,6 +179,20 @@ foreach ($inputPath in $LogPath) {
     }
     if ($routeByFrame.Count -eq 0) {
         $allErrors.Add("${resolved}: no compact route frame rows")
+    }
+    if ($RequireActorEmittersDisabled) {
+        foreach ($row in $routeByFrame.Values) {
+            try {
+                $actorEmitters = Get-UInt64 $row 'actor_emitters' "$resolved actor-isolated route frame"
+                $suppressed = Get-UInt64 $row 'suppressed_actor_rules' "$resolved actor-isolated route frame"
+                if ($actorEmitters -ne 0) { $allErrors.Add("${resolved}: actor-isolated route frame has actor_emitters=$actorEmitters") }
+                if ($suppressed -gt $maximumSuppressedActorRules) { $maximumSuppressedActorRules = $suppressed }
+            }
+            catch { $allErrors.Add($_.Exception.Message) }
+        }
+        if ($maximumSuppressedActorRules -eq 0) {
+            $allErrors.Add("${resolved}: actor-isolated capture did not report any suppressed actor rules")
+        }
     }
     if ($RequireMapEmittersDisabled) {
         foreach ($row in $routeByFrame.Values) {
@@ -461,6 +477,10 @@ foreach ($inputPath in $LogPath) {
         expectedSourceClassMask = $ExpectedSourceClassMask
         routeFrames = $routeByFrame.Count
         routeGathers = $routeByGather.Count
+        actorEmitterIsolation = [ordered]@{
+            required = [bool]$RequireActorEmittersDisabled
+            maximumSuppressedRules = $maximumSuppressedActorRules
+        }
         mapEmitterIsolation = [ordered]@{
             required = [bool]$RequireMapEmittersDisabled
             minimumSuppressedRules = $MinimumSuppressedMapRules
@@ -522,6 +542,7 @@ $summary = [ordered]@{
     logsRequested = $LogPath.Count
     logsAnalyzed = $runSummaries.Count
     allowLegacyControl = [bool]$AllowLegacyControl
+    requireActorEmittersDisabled = [bool]$RequireActorEmittersDisabled
     requireMapEmittersDisabled = [bool]$RequireMapEmittersDisabled
     minimumSuppressedMapRules = $MinimumSuppressedMapRules
     runs = @($runSummaries)

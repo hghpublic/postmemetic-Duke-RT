@@ -935,6 +935,8 @@ CVAR(Int, nri_ptsmoketransientmask, 63, 0)
 // Session-only authored-source isolation using the same six class bits.
 CVAR(Int, nri_ptsmokesourceclassmask, 63, 0)
 CVAR(Bool, nri_ptsmoketransientselfshadow, true, 0)
+// Session-only validation isolation. Production actor smoke remains enabled by default.
+CVAR(Bool, nri_ptsmokeactoremitters, true, 0)
 // Session-only validation isolation. Production map smoke remains enabled by default.
 CVAR(Bool, nri_ptsmokemapemitters, true, 0)
 CVAR(Int, nri_ptsmokegridbricks, 512, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)

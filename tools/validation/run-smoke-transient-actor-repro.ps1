@@ -95,6 +95,7 @@ $settings = [ordered]@{
     nri_ptsmoke = 'true'; nri_ptsmokeworkprofile = [string]$Profile
     nri_ptsmoketransientmask = [string]$ClassMask
     nri_ptsmokesourceclassmask = [string]$sourceClassMask
+    nri_ptsmokeactoremitters = 'true'
     nri_ptsmoketransientselfshadow = 'true'
     nri_ptsmokemapemitters = ([string][bool]$IncludeMapFog).ToLowerInvariant()
     nri_ptsmokerepresentation = '1'; nri_ptsmoketrace = '0'
@@ -145,7 +146,7 @@ else {
         # absent; the projectile and impact remain real gameplay actors.
         $setup = 'map e1l1; wait 1; closemenu; wait 240; god; give weapons; give ammo; slot 5; ' + $rpgViewSetup
     }
-    $observationTransition = if ($TrailSideView) { 'warptocoords -1800 560 -708 153 0; ' } else { '' }
+    $observationTransition = if ($TrailSideView) { 'warptocoords -1700 560 -708 117 0; ' } else { '' }
     $commands = "+wait 45; $setup; nri_ptautoexposurefreeze true; set nri_ptsmoketrace 2; nri_ptsmokereset; perf_looptraceframes 0; perf_compactframes $CaptureFrames; +Fire; wait 8; -Fire; ${observationTransition}${postFire}wait 1; screenshot; wait 5; screenshot; wait 12; screenshot; wait 24; screenshot; wait 45; screenshot; nri_ptsmokestatus; wait $DrainTics; quit"
 }
 
@@ -156,13 +157,14 @@ $captureViewpoint = if ($Effect -eq 'fire') {
 elseif ($TrailSideView) {
     [ordered]@{
         mode = 'trail-side-view'
-        launch = [ordered]@{ position = @(-1616, 760, -708); yaw = 180; pitch = 0; sector = 298 }
-        observation = [ordered]@{ position = @(-1800, 560, -708); yaw = 153; pitch = 0; firstScreenshotWaitUpdates = 1 }
-        cameraValidation = 'unverified camera candidate; screenshot review is required before acceptance'
+        launch = [ordered]@{ position = @(-1616, 760, -708); yaw = 180; pitch = 0; sector = 306 }
+        observation = [ordered]@{ position = @(-1700, 560, -708); yaw = 117; pitch = 0; sector = 306; firstScreenshotWaitUpdates = 1 }
+        geometryValidation = 'World Tour E1L1.MAP point-in-polygon: both points are inside flat sector 306 (ceiling -968, floor -580)'
+        cameraValidation = 'geometry-safe camera candidate; screenshot review is required before art acceptance'
     }
 }
 else {
-    [ordered]@{ position = @(-1616, 760, -708); yaw = 180; pitch = 8; sector = 298; target = 'roof floor before fence'; autoAim = $false; requireRuntimeImpactLogValidation = $true }
+    [ordered]@{ position = @(-1616, 760, -708); yaw = 180; pitch = 8; sector = 306; target = 'roof floor before fence'; autoAim = $false; requireRuntimeImpactLogValidation = $true }
 }
 $scenario = [ordered]@{
     name = "smoke-transient-actor-$Effect-mask$ClassMask-p$Profile-f$CaptureFrames-light$Lighting-side$([int][bool]$TrailSideView)-cold$([int][bool]$Cold)-mapfog$([int][bool]$IncludeMapFog)-production$([int][bool]$Production)"
@@ -182,6 +184,7 @@ $scenario = [ordered]@{
         mask = $ClassMask; profile = $Profile; captureFrames = $CaptureFrames
         sourceClassMask = $sourceClassMask; includeOtherSources = [bool]$IncludeOtherSources
         production = [bool]$Production; cold = [bool]$Cold; lighting = $Lighting
+        actorEmitters = $true
         apiValidation = [bool]$ApiValidation
         drainTics = $DrainTics; includeMapFog = [bool]$IncludeMapFog; usedRpgSave = [bool]$hasRpgSave
         trailSideView = [bool]$TrailSideView

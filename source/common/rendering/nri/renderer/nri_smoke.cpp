@@ -1218,6 +1218,7 @@ bool NRISmokeSystem::PrepareFrame(NRIRenderer& renderer, bool mainViewEligible, 
 	mEmitters.SetContinuousSourceWorkQuantity(dormantConfig.maximumEvolutionPerFrame);
 	mEmitters.SetTransientClassMask(mSettings.transientClassMask);
 	mEmitters.SetSourceClassMask(mSettings.sourceClassMask);
+	mEmitters.SetActorEmittersEnabled(mSettings.actorEmitters);
 	mEmitters.SetMapEmittersEnabled(mSettings.mapEmitters);
 	mEmitters.Gather(mStatus.simulationEpoch, gameplayTimeSeconds, weaponEvents, renderer.mSceneLights,
 		mStyles, mPendingCommands, mPendingPulseEnqueueInfo, mPendingTrailObservations,
@@ -1227,10 +1228,10 @@ bool NRISmokeSystem::PrepareFrame(NRIRenderer& renderer, bool mainViewEligible, 
 	if (mSettings.traceMode != 0u)
 	{
 		const auto& routes = mEmitters.GetRouteSnapshot();
-		Printf("PERF pt smoke route frame NRI: renderer_frame=%llu simulation_frame=%u epoch=%u gather=%llu mask=%u source_mask=%u suppressed_actor_rules=%u suppressed_event_rules=%u map_emitters=%u map_rules_suppressed=%u map_previews_suppressed=%u ambient_map_commands=%u preview_map_commands=%u grid_commands=%u analytic_carriers=%u transient_groups=%u transient_lobes=%u fallback_grid=%u fallback_analytic=%u bridge_observations=%u compact=1\n",
+		Printf("PERF pt smoke route frame NRI: renderer_frame=%llu simulation_frame=%u epoch=%u gather=%llu mask=%u source_mask=%u actor_emitters=%u suppressed_actor_rules=%u suppressed_event_rules=%u map_emitters=%u map_rules_suppressed=%u map_previews_suppressed=%u ambient_map_commands=%u preview_map_commands=%u grid_commands=%u analytic_carriers=%u transient_groups=%u transient_lobes=%u fallback_grid=%u fallback_analytic=%u bridge_observations=%u compact=1\n",
 			(unsigned long long)renderer.mFrameBuffer->mFrameIndex, renderer.mFrameIndex, mStatus.simulationEpoch,
 			(unsigned long long)routes.gatherId, routes.classMask, routes.sourceClassMask,
-			routes.suppressedActorRules, routes.suppressedEventRules,
+			routes.actorEmittersEnabled ? 1u : 0u, routes.suppressedActorRules, routes.suppressedEventRules,
 			routes.mapEmittersEnabled ? 1u : 0u,
 			routes.suppressedMapRules, routes.suppressedMapPreviews, routes.ambientMapCommands,
 			routes.previewMapCommands, routes.gridCommands, routes.analyticCarriers,
@@ -3111,7 +3112,12 @@ bool NRISmokeSystem::DispatchRoute(NRIRenderer& renderer, const NRISmokeRouteDes
 			renderer.CopyTexture(renderer.GetFrameTexture(route.inputSlot), renderer.GetFrameTexture(route.outputSlot));
 		return true;
 	}
-	if (mStatus.representationEffective == 0u && !mMayHaveParticleSmoke)
+	// The particle authority may be empty while independent analytic/transient
+	// sources still own visible medium. Their view work must not depend on an
+	// unrelated legacy particle command keeping this route alive.
+	if (mStatus.representationEffective == 0u && !mMayHaveParticleSmoke &&
+		mAnalyticCarriers.GetGpuCarriers().empty() &&
+		mTransientClouds.GetSnapshot().visibleGroups == 0u)
 	{
 		mStatus.volumeResolvedSlot = UINT32_MAX;
 		mStatus.volumeMetaSlot = UINT32_MAX;

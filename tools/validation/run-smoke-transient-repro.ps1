@@ -65,7 +65,9 @@ elseif ($Production) {
     throw '-Production event captures require -EventRule so they cannot fall back to candidate fixture IDs.'
 }
 $selectedEventRule = if ($EventRule) { $EventRule } else { "transient.$Effect.fixture" }
-$sourceClassMask = if ($IncludeOtherSources) { 63 } else { [int]$classBits[$Effect] }
+$sourceClassMask = if ($IncludeOtherSources) { 63 } else {
+    [int]$classBits[$Effect] -bor $(if ($MixedGrid) { 32 } else { 0 })
+}
 $baseContent = (Resolve-Path -LiteralPath $File -ErrorAction Stop).Path
 $releaseOverlay = (Resolve-Path -LiteralPath (Join-Path $repoRoot 'release-overlay') -ErrorAction Stop).Path
 $fixture = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot 'overlays/smoke-transient-fixtures') -ErrorAction Stop).Path
@@ -122,6 +124,7 @@ $settings = [ordered]@{
     nri_ptsmoke = 'true'; nri_ptsmokeworkprofile = [string]$Profile
     nri_ptsmoketransientmask = [string]$ClassMask
     nri_ptsmokesourceclassmask = [string]$sourceClassMask
+    nri_ptsmokeactoremitters = ([string][bool]$IncludeOtherSources).ToLowerInvariant()
     nri_ptsmoketransientselfshadow = 'true'
     nri_ptsmokemapemitters = ([string][bool]$IncludeMapFog).ToLowerInvariant()
     nri_ptsmokerepresentation = [string]$Representation
@@ -143,7 +146,7 @@ foreach ($setting in $settings.GetEnumerator()) {
     $extra.Add('+set'); $extra.Add([string]$setting.Key); $extra.Add([string]$setting.Value)
 }
 $emit = ((1..$Burst | ForEach-Object { "nri_ptsmoke_test $selectedEventRule $Distance" }) -join '; ')
-$grid = if ($MixedGrid) { 'nri_ptsmoke_test; ' } else { '' }
+$grid = if ($MixedGrid) { "nri_ptsmoke_test nri.smoke.test $Distance; " } else { '' }
 $testLight = if ($TestPointLight) { 'nri_ptlightspawn 1.0 0.8 0.6 5.0 512 128; wait 2; ' } else { '' }
 $screenshotWaitUpdates = @(1, 5, 12, 24, 45)
 $cumulativeWaitUpdates = 0
@@ -157,7 +160,7 @@ $screenshotCommands = ($screenshotWaitUpdates | ForEach-Object { "wait $_; scree
 # lane; use -Distance 160 for unobstructed art captures with room for growth.
 $viewSetup = if ($Map -eq 'e1l1') { 'warptocoords -1616 760 -708 180 0; wait 2; +Move_Forward; wait 2; -Move_Forward; wait 20; ' } else { '' }
 $viewpoint = if ($Map -eq 'e1l1') {
-    [ordered]@{ position = @(-1616, 760, -708); yaw = 180; pitch = 0; sector = 298; recommendedEventDistanceWorldUnits = 160; blockingDistanceWorldUnits = 290 }
+    [ordered]@{ position = @(-1616, 760, -708); yaw = 180; pitch = 0; sector = 306; recommendedEventDistanceWorldUnits = 160; blockingDistanceWorldUnits = 290 }
 } else { $null }
 $commands = "+wait 45; map $Map; wait 1; closemenu; wait 240; closemenu; god; ${viewSetup}centerview; wait 2; nri_ptautoexposurefreeze true; set nri_ptsmoketrace 2; nri_ptsmokereset; ${testLight}perf_looptraceframes 0; perf_compactframes 64; ${grid}${emit}; $screenshotCommands; nri_ptsmokestatus; wait 180; quit"
 $scenario = [ordered]@{
@@ -180,6 +183,9 @@ $scenario.transient['content'] = [ordered]@{
     fixtureMounted = -not [bool]$Production
 }
 $scenario.transient['sourceClassMask'] = $sourceClassMask
+$scenario.transient['actorEmitters'] = [bool]$IncludeOtherSources
+$scenario.transient['mixedGridEventRule'] = $(if ($MixedGrid) { 'nri.smoke.test' } else { $null })
+$scenario.transient['mixedGridClassBit'] = $(if ($MixedGrid) { 32 } else { 0 })
 $scenario.transient['cold'] = [bool]$Cold
 $scenario.transient['includeOtherSources'] = [bool]$IncludeOtherSources
 $scenario.transient['fixtureSnapshot'] = $fixtureSnapshot
@@ -198,6 +204,7 @@ $analysisParameters = @{
     ExpectedSourceClassMask = $sourceClassMask
 }
 if ($ClassMask -eq 0) { $analysisParameters.AllowLegacyControl = $true }
+if (-not $IncludeOtherSources) { $analysisParameters.RequireActorEmittersDisabled = $true }
 if (-not $IncludeMapFog) {
     $analysisParameters.RequireMapEmittersDisabled = $true
     $analysisParameters.MinimumSuppressedMapRules = $minimumSuppressedMapRules

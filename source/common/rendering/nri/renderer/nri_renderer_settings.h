@@ -128,6 +128,7 @@ struct NRISmokeSettings
 	uint32_t transientClassMask = 63;
 	uint32_t sourceClassMask = 63;
 	bool transientSelfShadow = true;
+	bool actorEmitters = true;
 	bool mapEmitters = true;
 	bool transientEmissiveLights = true; // Requested family, independent of grid work-profile overrides.
 	uint32_t quality = 2;
