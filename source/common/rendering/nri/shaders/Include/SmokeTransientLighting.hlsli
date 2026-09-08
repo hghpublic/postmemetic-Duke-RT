@@ -186,6 +186,17 @@ float SmokeTransientBoundaryNoise(float3 worldPosition, float scale, uint seed)
 	return lerp(lerp(x00, x10, blend.y), lerp(x01, x11, blend.y), blend.z);
 }
 
+float SmokeTransientBoundaryErosionAmplitude(float edgeErosion, float noiseStrength)
+{
+	const float edge = saturate(edgeErosion);
+	const float strength = saturate(noiseStrength);
+	// These are independent authored contributions to boundary breakup. Multiplying
+	// the normal production values (0.14 * 0.22) reduced the maximum shell loss to
+	// roughly two percent. Their bounded union retains either control and produces
+	// a useful 0.3292 amplitude for that same authored pair.
+	return 1.0 - (1.0 - edge) * (1.0 - strength);
+}
+
 float SmokeTransientSphereKernelAverage(SmokeTransientLobe lobe, float3 ray,
 	float nearDepth, float farDepth)
 {
@@ -201,7 +212,8 @@ float SmokeTransientSphereKernelAverage(SmokeTransientLobe lobe, float3 ray,
 		const float3 samplePosition = gSmokeConstants.CameraPosition + ray * ((nearDepth + farDepth) * 0.5);
 		const float noise = SmokeTransientBoundaryNoise(samplePosition,
 			lobe.NoiseScale, lobe.DeterministicSeed);
-		const float erosion = saturate(lobe.EdgeErosion * lobe.NoiseStrength);
+		const float erosion = SmokeTransientBoundaryErosionAmplitude(
+			lobe.EdgeErosion, lobe.NoiseStrength);
 		// Only the shell is eroded, and its floor remains non-zero.
 		shellIntegral *= lerp(1.0, 0.35 + 0.65 * noise, erosion);
 	}
@@ -275,6 +287,9 @@ float SmokeTransientGroupOpticalDepth(SmokeTransientGroup group, float3 origin,
 		SmokeTransientSpherePlateauIntegral(lobe.Position, supportRadius, lobe.CorePlateau,
 			origin, direction, 0.001, maximumDistance, coreIntegral, shellIntegral);
 		const SmokeStyle style = gSmokeStyles[lobe.StyleIndex];
+		// Materialization only removes shell mass from this exact integral. Keeping
+		// the un-eroded shell here makes point/directional self-transmittance a
+		// conservative upper optical-depth bound while preserving the exact core.
 		opticalDepth += (coreIntegral + shellIntegral) * max(lobe.DensityScale, 0.0) *
 			max(style.Density, 0.0) * max(style.Extinction, 0.0) * gSmokeConstants.DensityScale;
 	}

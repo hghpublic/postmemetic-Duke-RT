@@ -1,5 +1,7 @@
 #include "nri_smoke_transient_clouds.h"
 
+#include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
@@ -20,6 +22,76 @@ void Require(bool condition, const char* message)
 bool Near(float a, float b, float epsilon = 1.0e-5f)
 {
 	return std::abs(a - b) <= epsilon;
+}
+
+float Distance3(const float a[3], const float b[3])
+{
+	float squared = 0.0f;
+	for (uint32_t axis = 0u; axis < 3u; ++axis)
+	{
+		const float delta = a[axis] - b[axis];
+		squared += delta * delta;
+	}
+	return std::sqrt(squared);
+}
+
+float RadiusAt(const NRISmokeTransientLobeRequest& lobe, float age)
+{
+	const float localAge = std::max(age - lobe.lobeDelaySeconds, 0.0f);
+	const float normalizedAge = std::clamp(localAge / lobe.lifetimeSeconds,
+		0.0f, 1.0f);
+	return std::max(lobe.initialRadius + lobe.expansionVelocity *
+		(lobe.lifetimeSeconds * std::pow(normalizedAge, lobe.radiusExponent)), 0.001f);
+}
+
+bool RequestGraphConnected(const NRISmokeTransientLobeRequest* lobes,
+	uint32_t count, float age)
+{
+	if (count == 0u) return false;
+	std::array<bool, NRISmokeTransientClouds::FixedMaximumLobesPerGroup> reached = {};
+	reached[0] = true;
+	for (uint32_t pass = 0u; pass < count; ++pass)
+	{
+		for (uint32_t a = 0u; a < count; ++a)
+		{
+			if (!reached[a]) continue;
+			float positionA[3] = {};
+			for (uint32_t axis = 0u; axis < 3u; ++axis)
+				positionA[axis] = lobes[a].position[axis] + lobes[a].velocity[axis] * age;
+			for (uint32_t b = 0u; b < count; ++b)
+			{
+				float positionB[3] = {};
+				for (uint32_t axis = 0u; axis < 3u; ++axis)
+					positionB[axis] = lobes[b].position[axis] + lobes[b].velocity[axis] * age;
+				if (Distance3(positionA, positionB) <=
+					RadiusAt(lobes[a], age) + RadiusAt(lobes[b], age) + 1.0e-4f)
+					reached[b] = true;
+			}
+		}
+	}
+	for (uint32_t index = 0u; index < count; ++index)
+		if (!reached[index]) return false;
+	return true;
+}
+
+bool GpuGraphConnected(const std::vector<NRISmokeTransientLobeGpu>& lobes)
+{
+	if (lobes.empty()) return false;
+	std::vector<bool> reached(lobes.size(), false);
+	reached[0] = true;
+	for (size_t pass = 0u; pass < lobes.size(); ++pass)
+	{
+		for (size_t a = 0u; a < lobes.size(); ++a)
+		{
+			if (!reached[a]) continue;
+			for (size_t b = 0u; b < lobes.size(); ++b)
+				if (Distance3(lobes[a].position, lobes[b].position) <=
+					lobes[a].radius + lobes[b].radius + 1.0e-4f)
+					reached[b] = true;
+		}
+	}
+	for (bool value : reached) if (!value) return false;
+	return true;
 }
 
 NRISmokeTransientLobeRequest Lobe(uint32_t epoch, uint64_t event,
@@ -224,6 +296,8 @@ void TestExplosionBillowShaping()
 	float maximumEmission = 0.0f;
 	float minimumHalfLife = std::numeric_limits<float>::max();
 	float maximumHalfLife = 0.0f;
+	uint32_t satellitesOutsideOrigin = 0u;
+	constexpr uint32_t binderCount = 3u;
 	const float lateAge = 3.0f;
 	const float shapedLateAge = input.lobeLifetimeSeconds * std::pow(
 		lateAge / input.lobeLifetimeSeconds, input.radiusExponent);
@@ -259,27 +333,54 @@ void TestExplosionBillowShaping()
 
 		float initialOffsetSquared = 0.0f;
 		float outwardDot = 0.0f;
+		float relativeVelocitySquared = 0.0f;
 		for (uint32_t axis = 0u; axis < 3u; ++axis)
 		{
 			const float initialOffset = lobe.position[axis] - input.position[axis];
 			const float commonVelocity = input.velocity[axis] + input.up[axis] *
 				(input.riseVelocity + input.expansionVelocity * 0.08f);
+			const float relativeVelocity = lobe.velocity[axis] - commonVelocity;
 			initialOffsetSquared += initialOffset * initialOffset;
-			outwardDot += initialOffset * (lobe.velocity[axis] - commonVelocity);
+			outwardDot += initialOffset * relativeVelocity;
+			relativeVelocitySquared += relativeVelocity * relativeVelocity;
 		}
-		Require(std::sqrt(initialOffsetSquared) <= lobe.initialRadius + 1.0e-4f,
-			"every explosion lobe must overlap the connected core at spawn");
-		Require(outwardDot > 0.0f,
-			"explosion lobe centers must propagate outward from their authored core");
+		const float initialOffset = std::sqrt(initialOffsetSquared);
+		if (index < binderCount)
+		{
+			Require(Near(initialOffset, 0.0f) &&
+				Near(lobe.corePlateau, input.corePlateau) &&
+				lobe.intrinsicEmission > input.intrinsicEmission,
+				"explosion binders must remain central, authored-core hot anchors");
+		}
+		else
+		{
+			Require(initialOffset >= lobe.initialRadius * 0.85f - 1.0e-4f &&
+				initialOffset <= 0.88f *
+					(lobes[0].initialRadius + lobe.initialRadius) + 1.0e-4f,
+				"satellites must protrude beyond their own core while overlapping the primary binder");
+			Require(Near(lobe.corePlateau, 0.4f) &&
+				lobe.intrinsicEmission >= 0.0f &&
+				lobe.intrinsicEmission <= input.intrinsicEmission * 0.1f + 1.0e-4f,
+				"explosion satellites must use a cooler, softer plateau than binders");
+			Require(outwardDot > 0.0f,
+				"explosion satellite centers must propagate outward from their authored core");
+			const float scaledGrowth = input.expansionVelocity * radiusScale;
+			const float relativeSpeed = std::sqrt(relativeVelocitySquared);
+			Require(relativeSpeed >= scaledGrowth * 0.9f - 1.0e-4f &&
+				relativeSpeed <= scaledGrowth * 1.05f + 1.0e-4f,
+				"explosion satellite speed must stay inside its connected growth envelope");
+			if (initialOffset > lobe.initialRadius) satellitesOutsideOrigin++;
+		}
 	}
 	Require(Near(totalOpticalWeight, input.opticalAmount) &&
 		Near(weightedInitialEmission / totalOpticalWeight,
 			input.intrinsicEmission, 1.0e-4f),
 		"billow and emission shaping must preserve density-weighted source amount at spawn");
-	Require(minimumEmission >= input.intrinsicEmission * 0.65f - 1.0e-4f &&
-		maximumEmission <= input.intrinsicEmission * 1.25f + 1.0e-4f &&
-		maximumEmission > minimumEmission,
-		"explosion lobes must retain bounded stable emission variation");
+	Require(minimumEmission >= 0.0f &&
+		minimumEmission <= input.intrinsicEmission * 0.1f + 1.0e-4f &&
+		maximumEmission > input.intrinsicEmission * 3.0f &&
+		satellitesOutsideOrigin >= (input.requestedLobeCount - binderCount) / 2u,
+		"explosion source and support must separate into hot binders and protruding cool satellites");
 	Require(minimumHalfLife >= input.emissionHalfLife * 0.8f - 1.0e-5f &&
 		maximumHalfLife <= input.emissionHalfLife * 1.2f + 1.0e-5f &&
 		maximumHalfLife > minimumHalfLife,
@@ -292,6 +393,8 @@ void TestExplosionBillowShaping()
 
 	for (const float age : { 0.0f, 1.5f, 3.0f })
 	{
+		Require(RequestGraphConnected(lobes, input.requestedLobeCount, age),
+			"positive-growth exponent-at-most-one billows must retain a connected overlap graph");
 		float boundsMin[3] = {
 			std::numeric_limits<float>::max(),
 			std::numeric_limits<float>::max(),
@@ -309,25 +412,45 @@ void TestExplosionBillowShaping()
 			const auto& lobe = lobes[index];
 			const float radius = lobe.initialRadius +
 				lobe.expansionVelocity * shapedAge;
-			float coreDistanceSquared = 0.0f;
 			for (uint32_t axis = 0u; axis < 3u; ++axis)
 			{
 				const float position = lobe.position[axis] + lobe.velocity[axis] * age;
-				const float commonCore = input.position[axis] + input.velocity[axis] * age +
-					input.up[axis] * (input.riseVelocity +
-						input.expansionVelocity * 0.08f) * age;
-				const float fromCore = position - commonCore;
-				coreDistanceSquared += fromCore * fromCore;
 				boundsMin[axis] = std::min(boundsMin[axis], position - radius);
 				boundsMax[axis] = std::max(boundsMax[axis], position + radius);
 			}
-			Require(std::sqrt(coreDistanceSquared) <= radius + 1.0e-4f,
-				"spawn, mid, and late billows must all retain a shared connected core");
 		}
 		for (uint32_t axis = 0u; axis < 3u; ++axis)
 			Require(std::isfinite(boundsMin[axis]) && std::isfinite(boundsMax[axis]) &&
 				boundsMax[axis] > boundsMin[axis],
 				"billow bounds must remain finite and non-empty across absolute time");
+	}
+	for (const uint32_t reducedCount : { 6u, 4u, 2u })
+	{
+		auto reducedProfile = NRISmokeTransientClouds::ProfileForQuality(2u);
+		reducedProfile.maximumActiveLobes = reducedCount;
+		reducedProfile.maximumLobesPerGroup = reducedCount;
+		reducedProfile.minimumReducedLobes = reducedCount;
+		NRISmokeTransientClouds reducedOwner;
+		reducedOwner.Reset(input.epoch);
+		reducedOwner.BeginFrame(0.0, reducedCount, reducedProfile);
+		const auto admission = reducedOwner.AdmitBatch(lobes,
+			input.requestedLobeCount);
+		Require(admission.Accepted() && admission.admittedLobes == reducedCount,
+			"billow reduction fixture must admit its deterministic target count");
+		for (const float age : { 0.1f, 1.5f, 3.0f })
+		{
+			reducedOwner.BeginFrame(age, reducedCount, reducedProfile);
+			const auto& gpuLobes = reducedOwner.GetGpuLobes();
+			Require(gpuLobes.size() == reducedCount && GpuGraphConnected(gpuLobes),
+				"production-domain reduced explosion counts must preserve a connected graph");
+			for (uint32_t axis = 0u; axis < 3u; ++axis)
+			{
+				const float primaryPosition = lobes[0].position[axis] +
+					lobes[0].velocity[axis] * age;
+				Require(Near(gpuLobes[0].position[axis], primaryPosition),
+					"deterministic explosion reduction must retain primary binder geometry");
+			}
+		}
 	}
 
 	auto profile = NRISmokeTransientClouds::ProfileForQuality(2u);
@@ -818,6 +941,51 @@ void TestReplacementAndLightScheduling()
 		"only explicit dispatch submission acknowledgement may retire initial scheduling");
 }
 
+void TestAttackMatureInitialLighting()
+{
+	NRISmokeTransientClouds owner;
+	owner.Reset(15u);
+	auto profile = NRISmokeTransientClouds::ProfileForQuality(2u);
+	profile.maximumFullLightBuilds = 1u;
+	profile.fireRefreshSeconds = 0.25f;
+	owner.BeginFrame(100.0, 256u, profile);
+	auto fire = Lobe(15u, 950u, 100.0);
+	fire.transientClass = NRISmokeTransientClass::FirePacket;
+	fire.lightRefresh = NRISmokeTransientLightRefresh::Slow;
+	fire.densityAttackSeconds = 1.0f;
+	const auto admission = owner.Admit(fire);
+	Require(admission.Accepted(),
+		"attack-maturity fixture must admit its frozen-light group");
+	owner.BeginFrame(100.1, 256u, profile);
+	const auto immatureIdentity = Group(owner, admission.handle);
+	Require(owner.GetSnapshot().visibleLobes == 1u &&
+		owner.GetSnapshot().fullLightFreshRequestedThisFrame == 0u &&
+		owner.GetSnapshot().fullLightFreshScheduledThisFrame == 0u &&
+		immatureIdentity.flags == (NRISmokeTransientGroupFlagActive |
+			NRISmokeTransientGroupFlagFallbackLight |
+			NRISmokeTransientGroupFlagSlowRefresh),
+		"first-visible attack smoke must use fallback without consuming full-light budget");
+	owner.CommitLightDispatchSchedule();
+	owner.BeginFrame(100.81, 256u, profile);
+	const auto matureIdentity = Group(owner, admission.handle);
+	Require(owner.IsLive(admission.handle) &&
+		owner.GetSnapshot().fullLightFreshRequestedThisFrame == 1u &&
+		owner.GetSnapshot().fullLightFreshScheduledThisFrame == 1u &&
+		matureIdentity.flags == (NRISmokeTransientGroupFlagActive |
+			NRISmokeTransientGroupFlagFullLightAllowed |
+			NRISmokeTransientGroupFlagSlowRefresh),
+		"a group crossing 90 percent attack must receive its pending full build");
+	Require(matureIdentity.slot == immatureIdentity.slot &&
+		matureIdentity.generation == immatureIdentity.generation &&
+		matureIdentity.epoch == immatureIdentity.epoch &&
+		matureIdentity.reserved == immatureIdentity.reserved,
+		"fallback-to-full maturity must preserve exact group and cache identity");
+	owner.CommitLightDispatchSchedule();
+	owner.BeginFrame(100.9, 256u, profile);
+	Require(owner.GetSnapshot().fullLightFreshRequestedThisFrame == 0u,
+		"mature submitted frozen lighting must retire only its initial-build request");
+}
+
 void TestProfileRevisionRebuild()
 {
 	NRISmokeTransientClouds owner;
@@ -886,6 +1054,7 @@ int main()
 	TestAbsoluteCurvesAndDtInvariance();
 	TestValidationAndBatchIdentity();
 	TestReplacementAndLightScheduling();
+	TestAttackMatureInitialLighting();
 	TestProfileRevisionRebuild();
 	std::cout << "Smoke transient group/lobe tests passed.\n";
 	return 0;

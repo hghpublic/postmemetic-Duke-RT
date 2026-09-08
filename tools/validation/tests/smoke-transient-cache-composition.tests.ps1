@@ -159,4 +159,36 @@ Assert-Near $isotropicResponse 1.0 1e-12 'Six-axis cubemap quadrature does not c
 $blackSky = 6.0 * 0.0 * $quadratureWeight * $isotropicPhase
 Assert-Near $blackSky 0.0 0.0 'Black sky acquired artificial ambient radiance.'
 
+# Edge erosion and noise strength are independent boundary controls. Their
+# bounded union makes the production 0.14/0.22 pair visible without changing
+# the exact core. The self-shadow path intentionally retains the un-eroded
+# shell, so it is an upper optical-depth bound for every noise value.
+function Get-BoundaryErosionAmplitude([double]$edgeErosion, [double]$noiseStrength) {
+    $edge = [math]::Max(0.0, [math]::Min(1.0, $edgeErosion))
+    $strength = [math]::Max(0.0, [math]::Min(1.0, $noiseStrength))
+    return 1.0 - (1.0 - $edge) * (1.0 - $strength)
+}
+function Get-BoundaryShellMultiplier([double]$noise, [double]$amplitude) {
+    return 1.0 + $amplitude * ((0.35 + 0.65 * $noise) - 1.0)
+}
+$boundaryAmplitude = Get-BoundaryErosionAmplitude 0.14 0.22
+Assert-Near $boundaryAmplitude 0.3292 1e-12 'Production boundary controls do not retain their bounded-union amplitude.'
+$minimumShellMultiplier = Get-BoundaryShellMultiplier 0.0 $boundaryAmplitude
+$meanShellMultiplier = Get-BoundaryShellMultiplier 0.5 $boundaryAmplitude
+$maximumShellMultiplier = Get-BoundaryShellMultiplier 1.0 $boundaryAmplitude
+Assert-Near $minimumShellMultiplier 0.78602 1e-12 'Low-noise shell erosion is not visually meaningful.'
+Assert-Near $meanShellMultiplier 0.89301 1e-12 'Mean shell erosion changed unexpectedly.'
+Assert-Near $maximumShellMultiplier 1.0 1e-12 'Boundary erosion may add density outside conservative lobe bounds.'
+$exactCoreIntegral = 4.75
+$exactShellIntegral = 2.5
+$selfShadowUpperBound = $exactCoreIntegral + $exactShellIntegral
+foreach ($noise in @(0.0, 0.25, 0.5, 0.75, 1.0)) {
+    $materializedIntegral = $exactCoreIntegral + $exactShellIntegral *
+        (Get-BoundaryShellMultiplier $noise $boundaryAmplitude)
+    if ($materializedIntegral -lt $exactCoreIntegral -or
+        $materializedIntegral -gt $selfShadowUpperBound) {
+        throw "Boundary erosion changed the exact core or exceeded the conservative self-shadow bound (noise=$noise materialized=$materializedIntegral bound=$selfShadowUpperBound)."
+    }
+}
+
 Write-Output 'Smoke transient cache/composition numerical tests passed.'

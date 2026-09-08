@@ -195,6 +195,8 @@ namespace
 	{
 		return 1u << static_cast<uint32_t>(value);
 	}
+	static_assert((1u << static_cast<uint32_t>(LightOverlaySmokeTransientClass::Diagnostic)) == 32u,
+		"The authored smoke source-class mask must preserve the diagnostic bit.");
 
 	LightOverlaySmokeRepresentation EffectiveSmokeRepresentation(
 		LightOverlaySmokeRepresentation authored,
@@ -237,6 +239,19 @@ void NRISmokeEmitterSystem::SetMapEmittersEnabled(bool enabled)
 	mEditorPreviewRuleId = "";
 }
 
+void NRISmokeEmitterSystem::SetSourceClassMask(uint32_t mask)
+{
+	mask &= 0x3fu;
+	if (mSourceClassMask == mask)
+		return;
+	mSourceClassMask = mask;
+	// A filter transition starts a fresh emitter observation epoch so a
+	// re-enabled actor cannot inherit cadence, activation, or source identity
+	// from the interval in which its authored class was suppressed. Reset()
+	// intentionally preserves all three independent runtime switches.
+	Reset();
+}
+
 void NRISmokeEmitterSystem::Reset()
 {
 	mActorStates.clear();
@@ -250,6 +265,7 @@ void NRISmokeEmitterSystem::Reset()
 	mGeneration = 0;
 	mRouteSnapshot = {};
 	mRouteSnapshot.classMask = mTransientClassMask;
+	mRouteSnapshot.sourceClassMask = mSourceClassMask;
 	mRouteSnapshot.mapEmittersEnabled = mMapEmittersEnabled;
 }
 
@@ -306,7 +322,20 @@ void NRISmokeEmitterSystem::Gather(uint32_t epoch, double gameplayTimeSeconds, c
 	mRouteSnapshot = {};
 	mRouteSnapshot.gatherId = ++mNextRouteGatherId;
 	mRouteSnapshot.classMask = mTransientClassMask;
+	mRouteSnapshot.sourceClassMask = mSourceClassMask;
 	mRouteSnapshot.mapEmittersEnabled = mMapEmittersEnabled;
+	for (const auto& rule : resolved.smokeActorRules)
+	{
+		if (rule.actorClassResolved && rule.styleResolved &&
+			(mSourceClassMask & TransientClassBit(rule.transientClass)) == 0u)
+			mRouteSnapshot.suppressedActorRules++;
+	}
+	for (const auto& rule : resolved.smokeEventRules)
+	{
+		if (rule.styleResolved &&
+			(mSourceClassMask & TransientClassBit(rule.transientClass)) == 0u)
+			mRouteSnapshot.suppressedEventRules++;
+	}
 	auto recordRoute = [&](const NRISmokeInjectionCommandGpu& command,
 		LightOverlaySmokeRepresentation authoredRepresentation,
 		LightOverlaySmokeRepresentation effectiveRepresentation,
@@ -522,6 +551,7 @@ void NRISmokeEmitterSystem::Gather(uint32_t epoch, double gameplayTimeSeconds, c
 		for (uint32_t ruleIndex = 0; ruleIndex < resolved.smokeActorRules.Size(); ++ruleIndex)
 		{
 			const auto& rule = resolved.smokeActorRules[ruleIndex];
+			if ((mSourceClassMask & TransientClassBit(rule.transientClass)) == 0u) continue;
 			if (!rule.actorClassResolved || !rule.styleResolved || !ActorMatchesClass(actor, rule.actorClass)) continue;
 			DCoreActor* owner = actor->GetOwnerActor();
 			if (!rule.ownerClassName.IsEmpty() && (!rule.ownerClassResolved || !ActorMatchesClass(owner, rule.ownerClass))) continue;
@@ -1177,8 +1207,15 @@ void NRISmokeEmitterSystem::Gather(uint32_t epoch, double gameplayTimeSeconds, c
 	for (const PathTracingWeaponLightEvent& event : weaponEvents)
 	{
 		bool matchedEventRule = false;
+		bool suppressedEventRule = false;
 		for (const ResolvedLightOverlaySmokeEventRule& rule : resolved.smokeEventRules)
 		{
+			if ((mSourceClassMask & TransientClassBit(rule.transientClass)) == 0u)
+			{
+				suppressedEventRule = suppressedEventRule || (rule.styleResolved &&
+					event.eventId.CompareNoCase(rule.id) == 0);
+				continue;
+			}
 			if (!rule.styleResolved || event.eventId.CompareNoCase(rule.id) != 0)
 				continue;
 			matchedEventRule = true;
@@ -1275,8 +1312,12 @@ void NRISmokeEmitterSystem::Gather(uint32_t epoch, double gameplayTimeSeconds, c
 		}
 		if (!matchedEventRule && traceMode != 0)
 		{
-			Printf("NRI PT smoke emitter: event=weapon-ignored source_event=%s source_serial=%llu reason=no-rule\n",
-				event.eventId.GetChars(), (unsigned long long)event.serial);
+			if (suppressedEventRule)
+				Printf("NRI PT smoke emitter: event=weapon-ignored source_event=%s source_serial=%llu reason=source-class-filter\n",
+					event.eventId.GetChars(), (unsigned long long)event.serial);
+			else
+				Printf("NRI PT smoke emitter: event=weapon-ignored source_event=%s source_serial=%llu reason=no-rule\n",
+					event.eventId.GetChars(), (unsigned long long)event.serial);
 		}
 	}
 	if (traceMode != 0 && eventCommands != 0u)
@@ -1289,11 +1330,15 @@ void NRISmokeEmitterSystem::Gather(uint32_t epoch, double gameplayTimeSeconds, c
 		mRouteSnapshot.trailBridgeObservations != 0u ||
 		mRouteSnapshot.ambientMapCommands != 0u ||
 		mRouteSnapshot.previewMapCommands != 0u ||
+		mRouteSnapshot.suppressedActorRules != 0u ||
+		mRouteSnapshot.suppressedEventRules != 0u ||
 		mRouteSnapshot.suppressedMapRules != 0u ||
 		mRouteSnapshot.suppressedMapPreviews != 0u))
 	{
-		Printf("NRI PT smoke routing: event=frame-summary gather=%llu class_mask=%u map_emitters=%u map_rules_suppressed=%u map_previews_suppressed=%u ambient_map_commands=%u preview_map_commands=%u sources=%u grid_commands=%u analytic_carriers=%u transient_groups=%u transient_lobes=%u fallback_grid=%u fallback_analytic=%u bridge_observations=%u\n",
+		Printf("NRI PT smoke routing: event=frame-summary gather=%llu class_mask=%u source_mask=%u suppressed_actor_rules=%u suppressed_event_rules=%u map_emitters=%u map_rules_suppressed=%u map_previews_suppressed=%u ambient_map_commands=%u preview_map_commands=%u sources=%u grid_commands=%u analytic_carriers=%u transient_groups=%u transient_lobes=%u fallback_grid=%u fallback_analytic=%u bridge_observations=%u\n",
 			(unsigned long long)mRouteSnapshot.gatherId, mRouteSnapshot.classMask,
+			mRouteSnapshot.sourceClassMask, mRouteSnapshot.suppressedActorRules,
+			mRouteSnapshot.suppressedEventRules,
 			mRouteSnapshot.mapEmittersEnabled ? 1u : 0u, mRouteSnapshot.suppressedMapRules,
 			mRouteSnapshot.suppressedMapPreviews, mRouteSnapshot.ambientMapCommands,
 			mRouteSnapshot.previewMapCommands,

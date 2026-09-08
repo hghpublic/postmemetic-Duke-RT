@@ -120,6 +120,16 @@ float DensityEnvelope(const NRISmokeTransientLobeRequest& request,
 	return attack * (1.0f - Smooth01((localAge - releaseStart) / releaseDuration));
 }
 
+bool InitialLightMature(const NRISmokeTransientLobeRequest& request,
+	double groupAgeSeconds)
+{
+	const float localAge = static_cast<float>(groupAgeSeconds) -
+		request.lobeDelaySeconds;
+	if (localAge < 0.0f) return false;
+	if (request.densityAttackSeconds <= 0.0f) return true;
+	return Smooth01(localAge / request.densityAttackSeconds) >= 0.9f;
+}
+
 float LobeSupportExtent(const NRISmokeTransientLobeRequest& request, float radius)
 {
 	if (request.shape == 0u) return radius;
@@ -211,33 +221,61 @@ uint32_t NRIBuildSmokeTransientLobes(const NRISmokeTransientGroupShapeInput& inp
 
 	const uint64_t seed = static_cast<uint64_t>(input.deterministicSeed) ^
 		input.sourceEventSerial ^ (static_cast<uint64_t>(input.sourceId) << 32u);
+	const bool explosion = input.transientClass == NRISmokeTransientClass::Explosion;
+	const uint32_t explosionBinderCount = explosion
+		? std::clamp((count + 3u) / 4u, 1u, 3u) : 0u;
+	auto explosionRadiusScale = [&](uint32_t index)
+	{
+		float radiusUnit = UnitFloat(seed, index, 3u);
+		if (index < explosionBinderCount)
+			radiusUnit = 0.72f + 0.28f * radiusUnit;
+		return input.lobeRadiusMinScale +
+			(input.lobeRadiusMaxScale - input.lobeRadiusMinScale) * radiusUnit;
+	};
+	const float primaryExplosionBinderRadius = explosion
+		? input.initialRadius * explosionRadiusScale(0u) : 0.0f;
 	const float trailJitter = explicitTrail ? input.initialRadius *
 		input.clusterSpread * 0.08f : 0.0f;
 	const float trailSpacing = explicitTrail ? (count > 1u
 		? input.trailSpan / static_cast<float>(count - 1u) : input.trailSpan) : 0.0f;
 	const float trailMinimumRadius = explicitTrail ? 0.5f * std::sqrt(
 		trailSpacing * trailSpacing + 4.0f * trailJitter * trailJitter) / 0.9f : 0.0f;
-	float explosionEmissionUnitMean = 0.0f;
-	if (input.transientClass == NRISmokeTransientClass::Explosion)
+	float explosionEmissionFactors[NRISmokeTransientClouds::FixedMaximumLobesPerGroup] = {};
+	if (explosion)
 	{
+		float binderFactorSum = 0.0f;
+		float satelliteFactorSum = 0.0f;
 		for (uint32_t index = 0u; index < count; ++index)
-			explosionEmissionUnitMean += UnitFloat(seed, index, 5u);
-		explosionEmissionUnitMean /= static_cast<float>(count);
+		{
+			if (index < explosionBinderCount)
+			{
+				explosionEmissionFactors[index] = 0.85f +
+					0.3f * UnitFloat(seed, index, 5u);
+				binderFactorSum += explosionEmissionFactors[index];
+			}
+			else
+			{
+				explosionEmissionFactors[index] =
+					0.1f * UnitFloat(seed, index, 5u);
+				satelliteFactorSum += explosionEmissionFactors[index];
+			}
+		}
+		// Equal optical weights make the target factor sum exactly the lobe count.
+		// Concentrating the remainder in the connected binders keeps the shell cool
+		// while retaining the authored density-weighted source amount exactly.
+		const float binderScale = (static_cast<float>(count) - satelliteFactorSum) /
+			std::max(binderFactorSum, 1.0e-6f);
+		for (uint32_t index = 0u; index < explosionBinderCount; ++index)
+			explosionEmissionFactors[index] *= binderScale;
 	}
-	// Centered variation retains the exact batch mean while staying inside the
-	// authored 0.65x..1.25x range, including small deterministic batches.
-	const float explosionEmissionAmplitude = std::min({ 0.6f,
-		explosionEmissionUnitMean > 1.0e-6f
-			? 0.35f / explosionEmissionUnitMean : 0.6f,
-		explosionEmissionUnitMean < 1.0f - 1.0e-6f
-			? 0.25f / (1.0f - explosionEmissionUnitMean) : 0.6f });
 	for (uint32_t index = 0u; index < count; ++index)
 	{
 		const float unit = (static_cast<float>(index) + 0.5f) /
 			static_cast<float>(count);
 		const float phase = UnitFloat(seed, index, 0u) * (2.0f * Pi);
 		const float radiusUnit = UnitFloat(seed, index, 3u);
-		const float radiusScale = input.lobeRadiusMinScale +
+		const float radiusScale = explosion ? explosionRadiusScale(index) :
+			input.lobeRadiusMinScale +
 			(input.lobeRadiusMaxScale - input.lobeRadiusMinScale) * radiusUnit;
 		const float lobeInitialRadius = input.initialRadius * radiusScale;
 		const float ringX = std::cos(phase);
@@ -251,26 +289,60 @@ uint32_t NRIBuildSmokeTransientLobes(const NRISmokeTransientGroupShapeInput& inp
 		{
 		case NRISmokeTransientClass::Explosion:
 		{
-			const float z = 1.0f - 2.0f * unit;
-			const float planar = std::sqrt(std::max(1.0f - z * z, 0.0f));
-			const float rawOffset = input.initialRadius * input.clusterSpread *
-				(0.45f + 0.55f * UnitFloat(seed, index, 1u));
-			const float offsetDistance = std::min(rawOffset,
-				lobeInitialRadius * 0.78f);
-			const float scaledGrowth = input.expansionVelocity * radiusScale;
-			const float positiveGrowth = std::max(scaledGrowth, 0.0f);
-			const float outwardVelocity = positiveGrowth > 0.0f
-				? std::clamp(input.curlVelocity + positiveGrowth * 0.42f,
-					-positiveGrowth * 0.78f, positiveGrowth * 0.78f)
-				: input.curlVelocity;
 			const float buoyantVelocity = input.riseVelocity +
 				std::max(input.expansionVelocity, 0.0f) * 0.08f;
-			for (uint32_t axis = 0u; axis < 3u; ++axis)
+			if (index < explosionBinderCount)
 			{
-				const float direction = radial[axis] * planar + forward[axis] * z;
-				offset[axis] = direction * offsetDistance;
-				velocityDelta[axis] = direction * outwardVelocity +
-					cloudUp[axis] * buoyantVelocity;
+				// A small set of coincident binders is the persistent connected/hot core.
+				// Keeping their relative motion zero makes them safe topology anchors for
+				// deterministic owner-side lobe reduction.
+				for (uint32_t axis = 0u; axis < 3u; ++axis)
+					velocityDelta[axis] = cloudUp[axis] * buoyantVelocity;
+			}
+			else
+			{
+				const uint32_t satelliteIndex = index - explosionBinderCount;
+				const uint32_t satelliteCount = count - explosionBinderCount;
+				const float satelliteUnit = (static_cast<float>(satelliteIndex) + 0.5f) /
+					static_cast<float>(satelliteCount);
+				const float satelliteZ = 1.0f - 2.0f * satelliteUnit;
+				const float satellitePlanar = std::sqrt(std::max(
+					1.0f - satelliteZ * satelliteZ, 0.0f));
+				const float satellitePhase = UnitFloat(seed, index, 0u) * (2.0f * Pi);
+				const float satelliteRingX = std::cos(satellitePhase);
+				const float satelliteRingY = std::sin(satellitePhase);
+				float direction[3] = {};
+				for (uint32_t axis = 0u; axis < 3u; ++axis)
+				{
+					const float satelliteRadial = right[axis] * satelliteRingX +
+						cloudUp[axis] * satelliteRingY;
+					direction[axis] = satelliteRadial * satellitePlanar +
+						forward[axis] * satelliteZ;
+				}
+				const float spreadActivation = std::clamp(input.clusterSpread / 0.55f,
+					0.0f, 1.0f);
+				const float ownRadiusOffset = lobeInitialRadius *
+					(0.85f + 0.25f * UnitFloat(seed, index, 1u));
+				const float authoredOffset = input.initialRadius * input.clusterSpread *
+					(0.65f + 0.35f * UnitFloat(seed, index, 2u));
+				const float connectedOffset = 0.88f *
+					(primaryExplosionBinderRadius + lobeInitialRadius);
+				const float offsetDistance = std::min(
+					std::max(ownRadiusOffset, authoredOffset) * spreadActivation,
+					connectedOffset);
+				const float positiveGrowth = std::max(
+					input.expansionVelocity * radiusScale, 0.0f);
+				const float curlFactor = positiveGrowth > 1.0e-6f
+					? 0.05f * input.curlVelocity / positiveGrowth : 0.0f;
+				const float outwardVelocity = positiveGrowth * std::clamp(
+					0.9f + 0.1f * UnitFloat(seed, index, 6u) + curlFactor,
+					0.9f, 1.05f);
+				for (uint32_t axis = 0u; axis < 3u; ++axis)
+				{
+					offset[axis] = direction[axis] * offsetDistance;
+					velocityDelta[axis] = direction[axis] * outwardVelocity +
+						cloudUp[axis] * buoyantVelocity;
+				}
 			}
 			break;
 		}
@@ -376,12 +448,10 @@ uint32_t NRIBuildSmokeTransientLobes(const NRISmokeTransientGroupShapeInput& inp
 		request.densitySustainSeconds = input.densitySustainSeconds;
 		request.densityReleaseSeconds = input.densityReleaseSeconds;
 		request.radiusExponent = input.radiusExponent;
-		if (input.transientClass == NRISmokeTransientClass::Explosion)
+		if (explosion)
 		{
-			const float emissionUnit = UnitFloat(seed, index, 5u);
 			request.intrinsicEmission = input.intrinsicEmission *
-				(1.0f + explosionEmissionAmplitude *
-					(emissionUnit - explosionEmissionUnitMean));
+				explosionEmissionFactors[index];
 			request.emissionHalfLife = input.emissionHalfLife *
 				(0.8f + 0.4f * radiusUnit);
 		}
@@ -390,7 +460,8 @@ uint32_t NRIBuildSmokeTransientLobes(const NRISmokeTransientGroupShapeInput& inp
 			request.intrinsicEmission = input.intrinsicEmission;
 			request.emissionHalfLife = input.emissionHalfLife;
 		}
-		request.corePlateau = input.corePlateau;
+		request.corePlateau = explosion && index >= explosionBinderCount
+			? std::min(input.corePlateau, 0.4f) : input.corePlateau;
 		request.edgeErosion = input.edgeErosion;
 		request.noiseScale = input.noiseScale;
 		request.noiseStrength = input.noiseStrength;
@@ -697,7 +768,14 @@ NRISmokeTransientAdmission NRISmokeTransientClouds::AdmitBatch(
 			(static_cast<uint64_t>(outputIndex) * count) / admitCount);
 		const uint32_t end = static_cast<uint32_t>(
 			(static_cast<uint64_t>(outputIndex + 1u) * count) / admitCount);
-		const uint32_t representative = begin + (end - begin - 1u) / 2u;
+		// Explosion batch index zero is the primary connected binder. Retaining it
+		// in the first reduction bucket makes every reduced satellite keep its
+		// authored admission-time overlap path to the core. Positive-growth explosion
+		// styles with radius exponent at most one retain that path over lifetime;
+		// other classes preserve midpoint selection.
+		const uint32_t representative = outputIndex == 0u &&
+			requests[0].transientClass == NRISmokeTransientClass::Explosion
+			? begin : begin + (end - begin - 1u) / 2u;
 		admitted[outputIndex] = requests[representative];
 		double opticalQuantity = 0.0;
 		double intrinsicSource = 0.0;
@@ -891,12 +969,23 @@ void NRISmokeTransientClouds::RebuildLightSchedule()
 		group.fullLightScheduledFrame = 0u;
 		if (!group.active) continue;
 		bool visible = false;
-		for (uint32_t index = 0u; index < group.lobeCount && !visible; ++index)
-			visible = Visible(mLobes[group.lobes[index]]);
+		bool initialLightMature = false;
+		const double groupAge = mGameplayTimeSeconds - group.authoredGameplaySeconds;
+		for (uint32_t index = 0u; index < group.lobeCount; ++index)
+		{
+			const LobeSlot& lobe = mLobes[group.lobes[index]];
+			if (!Visible(lobe)) continue;
+			visible = true;
+			initialLightMature = initialLightMature ||
+				InitialLightMature(lobe.request, groupAge);
+		}
 		if (!visible) continue;
-		if (group.needsInitialLight)
+		// Materialization can use the coherent fallback during density attack. Do
+		// not spend the bounded full-build budget or freeze a near-empty self-shadow
+		// result until at least one visible member reaches 90% of its attack curve.
+		if (group.needsInitialLight && initialLightMature)
 			fresh.push_back(groupIndex);
-		else if (mProfile.allowSlowFireRefresh &&
+		else if (!group.needsInitialLight && mProfile.allowSlowFireRefresh &&
 			group.lightRefresh == NRISmokeTransientLightRefresh::Slow &&
 			mProfile.fireRefreshSeconds > 0.0f &&
 			mGameplayTimeSeconds - group.lastFullLightScheduleSeconds >=
