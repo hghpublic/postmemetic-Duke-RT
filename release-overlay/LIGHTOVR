@@ -412,12 +412,14 @@ LIGHTOVR
     smokestyle "duke_trail_smoke"
     {
         density 1.2
+        opticalamountscale 0.5
         extinction 0.004
         albedo 0.42 0.44 0.46
         anisotropy -0.1
         radius 10.0
         expansionvelocity 2.0
         lifetime 4.0
+        transientlifetimeseconds 0.75
         densityhalflife 0.5
         risevelocity 7.0
         velocityrandom 2.0
@@ -429,6 +431,16 @@ LIGHTOVR
         temperature 3.0
         momentumscale 1.0
         coolinghalflife 2.0
+        densitysustainseconds 0.18
+        densityreleaseseconds 0.57
+        radiusexponent 0.90
+        clusterspread 0.80
+        loberadiusrandom 0.78 1.10
+        curlvelocity 1.25
+        coreplateau 0.56
+        edgeerosion 0.10
+        noisescale 0.045
+        noisestrength 0.16
     }
 
     smokestyle "ground_mood_smoke"
@@ -511,7 +523,9 @@ LIGHTOVR
         actorclass "DukeRPG"
         trigger interval
         activation immediate
-        representation grid
+        representation "transient-cloud"
+        effectclass trail
+        lobecount 4
         queuepolicy latest
         maxlatencyseconds 0.15
         analyticcarriers 1

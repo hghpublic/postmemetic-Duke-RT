@@ -8,6 +8,7 @@ $release = Get-Content -LiteralPath (Join-Path $root 'release-overlay/LIGHTOVR')
 # bypass this source allowlist (the scanner requires quoted transient-cloud).
 $cutovers = @{
     duke_explosion_cloud = @{ Class = 'explosion'; Lobes = 12; Legacy = 'grid' }
+    duke_rpg_trail_continuous = @{ Class = 'trail'; Lobes = 4; Legacy = 'grid' }
 }
 
 # Canonical field hashes at 64e8366e7a. Strip only the explicitly transient-only
