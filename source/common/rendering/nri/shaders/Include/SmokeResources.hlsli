@@ -9,6 +9,7 @@
 #include "SmokeGridLightingData.hlsli"
 #include "SmokeViewWorkData.hlsli"
 #include "SmokeAnalyticData.hlsli"
+#include "SmokeTransientData.hlsli"
 #include "SmokeDormantGridData.hlsli"
 
 #define NRI_SMOKE_SET_INPUTS 0
@@ -282,6 +283,32 @@ struct SmokeControl
 	uint AnalyticLightMissingGroupRecords;
 	uint AnalyticLightIdentityRejects;
 	uint AnalyticLightApplyVisibilityRays;
+	uint TransientBinsTouched;
+	uint TransientBinCandidates;
+	uint TransientBinOverflow;
+	uint TransientLightBuildGroups;
+	uint TransientLightFullBuildClaims;
+	uint TransientLightFullBuilds;
+	uint TransientLightFallbackBuilds;
+	uint TransientLightAnchorsWritten;
+	uint TransientLightPublishedFull;
+	uint TransientLightPublishedFallback;
+	uint TransientLightPointCandidatesTested;
+	uint TransientLightPointSelected;
+	uint TransientLightDirectionalSamples;
+	uint TransientLightEmissiveSamples;
+	uint TransientLightVisibilityRays;
+	uint TransientLightSelfTransmittanceTests;
+	uint TransientLightObservedGroups;
+	uint TransientLightObservedFull;
+	uint TransientLightObservedFallback;
+	uint TransientLightMissing;
+	uint TransientLightIdentityRejects;
+	uint TransientMaterializeFroxelsTested;
+	uint TransientMaterializeFroxelsApplied;
+	uint TransientMaterializeLobeTests;
+	uint TransientMaterializeLobeContributions;
+	uint TransientLightApplyVisibilityRays;
 };
 
 // Froxel carrier state is authored by materialization and remains independent

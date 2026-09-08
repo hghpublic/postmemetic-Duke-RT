@@ -53,7 +53,7 @@ if ($carrierEmissiveResolve -match 'SmokeEmissiveVisible(?:Filtered)?\(') {
 if ($carrierEmissiveBuild -match 'EmissiveTemporal|FrameIndex\s*-\s*1') {
     throw 'Admission-time analytic lighting must not retain per-carrier temporal convergence.'
 }
-Require-Match $smoke 'runCarrierEmissive\s*=\s*analyticCount\s*>\s*0u\s*&&\s*worldEmissiveReady' 'Carrier emissive reuse must be restricted to the world-field route.'
+Require-Match $smoke 'runCarrierEmissive\s*=\s*!fieldDiagnostics\s*&&\s*analyticCount\s*>\s*0u\s*&&\s*worldEmissiveReady' 'Legacy carrier emissive reuse must retain its field-debug guard and world-field route.'
 Require-Match $smoke '!renderParticles\s*&&\s*!mSettings\.emissiveReference' 'Particle/compare and reference modes must retain their established lighting routes.'
 Require-Match $contracts 'analyticLightBuildEvents[\s\S]*analyticLightApplyVisibilityRays' 'Analytic build/apply counters must have a dedicated GPU readback contract.'
 Require-Match $clear 'AnalyticLightBuildEvents\s*=\s*0u[\s\S]*AnalyticLightApplyVisibilityRays\s*=\s*0u' 'Every analytic counter must reset at the frame boundary.'

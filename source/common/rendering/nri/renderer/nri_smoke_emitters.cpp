@@ -3,6 +3,7 @@
 #include "nri_smoke_admission.h"
 #include "nri_scene_lights.h"
 #include "nri_smoke_source_envelope.h"
+#include "nri_smoke_transient_trail_chunks.h"
 
 #include "../scene/nri_hash.h"
 
@@ -225,6 +226,17 @@ size_t NRISmokeEmitterSystem::IdentityHash::operator()(const Identity& value) co
 	return hash;
 }
 
+void NRISmokeEmitterSystem::SetMapEmittersEnabled(bool enabled)
+{
+	if (mMapEmittersEnabled == enabled)
+		return;
+	mMapEmittersEnabled = enabled;
+	mMapEmitterStates.clear();
+	mEditorPreviewState = {};
+	mEditorPreviewMapName = "";
+	mEditorPreviewRuleId = "";
+}
+
 void NRISmokeEmitterSystem::Reset()
 {
 	mActorStates.clear();
@@ -238,6 +250,7 @@ void NRISmokeEmitterSystem::Reset()
 	mGeneration = 0;
 	mRouteSnapshot = {};
 	mRouteSnapshot.classMask = mTransientClassMask;
+	mRouteSnapshot.mapEmittersEnabled = mMapEmittersEnabled;
 }
 
 void NRISmokeEmitterSystem::Gather(uint32_t epoch, double gameplayTimeSeconds, const TArray<PathTracingWeaponLightEvent>& weaponEvents,
@@ -293,10 +306,12 @@ void NRISmokeEmitterSystem::Gather(uint32_t epoch, double gameplayTimeSeconds, c
 	mRouteSnapshot = {};
 	mRouteSnapshot.gatherId = ++mNextRouteGatherId;
 	mRouteSnapshot.classMask = mTransientClassMask;
+	mRouteSnapshot.mapEmittersEnabled = mMapEmittersEnabled;
 	auto recordRoute = [&](const NRISmokeInjectionCommandGpu& command,
 		LightOverlaySmokeRepresentation authoredRepresentation,
 		LightOverlaySmokeRepresentation effectiveRepresentation,
-		LightOverlaySmokeTransientClass transientClass, uint32_t gridCount,
+		LightOverlaySmokeTransientClass transientClass, uint32_t sourceQuantity,
+		uint32_t gridCount,
 		uint32_t analyticCount, uint32_t transientGroupCount,
 		uint32_t transientLobeCount)
 	{
@@ -319,7 +334,9 @@ void NRISmokeEmitterSystem::Gather(uint32_t epoch, double gameplayTimeSeconds, c
 			attribution->effectiveRepresentation = static_cast<uint32_t>(effectiveRepresentation);
 			attribution->transientClass = static_cast<uint32_t>(transientClass);
 		}
-		attribution->sourceQuantity += command.count;
+		attribution->sourceQuantity = sourceQuantity >
+			UINT32_MAX - attribution->sourceQuantity ? UINT32_MAX :
+			attribution->sourceQuantity + sourceQuantity;
 		attribution->gridCommands += gridCount;
 		attribution->analyticCarriers += analyticCount;
 		attribution->transientGroups += transientGroupCount;
@@ -341,7 +358,8 @@ void NRISmokeEmitterSystem::Gather(uint32_t epoch, double gameplayTimeSeconds, c
 		bool hasMaximumLatency, float maximumLatencySeconds, double authoredGameplaySeconds,
 		uint64_t sourceEventSerial, uint32_t analyticCarrierCount,
 		uint32_t transientLobeCount, LightOverlaySmokeTransientClass transientClass,
-		bool transitory, const float* transientTrailAxis = nullptr,
+		bool transitory, uint32_t sourceQuantity,
+		const float* transientTrailAxis = nullptr,
 		float transientTrailSpan = 0.0f,
 		uint64_t analyticBridgeSourceKey = 0u,
 		uint64_t analyticBridgeSegmentRevision = 0u) -> bool
@@ -365,7 +383,7 @@ void NRISmokeEmitterSystem::Gather(uint32_t epoch, double gameplayTimeSeconds, c
 			info.analyticBridgeSegmentRevision = analyticBridgeSegmentRevision;
 			commandEnqueueInfo.push_back(info);
 			recordRoute(command, authoredRepresentation, representation, transientClass,
-				1u, 0u, 0u, 0u);
+				sourceQuantity, 1u, 0u, 0u, 0u);
 			return true;
 		}
 		if (command.styleIndex >= styles.size())
@@ -386,10 +404,11 @@ void NRISmokeEmitterSystem::Gather(uint32_t epoch, double gameplayTimeSeconds, c
 			std::copy(command.halfAxisV, command.halfAxisV + 3, shape.halfAxisV);
 			shape.initialRadius = initialRadius;
 			shape.initialDensity = std::max(command.densityScale, 0.0f);
-			shape.opticalAmount = static_cast<float>(command.count);
+			shape.opticalAmount = static_cast<float>(command.count) * authoredStyle->opticalAmountScale;
 			shape.expansionVelocity = style.expansionVelocity;
 			shape.densityHalfLife = std::max(style.densityHalfLife, 0.001f);
-			shape.lobeLifetimeSeconds = std::max(style.lifetime, 0.001f);
+			shape.lobeLifetimeSeconds = authoredStyle->transientLifetimeSeconds > 0.0f
+				? authoredStyle->transientLifetimeSeconds : std::max(style.lifetime, 0.001f);
 			shape.groupLifetimeSeconds = shape.lobeLifetimeSeconds;
 			shape.maximumLatencySeconds = hasMaximumLatency ?
 				std::max(maximumLatencySeconds, 0.0f) : 0.0f;
@@ -427,7 +446,7 @@ void NRISmokeEmitterSystem::Gather(uint32_t epoch, double gameplayTimeSeconds, c
 			if (lobeCount == 0u) return false;
 			transientRequests.insert(transientRequests.end(), lobes, lobes + lobeCount);
 			recordRoute(command, authoredRepresentation, representation, transientClass,
-				0u, 0u, 1u, lobeCount);
+				sourceQuantity, 0u, 0u, 1u, lobeCount);
 			return true;
 		}
 
@@ -466,7 +485,7 @@ void NRISmokeEmitterSystem::Gather(uint32_t epoch, double gameplayTimeSeconds, c
 			analyticRequests.push_back(request);
 		}
 		recordRoute(command, authoredRepresentation, representation, transientClass,
-			0u, carrierCount, 0u, 0u);
+			sourceQuantity, 0u, carrierCount, 0u, 0u);
 		return true;
 	};
 
@@ -692,27 +711,40 @@ void NRISmokeEmitterSystem::Gather(uint32_t epoch, double gameplayTimeSeconds, c
 					state.intervalRemainder = std::fmod(total, (double)rule.intervalSeconds);
 				}
 
-				const uint32_t emitCount = std::min(candidateCount, rule.maxSegmentsPerFrame);
-				const uint32_t cadenceStepsBeforeInterval = continuousCadenceSteps;
-				const uint32_t skipped = candidateCount - emitCount;
-				const double stride = spatialCadence ? (double)rule.spacing : (double)rule.intervalSeconds;
 				const bool transientTrail = effectiveRepresentation ==
 					LightOverlaySmokeRepresentation::TransientCloud &&
 					rule.transientClass == LightOverlaySmokeTransientClass::TrailChunk &&
 					spatialCadence;
+				uint32_t emitCount = std::min(candidateCount, rule.maxSegmentsPerFrame);
+				if (transientTrail && rule.styleIndex < styles.size())
+				{
+					const NRISmokeStyleGpu& trailStyle = styles[rule.styleIndex];
+					const float initialRadius = std::max(std::max(rule.spawnRadius,
+						trailStyle.radius * rule.radiusScale), 0.001f);
+					const float minimumRadiusScale = rule.styleIndex < resolved.smokeStyles.Size()
+						? resolved.smokeStyles[rule.styleIndex].lobeRadiusRandom[0] : 0.75f;
+					emitCount = NRIPlanSmokeTransientTrailChunkCount(candidateCount,
+						rule.maxSegmentsPerFrame, rule.spacing, initialRadius,
+						minimumRadiusScale, rule.transientLobeCount);
+				}
+				const uint32_t cadenceStepsBeforeInterval = continuousCadenceSteps;
+				const uint32_t skipped = candidateCount - emitCount;
+				const double stride = spatialCadence ? (double)rule.spacing : (double)rule.intervalSeconds;
 				for (uint32_t emissionIndex = 0; emissionIndex < emitCount; ++emissionIndex)
 				{
 					uint32_t firstLogical = skipped + emissionIndex;
 					uint32_t lastLogical = firstLogical;
 					if (transientTrail)
 					{
-						// A bounded number of trail chunks covers every logical crossing.
-						// This compresses hitch work spatially instead of discarding an old
-						// prefix and leaving a visible hole behind the projectile.
-						firstLogical = (uint32_t)(((uint64_t)emissionIndex * candidateCount) /
-							emitCount);
-						lastLogical = (uint32_t)(((uint64_t)(emissionIndex + 1u) *
-							candidateCount) / emitCount) - 1u;
+						// A bounded number of support-sized trail chunks covers every logical
+						// crossing. Normal game-tick motion becomes one group, while hitches
+						// split only as needed. This is transient-only: mask rollback retains
+						// the original Grid maxsegments behavior byte-for-byte.
+						const NRISmokeTransientTrailChunkRange range =
+							NRIGetSmokeTransientTrailChunkRange(candidateCount, emitCount,
+								emissionIndex);
+						firstLogical = range.firstLogical;
+						lastLogical = range.lastLogical;
 					}
 					const double firstLogicalCrossing = firstCrossing +
 						(double)firstLogical * stride;
@@ -720,8 +752,13 @@ void NRISmokeEmitterSystem::Gather(uint32_t epoch, double gameplayTimeSeconds, c
 						(double)lastLogical * stride;
 					const double crossing = (firstLogicalCrossing + lastLogicalCrossing) * 0.5;
 					const double fraction = measure > 0.0 ? std::clamp(crossing / measure, 0.0, 1.0) : 1.0;
-					const double emissionTime = cadenceStartTimeSeconds +
-						std::max(0.0, gameplayTimeSeconds - cadenceStartTimeSeconds) * fraction;
+					// Compressed trail support is a current presentation of the complete
+					// observed motion segment, not delayed replay into unchanged arbitrary
+					// world history. Stamp it now so a bounded hitch cannot make its older
+					// support fail the authored freshness gate on arrival.
+					const double emissionTime = transientTrail ? gameplayTimeSeconds :
+						cadenceStartTimeSeconds + std::max(0.0, gameplayTimeSeconds -
+							cadenceStartTimeSeconds) * fraction;
 					const uint64_t firstOrdinal = state.continuousCadenceOrdinal +
 						(uint64_t)cadenceStepsBeforeInterval + (uint64_t)firstLogical + 1u;
 					const uint64_t lastOrdinal = state.continuousCadenceOrdinal +
@@ -794,6 +831,9 @@ void NRISmokeEmitterSystem::Gather(uint32_t epoch, double gameplayTimeSeconds, c
 					(uint64_t)(uint32_t)actor->GetIndex() << 32u | command.serial,
 					rule.analyticCarrierCount, rule.transientLobeCount, rule.transientClass,
 					sourceLifetime == NRISmokeActorSourceLifetime::Transitory,
+					(uint32_t)std::min<uint64_t>(UINT32_MAX,
+						(uint64_t)command.count * (emission.lastCadenceOrdinal -
+							emission.firstCadenceOrdinal + 1u)),
 					transientTrailAxisPointer, emission.trailSpan,
 					bridgeSourceKey, bridgeRevision);
 				if (traceMode != 0)
@@ -1061,6 +1101,11 @@ void NRISmokeEmitterSystem::Gather(uint32_t epoch, double gameplayTimeSeconds, c
 		{
 			continue;
 		}
+		if (!mMapEmittersEnabled)
+		{
+			mRouteSnapshot.suppressedMapRules++;
+			continue;
+		}
 		if (hasEditorPreview && editorPreview.suppressPersistedRule &&
 			rule.mapName.CompareNoCase(editorPreview.rule.mapName) == 0 &&
 			rule.id.CompareNoCase(editorPreview.rule.id) == 0)
@@ -1071,6 +1116,7 @@ void NRISmokeEmitterSystem::Gather(uint32_t epoch, double gameplayTimeSeconds, c
 		const NRISmokeInterestTier tier = interest.Resolve(sourceId);
 		const MapEmissionStats stats = emitMapRule(rule, mMapEmitterStates[sourceId], "map",
 			NRISmokeInjectionSourceClass::AmbientMap, tier);
+		mRouteSnapshot.ambientMapCommands += stats.emitted;
 		if (traceMode != 0)
 		{
 			Printf("NRI PT smoke emitter: event=map-frame-summary map=%s rule=%s active=%u tier=%u emitted=%u particles=%u skipped=%u dormant=%u coalesced=%u debt=%u interval=%.3f footprint_bricks=%u grid_capacity=%u impossible=%u shape=rectangle\n",
@@ -1081,7 +1127,7 @@ void NRISmokeEmitterSystem::Gather(uint32_t epoch, double gameplayTimeSeconds, c
 		}
 	}
 
-	if (hasEditorPreview)
+	if (hasEditorPreview && mMapEmittersEnabled)
 	{
 		const ResolvedLightOverlaySmokeStyle* previewStyle = nullptr;
 		for (const auto& style : resolved.smokeStyles)
@@ -1108,6 +1154,7 @@ void NRISmokeEmitterSystem::Gather(uint32_t epoch, double gameplayTimeSeconds, c
 			previewRule.styleResolved = true;
 			const MapEmissionStats stats = emitMapRule(previewRule, mEditorPreviewState, "map-preview",
 				NRISmokeInjectionSourceClass::Diagnostic, NRISmokeInterestTier::Hot);
+			mRouteSnapshot.previewMapCommands += stats.emitted;
 			if (traceMode != 0)
 			{
 				Printf("NRI PT smoke emitter: event=map-preview-frame-summary map=%s rule=%s active=%u emitted=%u particles=%u skipped=%u interval=%.3f revision=%u shape=rectangle\n",
@@ -1118,6 +1165,8 @@ void NRISmokeEmitterSystem::Gather(uint32_t epoch, double gameplayTimeSeconds, c
 	}
 	else
 	{
+		if (hasEditorPreview && !mMapEmittersEnabled)
+			mRouteSnapshot.suppressedMapPreviews = 1u;
 		mEditorPreviewState = {};
 		mEditorPreviewMapName = "";
 		mEditorPreviewRuleId = "";
@@ -1202,7 +1251,7 @@ void NRISmokeEmitterSystem::Gather(uint32_t epoch, double gameplayTimeSeconds, c
 			const bool routed = routeCommand(command, rule.representation, rule.queuePolicy,
 				rule.hasMaxLatencySeconds, rule.maxLatencySeconds, event.absoluteTimeSeconds,
 				event.serial, rule.analyticCarrierCount, rule.transientLobeCount,
-				rule.transientClass, true, nullptr, 0.0f, 0u, 0u);
+				rule.transientClass, true, command.count, nullptr, 0.0f, 0u, 0u);
 			if (!routed)
 			{
 				if (traceMode != 0)
@@ -1237,10 +1286,17 @@ void NRISmokeEmitterSystem::Gather(uint32_t epoch, double gameplayTimeSeconds, c
 	}
 	mRouteSnapshot.trailBridgeObservations = (uint32_t)trailObservations.size();
 	if (traceMode != 0 && (!mRouteSnapshot.sources.empty() ||
-		mRouteSnapshot.trailBridgeObservations != 0u))
+		mRouteSnapshot.trailBridgeObservations != 0u ||
+		mRouteSnapshot.ambientMapCommands != 0u ||
+		mRouteSnapshot.previewMapCommands != 0u ||
+		mRouteSnapshot.suppressedMapRules != 0u ||
+		mRouteSnapshot.suppressedMapPreviews != 0u))
 	{
-		Printf("NRI PT smoke routing: event=frame-summary gather=%llu class_mask=%u sources=%u grid_commands=%u analytic_carriers=%u transient_groups=%u transient_lobes=%u fallback_grid=%u fallback_analytic=%u bridge_observations=%u\n",
+		Printf("NRI PT smoke routing: event=frame-summary gather=%llu class_mask=%u map_emitters=%u map_rules_suppressed=%u map_previews_suppressed=%u ambient_map_commands=%u preview_map_commands=%u sources=%u grid_commands=%u analytic_carriers=%u transient_groups=%u transient_lobes=%u fallback_grid=%u fallback_analytic=%u bridge_observations=%u\n",
 			(unsigned long long)mRouteSnapshot.gatherId, mRouteSnapshot.classMask,
+			mRouteSnapshot.mapEmittersEnabled ? 1u : 0u, mRouteSnapshot.suppressedMapRules,
+			mRouteSnapshot.suppressedMapPreviews, mRouteSnapshot.ambientMapCommands,
+			mRouteSnapshot.previewMapCommands,
 			(uint32_t)mRouteSnapshot.sources.size(), mRouteSnapshot.gridCommands,
 			mRouteSnapshot.analyticCarriers, mRouteSnapshot.transientGroups,
 			mRouteSnapshot.transientLobes, mRouteSnapshot.fallbackGridCommands,

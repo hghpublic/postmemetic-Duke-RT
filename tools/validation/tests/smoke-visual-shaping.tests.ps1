@@ -47,7 +47,7 @@ Assert-Match $settings 'extinctionThreshold[\s\S]*extinctionKnee[\s\S]*extinctio
 
 # D3D12 rejects even the nominally 64-DWORD expanded signature. Volume-only
 # visual words therefore reuse the simulation-only time/wind lanes and retain
-# the proven 216-byte root layout without changing simulation dispatch values.
+# the established 216-byte root layout without changing simulation dispatch values.
 Assert-Match $contracts 'Simulation dispatch:\s*time scale\.\s*Volume dispatch:\s*packed smoke visual word 0[\s\S]*Simulation dispatch:\s*world wind\.\s*Volume dispatch:\s*packed visual words 1\.\.3[\s\S]*sizeof\(NRISmokeConstants\)\s*==\s*216' 'CPU visual packing must reuse the phase-exclusive time/wind lanes and preserve 216 bytes.'
 Assert-Match $constants 'Simulation dispatch:\s*time scale\.\s*Volume dispatch:\s*packed visual word 0[\s\S]*Simulation dispatch:\s*world wind\.\s*Volume dispatch:\s*packed visual words 1\.\.3' 'HLSL must document the matching phase-exclusive visual lanes.'
 Assert-Match (Read-Source 'source\common\rendering\nri\renderer\nri_smoke_visuals.cpp') 'StorePackedWord\(constants\.timeScale[\s\S]*StorePackedWord\(constants\.wind\[0\][\s\S]*StorePackedWord\(constants\.wind\[1\][\s\S]*StorePackedWord\(constants\.wind\[2\]' 'CPU visual packing must populate all four reused lanes.'

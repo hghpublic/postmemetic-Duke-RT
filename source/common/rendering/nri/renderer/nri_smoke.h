@@ -5,6 +5,9 @@
 #include "nri_smoke_authority.h"
 #include "nri_smoke_admission.h"
 #include "nri_smoke_analytic_carriers.h"
+#include "nri_smoke_transient_clouds.h"
+#include "nri_smoke_transient_resources.h"
+#include "nri_smoke_transient_diagnostics.h"
 #include "nri_smoke_contracts.h"
 #include "nri_smoke_emitters.h"
 #include "nri_smoke_grid.h"
@@ -54,6 +57,7 @@ struct NRISmokeStatusSnapshot
 	uint32_t commandsDropped = 0;
 	NRISmokeAdmissionSnapshot admission = {};
 	NRISmokeAnalyticCarrierSnapshot analytic = {};
+	NRISmokeTransientTelemetry transient = {};
 	NRISmokeSpatialInterestSnapshot spatialResidency = {};
 	NRISmokeDormantGridStatusSnapshot dormantGrid = {};
 	struct AnalyticLightTelemetry
@@ -285,6 +289,18 @@ struct NRISmokeStatusSnapshot
 class NRISmokeSystem
 {
 public:
+	static constexpr uint32_t PipelineDescriptorSetCount = 6u;
+	// NRI's D3D12 validation conservatively charges one DWORD per range,
+	// including the five independently typed ranges in the scene set.
+	static constexpr uint32_t PipelineDescriptorRangeCount = 10u;
+	static constexpr uint32_t D3D12RootDwordCount =
+		uint32_t(sizeof(NRISmokeConstants) / sizeof(uint32_t)) +
+		PipelineDescriptorRangeCount;
+	static_assert(sizeof(NRISmokeConstants) % sizeof(uint32_t) == 0u,
+		"Smoke root constants must contain whole DWORDs");
+	static_assert(D3D12RootDwordCount <= 64u,
+		"Smoke root constants and descriptor tables exceed the D3D12 root-signature limit");
+
 	bool Initialize(NRIRenderer& renderer);
 	bool PrepareFrame(NRIRenderer& renderer, bool mainViewEligible, const TArray<PathTracingWeaponLightEvent>& weaponEvents);
 	bool DispatchRoute(NRIRenderer& renderer, const NRISmokeRouteDesc& route);
@@ -319,6 +335,8 @@ private:
 		uint32_t analyticBuildDispatchGroups = 0u;
 		uint32_t analyticApplyDispatchGroups = 0u;
 		NRISmokeAnalyticCarrierSnapshot analyticSnapshot = {};
+		NRISmokeTransientSnapshot transientSnapshot = {};
+		uint64_t transientResidentBytes = 0;
 	};
 
 	bool EnsureResources(NRIRenderer& renderer, uint32_t representation);
@@ -386,6 +404,10 @@ private:
 	NRISmokePulseOwner mPulseOwner;
 	NRISmokePromptFallback mPromptFallback;
 	NRISmokeAnalyticCarriers mAnalyticCarriers;
+	NRISmokeTransientClouds mTransientClouds;
+	NRISmokeTransientResources mTransientResources;
+	NRISmokeTransientProfile mTransientProfile;
+	uint32_t mTransientLightingPolicyKey = UINT32_MAX;
 	NRISmokeAnalyticTrailBridge mAnalyticTrailBridge;
 	NRISmokeWorkScheduler mWorkScheduler;
 	std::vector<NRISmokeStyleGpu> mStyles;
@@ -394,6 +416,7 @@ private:
 	std::vector<NRISmokeAnalyticTrailObservationBatch> mPendingTrailObservations;
 	std::vector<NRISmokeInjectionCommandGpu> mSelectedGridCommands;
 	std::vector<NRISmokeAnalyticCarrierRequest> mPendingAnalyticRequests;
+	std::vector<NRISmokeTransientLobeRequest> mPendingTransientRequests;
 	std::vector<NRISmokeDormantGridWorkGpu> mDormantDemotions;
 	std::vector<NRISmokeDormantGridWorkGpu> mDormantPromotions;
 	NRISmokeDormantInjectionBuildResult mDormantInjectionBuild;

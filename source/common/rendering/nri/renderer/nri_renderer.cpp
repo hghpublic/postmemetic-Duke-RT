@@ -3300,7 +3300,7 @@ const char* NRIRenderer::GetAvailabilityReason() const
 	const size_t requiredRootConstantSize = std::max({ sizeof(NRITraceSceneConstants), sizeof(NRITemporalConstants), sizeof(NRIPresentConstants), sizeof(NRIExposureConstants), sizeof(NRISmokeConstants) });
 	if (deviceDesc.pipelineLayout.rootConstantMaxSize < requiredRootConstantSize ||
 		deviceDesc.pipelineLayout.rootDescriptorMaxNum < 1 ||
-		deviceDesc.pipelineLayout.descriptorSetMaxNum < 5)
+		deviceDesc.pipelineLayout.descriptorSetMaxNum < NRISmokeSystem::PipelineDescriptorSetCount)
 	{
 		return "device pipeline layout limits are below the NRI PT backend requirements";
 	}
@@ -3331,7 +3331,7 @@ bool NRIRenderer::CheckPathTracingSupport()
 	if (deviceDesc.tiers.rayTracing == 0 ||
 		deviceDesc.pipelineLayout.rootConstantMaxSize < requiredRootConstantSize ||
 		deviceDesc.pipelineLayout.rootDescriptorMaxNum < 1 ||
-		deviceDesc.pipelineLayout.descriptorSetMaxNum < 5)
+		deviceDesc.pipelineLayout.descriptorSetMaxNum < NRISmokeSystem::PipelineDescriptorSetCount)
 	{
 		mPathTracingSupported = false;
 		LogFallback(GetAvailabilityReason());

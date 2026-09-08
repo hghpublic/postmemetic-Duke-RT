@@ -39,11 +39,11 @@ Assert-Match $visualHeader 'dualLobeWeight\s*=\s*0\.0f[\s\S]*dualLobeG\s*=\s*0\.
 
 # OutputWidth is a copied per-pass alias. The whitelist must remain exact so
 # Composite always sees its canonical output extent.
-Assert-Match $contracts 'sizeof\(NRISmokeConstants\)\s*==\s*216' 'Dual-lobe phase must not grow the accepted root block.'
+Assert-Match $contracts 'sizeof\(NRISmokeConstants\)\s*==\s*216' 'Dual-lobe phase must preserve the established root block.'
 Assert-Match $visualOwner 'PackPhaseWord[\s\S]*PackHalf2\(settings\.dualLobeWeight,\s*settings\.dualLobeG\)[\s\S]*constants\.outputWidth\s*=\s*PackPhaseWord\(settings\)' 'CPU phase packing must use the reviewed OutputWidth alias.'
 $actualPasses = @([regex]::Matches($runtime, 'case\s+NRISmokePass::([A-Za-z0-9_]+):') | ForEach-Object { $_.Groups[1].Value })
 $expectedPasses = @('EvaluateGrid', 'EvaluateGridCompact', 'LightPoint', 'LightDirectional',
-    'LightEmissiveInitial', 'LightEmissiveTemporal', 'LightEmissiveSpatial', 'AnalyticEmissiveResolve')
+    'LightEmissiveInitial', 'LightEmissiveTemporal', 'LightEmissiveSpatial', 'AnalyticEmissiveResolve', 'TransientMaterialize')
 if (($actualPasses -join ',') -ne ($expectedPasses -join ',')) {
     throw "Visual phase pass whitelist changed (actual=$($actualPasses -join ','))."
 }

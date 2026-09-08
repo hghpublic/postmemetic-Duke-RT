@@ -950,6 +950,8 @@ namespace
 				else if (sc.Compare("temperature")) value = &rule.temperature;
 				else if (sc.Compare("momentumscale")) value = &rule.momentumScale;
 				else if (sc.Compare("coolinghalflife")) { value = &rule.coolingHalfLife; minimum = 0.001f; }
+				else if (sc.Compare("opticalamountscale")) value = &rule.opticalAmountScale;
+				else if (sc.Compare("transientlifetimeseconds")) value = &rule.transientLifetimeSeconds;
 				else if (sc.Compare("densityattackseconds")) value = &rule.densityAttackSeconds;
 				else if (sc.Compare("densitysustainseconds")) value = &rule.densitySustainSeconds;
 				else if (sc.Compare("densityreleaseseconds")) value = &rule.densityReleaseSeconds;
@@ -2049,6 +2051,8 @@ namespace
 		AppendLine(text, 2, FStringf("temperature %s", FormatLightOverlayFloat(rule.temperature).GetChars()));
 		AppendLine(text, 2, FStringf("momentumscale %s", FormatLightOverlayFloat(rule.momentumScale).GetChars()));
 		AppendLine(text, 2, FStringf("coolinghalflife %s", FormatLightOverlayFloat(rule.coolingHalfLife).GetChars()));
+		AppendLine(text, 2, FStringf("opticalamountscale %s", FormatLightOverlayFloat(rule.opticalAmountScale).GetChars()));
+		AppendLine(text, 2, FStringf("transientlifetimeseconds %s", FormatLightOverlayFloat(rule.transientLifetimeSeconds).GetChars()));
 		AppendLine(text, 2, FStringf("densityattackseconds %s", FormatLightOverlayFloat(rule.densityAttackSeconds).GetChars()));
 		AppendLine(text, 2, FStringf("densitysustainseconds %s", FormatLightOverlayFloat(rule.densitySustainSeconds).GetChars()));
 		AppendLine(text, 2, FStringf("densityreleaseseconds %s", FormatLightOverlayFloat(rule.densityReleaseSeconds).GetChars()));
@@ -2561,7 +2565,8 @@ namespace
 			Printf("LIGHTOVR smokestyle %s: density=%.3f extinction=%.4f radius=%.3f lifetime=%.3f half_life=%.3f source=%s\n",
 				rule->id.GetChars(), rule->density, rule->extinction, rule->radius, rule->lifetime, rule->densityHalfLife,
 				SourceLocationText(rule->source).GetChars());
-			Printf("  transient density_envelope=(%.3f,%.3f,%.3f) radius_exponent=%.3f intrinsic_emission=%.3f emission_half_life=%.3f cluster_spread=%.3f lobe_radius_random=(%.3f,%.3f) curl_velocity=%.3f core_plateau=%.3f edge_erosion=%.3f noise=(%.4f,%.3f)\n",
+			Printf("  transient optical_amount_scale=%.6f transient_lifetime_seconds=%.3f density_envelope=(%.3f,%.3f,%.3f) radius_exponent=%.3f intrinsic_emission=%.3f emission_half_life=%.3f cluster_spread=%.3f lobe_radius_random=(%.3f,%.3f) curl_velocity=%.3f core_plateau=%.3f edge_erosion=%.3f noise=(%.4f,%.3f)\n",
+				rule->opticalAmountScale, rule->transientLifetimeSeconds,
 				rule->densityAttackSeconds, rule->densitySustainSeconds,
 				rule->densityReleaseSeconds, rule->radiusExponent,
 				rule->intrinsicEmission, rule->emissionHalfLife, rule->clusterSpread,
@@ -2750,8 +2755,9 @@ namespace
 
 		for (const auto& rule : resolved.smokeStyles)
 		{
-			Printf("LIGHTOVR resolved smokestyle %s: style_index=%u density_envelope=(%.3f,%.3f,%.3f) radius_exponent=%.3f intrinsic_emission=%.3f emission_half_life=%.3f cluster_spread=%.3f lobe_radius_random=(%.3f,%.3f) curl_velocity=%.3f core_plateau=%.3f edge_erosion=%.3f noise=(%.4f,%.3f) source=%s\n",
-				rule.id.GetChars(), rule.styleIndex, rule.densityAttackSeconds,
+			Printf("LIGHTOVR resolved smokestyle %s: style_index=%u optical_amount_scale=%.6f transient_lifetime_seconds=%.3f density_envelope=(%.3f,%.3f,%.3f) radius_exponent=%.3f intrinsic_emission=%.3f emission_half_life=%.3f cluster_spread=%.3f lobe_radius_random=(%.3f,%.3f) curl_velocity=%.3f core_plateau=%.3f edge_erosion=%.3f noise=(%.4f,%.3f) source=%s\n",
+				rule.id.GetChars(), rule.styleIndex, rule.opticalAmountScale,
+				rule.transientLifetimeSeconds, rule.densityAttackSeconds,
 				rule.densitySustainSeconds, rule.densityReleaseSeconds,
 				rule.radiusExponent, rule.intrinsicEmission, rule.emissionHalfLife,
 				rule.clusterSpread, rule.lobeRadiusRandom[0], rule.lobeRadiusRandom[1],

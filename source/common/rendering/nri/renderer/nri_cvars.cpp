@@ -930,6 +930,11 @@ CVAR(Bool, nri_ptsmokeviewcompare, false, 0)
 CVAR(Int, nri_ptsmokeviewroute, 2, 0)
 CVAR(Float, nri_ptsmokeindirectscale, 1.0f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 CVAR(Int, nri_ptsmokerepresentation, 1, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+// Session-only class rollback: explosion, trail, fire, muzzle, impact, diagnostic.
+CVAR(Int, nri_ptsmoketransientmask, 63, 0)
+CVAR(Bool, nri_ptsmoketransientselfshadow, true, 0)
+// Session-only validation isolation. Production map smoke remains enabled by default.
+CVAR(Bool, nri_ptsmokemapemitters, true, 0)
 CVAR(Int, nri_ptsmokegridbricks, 512, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 CVAR(Bool, nri_ptsmokedormantgrid, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 CVAR(Float, nri_ptsmokegridcellsize, 8.0f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)

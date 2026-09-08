@@ -2,6 +2,7 @@
 #include "nri_gpu_timing.h"
 #include "../renderer/nri_cvars.h"
 #include "../renderer/nri_diagnostic_cadence.h"
+#include "../renderer/nri_smoke_descriptor_budget.h"
 
 #include "../framegen/nri_framegen.h"
 #include "../renderer/nri_renderer.h"
@@ -2095,7 +2096,7 @@ CCMD(nri_ptsmoke_test)
 	if (argv.argc() < 2)
 	{
 		frameBuffer->QueueSyntheticPathTracingSmoke();
-		Printf("NRI PT smoke synthetic injection queued. Use nri_ptsmoke_test <event_rule_id> to test authored weapon-event fan-out.\n");
+		Printf("NRI PT smoke synthetic injection queued. Use nri_ptsmoke_test <event_rule_id> [forward_distance] to test authored weapon-event fan-out.\n");
 		return;
 	}
 
@@ -2112,7 +2113,10 @@ CCMD(nri_ptsmoke_test)
 
 	PathTracingWeaponLightEvent event;
 	FString error;
-	if (!BuildLocalPlayerWeaponLightEvent(rule->id.GetChars(), DefaultPtTestLightOffset, event, error))
+	const float requestedOffset = argv.argc() > 2 ? (float)atof(argv[2]) : DefaultPtTestLightOffset;
+	const float forwardOffset = std::isfinite(requestedOffset)
+		? std::clamp(requestedOffset, 1.0f, 4096.0f) : DefaultPtTestLightOffset;
+	if (!BuildLocalPlayerWeaponLightEvent(rule->id.GetChars(), forwardOffset, event, error))
 	{
 		Printf("nri_ptsmoke_test: %s.\n", error.GetChars());
 		return;
@@ -9933,8 +9937,11 @@ bool NRIRenderDevice::CreateRenderResources()
 	poolDesc.samplerMaxNum = 32;
 	poolDesc.textureMaxNum = 16384;
 	poolDesc.storageTextureMaxNum = 128;
-	poolDesc.structuredBufferMaxNum = 512;
-	poolDesc.storageStructuredBufferMaxNum = 512;
+	// Smoke is initialized after the scene snapshot sets. Reserve its complete
+	// SRV layouts; counting only the transient delta left the Q=3 peak at 520/518.
+	poolDesc.structuredBufferMaxNum = nri_smoke_descriptors::SharedStructuredPoolCapacity(QueuedFrameCount);
+	// Six additional transient UAVs per queued smoke set.
+	poolDesc.storageStructuredBufferMaxNum = 512 + 6 * QueuedFrameCount;
 	poolDesc.accelerationStructureMaxNum = 16;
 
 	if (mCore.CreateDescriptorPool(*mDevice, poolDesc, mDescriptorPool) != nri::Result::SUCCESS)

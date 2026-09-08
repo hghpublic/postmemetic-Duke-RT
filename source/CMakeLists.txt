@@ -991,6 +991,9 @@ set (NRI_SOURCES
 	common/rendering/nri/renderer/nri_smoke.cpp
 	common/rendering/nri/renderer/nri_smoke_visuals.cpp
 	common/rendering/nri/renderer/nri_smoke_analytic_carriers.cpp
+	common/rendering/nri/renderer/nri_smoke_transient_clouds.cpp
+	common/rendering/nri/renderer/nri_smoke_transient_resources.cpp
+	common/rendering/nri/renderer/nri_smoke_transient_diagnostics.cpp
 	common/rendering/nri/renderer/nri_smoke_analytic_trail_bridge.cpp
 	common/rendering/nri/renderer/nri_smoke_work_scheduler.cpp
 	common/rendering/nri/renderer/nri_smoke_interest.cpp
@@ -1532,6 +1535,12 @@ endif()
 
 if (HAVE_NRI)
 	set(RAZE_NRI_SHADER_OUTPUT_DIR "${COMPILE_OUTPUT_DIRECTORY}/shaders/nri")
+	# Transient entry points have independent rules; changing one must not rebuild
+	# the unrelated production/diagnostic TraceOpaque batches. Shared includes still
+	# invalidate every consumer through the conservative common dependency list.
+	set(NRI_SHARED_SHADER_FILES ${NRI_SHADER_FILES})
+	list(FILTER NRI_SHARED_SHADER_FILES EXCLUDE REGEX "/SmokeTransient[^/]*[.]cs[.]hlsl$")
+	list(FILTER NRI_SHARED_SHADER_FILES EXCLUDE REGEX "/SmokeTransientLighting[.]hlsli$")
 	if (DEFINED ENV{VULKAN_SDK} AND EXISTS "$ENV{VULKAN_SDK}/Bin/dxc.exe")
 		set(RAZE_DXC_EXECUTABLE "$ENV{VULKAN_SDK}/Bin/dxc.exe" CACHE FILEPATH "DXC executable used for NRI shader compilation." FORCE)
 	elseif (DEFINED ENV{VULKAN_SDK} AND EXISTS "$ENV{VULKAN_SDK}/Bin32/dxc.exe")
@@ -1546,6 +1555,27 @@ if (HAVE_NRI)
 		-I "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders"
 		-I "${CMAKE_SOURCE_DIR}/libraries/NRD/Shaders"
 		-I "${CMAKE_SOURCE_DIR}/libraries/NRIFramework/External/NRI/Include")
+	foreach(_transient_pass Clear BuildBins LightBuild Materialize)
+		set(_transient_source "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/SmokeTransient${_transient_pass}.cs.hlsl")
+		set(_transient_target cs_6_0)
+		set(_transient_spirv_args)
+		if(_transient_pass STREQUAL "LightBuild")
+			set(_transient_target cs_6_6)
+			set(_transient_spirv_args -fspv-extension=SPV_KHR_ray_query)
+		endif()
+		add_custom_command(
+			OUTPUT "${RAZE_NRI_SHADER_OUTPUT_DIR}/SmokeTransient${_transient_pass}.cs.dxil"
+				"${RAZE_NRI_SHADER_OUTPUT_DIR}/SmokeTransient${_transient_pass}.cs.spirv"
+			COMMAND ${CMAKE_COMMAND} -E make_directory "${RAZE_NRI_SHADER_OUTPUT_DIR}"
+			COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS}
+				-T ${_transient_target} -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/SmokeTransient${_transient_pass}.cs.dxil" "${_transient_source}"
+			COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS}
+				-spirv -fspv-target-env=vulkan1.2 -fvk-use-dx-layout ${_transient_spirv_args}
+				-T ${_transient_target} -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/SmokeTransient${_transient_pass}.cs.spirv" "${_transient_source}"
+			DEPENDS "${_transient_source}" ${NRI_SHARED_SHADER_FILES}
+				"${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/Include/SmokeTransientLighting.hlsli"
+			VERBATIM)
+	endforeach()
 	add_custom_command(
 		OUTPUT
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/Nri2D.vs.dxil"
@@ -1930,7 +1960,7 @@ if (HAVE_NRI)
 		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -T cs_6_0 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/BloomComposite.cs.dxil" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/BloomComposite.cs.hlsl"
 		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -spirv -fspv-target-env=vulkan1.2 -fvk-use-dx-layout -T cs_6_0 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/BloomComposite.cs.spirv" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/BloomComposite.cs.hlsl"
 		DEPENDS
-			${NRI_SHADER_FILES}
+			${NRI_SHARED_SHADER_FILES}
 			"${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/Nri2D.vs.hlsl"
 			"${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/Nri2D.ps.hlsl"
 			"${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/TraceOpaque.cs.hlsl"
@@ -2078,6 +2108,14 @@ if (HAVE_NRI)
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/SmokePromptFallback.cs.dxil"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/SmokePromptFallback.cs.spirv"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/SmokeAnalyticClear.cs.dxil"
+			"${RAZE_NRI_SHADER_OUTPUT_DIR}/SmokeTransientClear.cs.dxil"
+			"${RAZE_NRI_SHADER_OUTPUT_DIR}/SmokeTransientClear.cs.spirv"
+			"${RAZE_NRI_SHADER_OUTPUT_DIR}/SmokeTransientBuildBins.cs.dxil"
+			"${RAZE_NRI_SHADER_OUTPUT_DIR}/SmokeTransientBuildBins.cs.spirv"
+			"${RAZE_NRI_SHADER_OUTPUT_DIR}/SmokeTransientLightBuild.cs.dxil"
+			"${RAZE_NRI_SHADER_OUTPUT_DIR}/SmokeTransientLightBuild.cs.spirv"
+			"${RAZE_NRI_SHADER_OUTPUT_DIR}/SmokeTransientMaterialize.cs.dxil"
+			"${RAZE_NRI_SHADER_OUTPUT_DIR}/SmokeTransientMaterialize.cs.spirv"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/SmokeAnalyticClear.cs.spirv"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/SmokeAnalyticBuildTiles.cs.dxil"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/SmokeAnalyticBuildTiles.cs.spirv"
@@ -2270,7 +2308,7 @@ if (HAVE_NRI)
 			DEPENDS
 				"${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/TraceOpaque.cs.hlsl"
 				"${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/SmokeViewWorkProjectTiles.cs.hlsl"
-				${NRI_SHADER_FILES}
+				${NRI_SHARED_SHADER_FILES}
 			VERBATIM)
 		add_custom_target(raze_nri_diagnostic_shaders DEPENDS
 			"${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaque.cs.dxil"

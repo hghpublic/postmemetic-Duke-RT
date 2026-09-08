@@ -6,12 +6,14 @@ $implementation = Get-Content (Join-Path $root 'source\core\lightoverlay.cpp') -
 $authored = Get-Content (Join-Path $root 'release-overlay\LIGHTOVR') -Raw
 $authoringGuide = Get-Content (Join-Path $root 'LIGHTOVR-AUTHORING.md') -Raw
 $transientFixture = Get-Content (Join-Path $root 'tools\validation\overlays\smoke-transient-fixtures\LIGHTOVR') -Raw
+$transientActorFixture = Get-Content (Join-Path $root 'tools\validation\overlays\smoke-transient-actor-fixtures\LIGHTOVR') -Raw
 
 function Assert-Contains([string]$Text, [string]$Pattern, [string]$Message) {
     if ($Text -notmatch $Pattern) { throw $Message }
 }
 
 Assert-Contains $header 'struct ParsedLightOverlaySmokeStyle' 'Missing parsed smoke style contract.'
+Assert-Contains $header 'struct ResolvedLightOverlaySmokeStyle : ParsedLightOverlaySmokeStyle' 'Resolved smoke styles must retain every normalized authored style field.'
 Assert-Contains $header 'struct ResolvedLightOverlaySmokeActorRule' 'Missing resolved smoke actor contract.'
 Assert-Contains $header 'bool styleResolved = false' 'Smoke rule style resolution must be explicit.'
 Assert-Contains $header 'LightOverlaySmokeTrigger[\s\S]*?Spawn,[\s\S]*?Interval' 'Smoke actor triggers must preserve spawn and add interval.'
@@ -27,6 +29,8 @@ Assert-Contains $header 'LightOverlaySmokeRepresentation representation = LightO
 Assert-Contains $header 'LightOverlaySmokeQueuePolicy queuePolicy = LightOverlaySmokeQueuePolicy::Retry' 'Existing smoke rules must retain retry behavior by default.'
 Assert-Contains $header 'bool hasMaxLatencySeconds = false' 'Existing smoke rules must remain without an implicit freshness deadline.'
 Assert-Contains $header 'float densityScale = 1\.0f' 'Smoke emission density scale must default to identity.'
+Assert-Contains $header 'float opticalAmountScale = 1\.0f' 'Transient optical-amount scale must default to identity.'
+Assert-Contains $header 'float transientLifetimeSeconds = 0\.0f' 'Transient lifetime override must default to inheriting the legacy lifetime.'
 Assert-Contains $header 'float radiusScale = 1\.0f' 'Smoke emission radius scale must default to identity.'
 Assert-Contains $header 'float velocityScale = 1\.0f' 'Smoke emission velocity scale must default to identity.'
 Assert-Contains $header 'float offsetRandom\[3\] = \{ 0\.0f, 0\.0f, 0\.0f \}' 'Smoke event random offsets must default to no jitter.'
@@ -53,7 +57,8 @@ foreach ($field in @(
     'density', 'extinction', 'albedo', 'anisotropy', 'radius', 'expansionvelocity',
     'lifetime', 'densityhalflife', 'risevelocity', 'velocityrandom', 'velocityinherit',
     'buoyancy', 'drag', 'turbulence', 'turbulencescale', 'temperature',
-    'momentumscale', 'coolinghalflife', 'densityattackseconds', 'densitysustainseconds',
+    'momentumscale', 'coolinghalflife', 'opticalamountscale', 'transientlifetimeseconds',
+    'densityattackseconds', 'densitysustainseconds',
     'densityreleaseseconds', 'radiusexponent', 'intrinsicemission', 'emissionhalflife',
     'clusterspread', 'loberadiusrandom', 'curlvelocity', 'coreplateau', 'edgeerosion',
     'noisescale', 'noisestrength')) {
@@ -91,6 +96,15 @@ Assert-Contains $implementation 'FStringf\("effectclass %s"' 'Transient effect-c
 Assert-Contains $implementation 'sc\.Compare\("lobecount"\)' 'Transient lobe-count parsing is missing.'
 Assert-Contains $implementation 'FStringf\("lobecount %u"' 'Transient lobe-count serialization is missing.'
 Assert-Contains $implementation 'lobeRadiusRandom\[0\] > rule\.lobeRadiusRandom\[1\][\s\S]*std::swap' 'Transient lobe-radius ranges must normalize to ascending order.'
+Assert-Contains $implementation 'sc\.Compare\("opticalamountscale"\)\) value = &rule\.opticalAmountScale' 'Transient optical-amount scale must use the normalized scalar style parser.'
+Assert-Contains $implementation 'sc\.Compare\("transientlifetimeseconds"\)\) value = &rule\.transientLifetimeSeconds' 'Transient lifetime must use the normalized scalar style parser.'
+Assert-Contains $implementation 'sc\.MustGetFloat\(\);[\s\S]*?std::isfinite\(parsed\)[\s\S]*?std::max\(minimum, parsed\)' 'Scalar smoke-style fields must reject nonfinite input and clamp to their nonnegative minimum.'
+Assert-Contains $implementation 'FStringf\("opticalamountscale %s", FormatLightOverlayFloat\(rule\.opticalAmountScale\)' 'Normalized smoke-style serialization must preserve opticalamountscale.'
+Assert-Contains $implementation 'FStringf\("transientlifetimeseconds %s", FormatLightOverlayFloat\(rule\.transientLifetimeSeconds\)' 'Normalized smoke-style serialization must preserve transientlifetimeseconds.'
+Assert-Contains $implementation 'transient optical_amount_scale=[\s\S]*?transient_lifetime_seconds=' 'Parsed smoke-style diagnostics must expose both transient-only controls.'
+Assert-Contains $implementation 'resolved smokestyle[\s\S]*?optical_amount_scale=[\s\S]*?transient_lifetime_seconds=' 'Resolved smoke-style diagnostics must expose both transient-only controls.'
+Assert-Contains $authoringGuide '`opticalamountscale <scale>`[\s\S]*?Transient-cloud-only multiplier[\s\S]*?independent of transient lobe count[\s\S]*?not radius-based or age-based dilution' 'Transient optical-amount authoring semantics are undocumented.'
+Assert-Contains $authoringGuide '`transientlifetimeseconds <seconds>`[\s\S]*?Zero inherits the existing style `lifetime`[\s\S]*?leaving grid and analytic rollback behavior unchanged' 'Transient lifetime override and rollback semantics are undocumented.'
 Assert-Contains $implementation 'expected retry, drop, or latest' 'Invalid smoke queue-policy diagnostics are missing.'
 Assert-Contains $implementation 'maxLatencySeconds = std::max\(0\.0f' 'Negative smoke freshness bounds must clamp to zero.'
 Assert-Contains $implementation 'offsetRandom[\s\S]*?std::isfinite\(value\) \? std::max\(value, 0\.0f\) : 0\.0f' 'Smoke event random-offset extents must normalize nonfinite and negative values to zero.'
@@ -152,7 +166,12 @@ foreach ($eventId in @('duke.hitscan.impact.plane', 'duke.hitscan.impact.wall'))
     Assert-Contains $authored ('smokeeventrule\s+"' + [regex]::Escape($eventId) + '"[\s\S]*?representation\s+analytic[\s\S]*?queuepolicy\s+drop[\s\S]*?maxlatencyseconds\s+0\.05(?:0)?') "Impact smoke must use fresh immediate-or-drop analytic presentation: $eventId"
 }
 Assert-Contains $authored 'smokeeventrule\s+"nri\.smoke\.test"' 'Missing smoke-only diagnostic event rule.'
-Assert-Contains $transientFixture 'representation\s+transient-cloud' 'Transient validation fixture is missing the explicit route.'
+foreach ($fixtureText in @($transientFixture, $transientActorFixture)) {
+    Assert-Contains $fixtureText 'representation\s+"transient-cloud"' 'Transient validation fixture is missing the quoted explicit route.'
+    if ($fixtureText -match 'representation\s+transient-cloud') {
+        throw 'Hyphenated transient-cloud values must be quoted so FScanner consumes one value token.'
+    }
+}
 foreach ($class in @('explosion', 'trail', 'fire', 'muzzle', 'impact')) {
     Assert-Contains $transientFixture ('effectclass\s+' + $class) "Transient validation fixture is missing $class."
 }

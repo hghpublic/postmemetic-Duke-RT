@@ -32,6 +32,11 @@ struct NRISmokeEmitterRouteSnapshot
 {
 	uint64_t gatherId = 0u;
 	uint32_t classMask = 0x3fu;
+	bool mapEmittersEnabled = true;
+	uint32_t suppressedMapRules = 0u;
+	uint32_t suppressedMapPreviews = 0u;
+	uint32_t ambientMapCommands = 0u;
+	uint32_t previewMapCommands = 0u;
 	uint32_t gridCommands = 0u;
 	uint32_t analyticCarriers = 0u;
 	uint32_t transientGroups = 0u;
@@ -56,6 +61,7 @@ public:
 		float gridCellSize, uint32_t gridBrickCapacity);
 	void Reset();
 	void SetTransientClassMask(uint32_t mask) { mTransientClassMask = mask & 0x3fu; }
+	void SetMapEmittersEnabled(bool enabled);
 	uint32_t GetGeneration() const { return mGeneration; }
 	void SetContinuousSourceWorkQuantity(uint32_t quantity) { mContinuousSourceWorkQuantity = quantity; }
 	const NRISmokeContinuousSourceSnapshot& GetContinuousSourceSnapshot() const { return mContinuousSources.GetSnapshot(); }
@@ -115,6 +121,7 @@ private:
 	uint64_t mNextContinuousSourceGeneration = 0;
 	uint32_t mContinuousSourceWorkQuantity = 8u;
 	uint32_t mTransientClassMask = 0x3fu;
+	bool mMapEmittersEnabled = true;
 	uint64_t mNextRouteGatherId = 0u;
 	NRISmokeEmitterRouteSnapshot mRouteSnapshot = {};
 	MapEmitterState mEditorPreviewState;

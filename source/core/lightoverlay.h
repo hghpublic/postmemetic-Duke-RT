@@ -336,6 +336,8 @@ struct ParsedLightOverlaySmokeStyle
 	float temperature = 1.0f;
 	float momentumScale = 1.0f;
 	float coolingHalfLife = 2.0f;
+	float opticalAmountScale = 1.0f;
+	float transientLifetimeSeconds = 0.0f;
 	float densityAttackSeconds = 0.0f;
 	float densitySustainSeconds = 0.0f;
 	float densityReleaseSeconds = 0.0f;

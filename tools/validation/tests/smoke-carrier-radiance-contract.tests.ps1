@@ -26,7 +26,7 @@ Require-Match $resources 'NRI_SMOKE_RADIANCE_UNRESOLVED' 'Unresolved radiance wo
 Require-Match $medium 'SmokeFroxelCarrierMetadata\(gSmokeConstants\.SimulationEpoch\)' 'Particle materialization does not publish current carrier authority.'
 Require-Match $grid 'SmokeFroxelCarrierMetadata\(gSmokeConstants\.SimulationEpoch\)' 'Grid materialization does not publish current carrier authority.'
 Require-Match $resolve 'debugMode >= 8u && debugMode <= 11u' 'Carrier/radiance debug views are missing.'
-Require-Match $settings 'nri_ptsmokedebug, 0, 11' 'Carrier/radiance debug views are not reachable from the smoke debug control.'
+Require-Match $settings 'nri_ptsmokedebug, 0, 21' 'Carrier/radiance debug views must remain reachable alongside field diagnostics.'
 
 # Current optical depth must remain authoritative regardless of history lighting.
 Require-Match $temporal 'history = float4\(clampedNormalized \* \(1\.0 - exp\(-current\.a\)\), current\.a\)' 'History radiance is not re-premultiplied by current opacity.'
