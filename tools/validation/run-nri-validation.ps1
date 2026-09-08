@@ -8,6 +8,8 @@ param(
 
     [string]$File,
 
+    [string]$ConfigPath,
+
     [int]$TimeoutSeconds = 120,
 
     [switch]$Build,
@@ -73,6 +75,11 @@ if ($Build) {
 
 $resolvedRaze = Resolve-Path -LiteralPath $RazePath -ErrorAction Stop
 $args = New-Object System.Collections.Generic.List[string]
+
+if ($ConfigPath) {
+    $args.Add("-config")
+    $args.Add([System.IO.Path]::GetFullPath($ConfigPath))
+}
 
 if ($File) {
     $args.Add("-file")

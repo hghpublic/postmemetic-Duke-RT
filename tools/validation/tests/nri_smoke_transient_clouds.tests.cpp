@@ -699,6 +699,63 @@ void TestTrailCoverage()
 		pressureReduced[1].opticalWeight, trail.opticalAmount),
 		"two-lobe pressure fallback must retain complete trail optical amount");
 
+	NRISmokeTransientGroupShapeInput productionFour = trail;
+	productionFour.velocity[0] = 20.0f;
+	productionFour.trailSpan = 40.25f;
+	productionFour.initialRadius = 10.0f;
+	productionFour.opticalAmount = 7.0f;
+	productionFour.expansionVelocity = 2.0f;
+	productionFour.densityHalfLife = 0.5f;
+	productionFour.lobeLifetimeSeconds = 0.75f;
+	productionFour.groupLifetimeSeconds = 0.75f;
+	productionFour.densitySustainSeconds = 0.18f;
+	productionFour.densityReleaseSeconds = 0.57f;
+	productionFour.radiusExponent = 0.9f;
+	productionFour.clusterSpread = 0.8f;
+	productionFour.lobeRadiusMinScale = 0.78f;
+	productionFour.lobeRadiusMaxScale = 1.1f;
+	productionFour.riseVelocity = 7.0f;
+	productionFour.curlVelocity = 1.25f;
+	productionFour.requestedLobeCount = 4u;
+	productionFour.sourceEventSerial++;
+	NRISmokeTransientLobeRequest fourLobes[16] = {};
+	const uint32_t fourCount = NRIBuildSmokeTransientLobes(
+		productionFour, fourLobes, 16u);
+	Require(fourCount == 4u &&
+		Near(fourLobes[0].position[0], -20.125f) &&
+		Near(fourLobes[fourCount - 1u].position[0], 20.125f),
+		"requested-four production trail must retain both 40.25-unit span endpoints");
+	float fourOpticalAmount = 0.0f;
+	for (uint32_t index = 0u; index < fourCount; ++index)
+	{
+		fourOpticalAmount += fourLobes[index].opticalWeight;
+		Require(fourLobes[index].batchIndex == index &&
+			fourLobes[index].batchCount == fourCount &&
+			Near(fourLobes[index].lobeDelaySeconds, 0.0f),
+			"requested-four production trail must preserve immediate ordered lobe cadence");
+	}
+	Require(Near(fourOpticalAmount, productionFour.opticalAmount),
+		"requested-four production trail must preserve complete optical quantity");
+	for (const float age : { 0.0f, 0.5f })
+	{
+		for (uint32_t index = 1u; index < fourCount; ++index)
+		{
+			float previousPosition[3] = {};
+			float currentPosition[3] = {};
+			for (uint32_t axis = 0u; axis < 3u; ++axis)
+			{
+				previousPosition[axis] = fourLobes[index - 1u].position[axis] +
+					fourLobes[index - 1u].velocity[axis] * age;
+				currentPosition[axis] = fourLobes[index].position[axis] +
+					fourLobes[index].velocity[axis] * age;
+			}
+			Require(Distance3(previousPosition, currentPosition) <= 0.9f *
+				(RadiusAt(fourLobes[index - 1u], age) +
+					RadiusAt(fourLobes[index], age)) + 1.0e-4f,
+				"requested-four production trail shoulders must overlap at birth and age");
+		}
+	}
+
 	trail.position[0] = 12.0f;
 	trail.position[2] = 12.0f;
 	trail.velocity[0] = 0.0f;

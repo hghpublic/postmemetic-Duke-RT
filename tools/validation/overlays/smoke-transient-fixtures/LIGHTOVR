@@ -3,6 +3,7 @@ LIGHTOVR
     smokestyle "transient_explosion"
     {
         density 2.4
+        opticalamountscale 0.07
         extinction 0.012
         albedo 0.42 0.40 0.38
         radius 18.0
@@ -12,9 +13,9 @@ LIGHTOVR
         densitysustainseconds 1.6
         densityreleaseseconds 1.5
         radiusexponent 0.72
-        intrinsicemission 7.0
-        emissionhalflife 0.24
-        clusterspread 0.82
+        intrinsicemission 0.8
+        emissionhalflife 0.16
+        clusterspread 1.10
         loberadiusrandom 0.68 1.28
         curlvelocity 5.0
         coreplateau 0.62
@@ -42,6 +43,7 @@ LIGHTOVR
     smokestyle "transient_fire"
     {
         density 1.8
+        opticalamountscale 0.2
         extinction 0.010
         radius 7.0
         expansionvelocity 7.0
@@ -74,51 +76,9 @@ LIGHTOVR
         edgeerosion 0.08
     }
 
-    smokeactorrule "transient.explosion.actor.fixture"
-    {
-        actorclass "DukeExplosion2"
-        representation transient-cloud
-        effectclass explosion
-        queuepolicy drop
-        maxlatencyseconds 0.075
-        style "transient_explosion"
-        count 48
-        lobecount 12
-        spawnradius 18.0
-    }
-
-    smokeactorrule "transient.trail.actor.fixture"
-    {
-        actorclass "DukeRPG"
-        trigger interval
-        representation transient-cloud
-        effectclass trail
-        queuepolicy latest
-        style "transient_trail"
-        count 9
-        lobecount 8
-        spawnradius 5.0
-        spacing 6.0
-        maxsegmentsperframe 4
-    }
-
-    smokeactorrule "transient.fire.actor.fixture"
-    {
-        actorclass "DukeFire"
-        trigger interval
-        representation transient-cloud
-        effectclass fire
-        queuepolicy retry
-        style "transient_fire"
-        count 7
-        lobecount 7
-        intervalseconds 0.18
-        maxsegmentsperframe 3
-    }
-
     smokeeventrule "transient.muzzle.fixture"
     {
-        representation transient-cloud
+        representation "transient-cloud"
         effectclass muzzle
         queuepolicy drop
         maxlatencyseconds 0.075
@@ -131,7 +91,7 @@ LIGHTOVR
 
     smokeeventrule "transient.explosion.fixture"
     {
-        representation transient-cloud
+        representation "transient-cloud"
         effectclass explosion
         queuepolicy drop
         maxlatencyseconds 0.075
@@ -145,7 +105,7 @@ LIGHTOVR
 
     smokeeventrule "transient.trail.fixture"
     {
-        representation transient-cloud
+        representation "transient-cloud"
         effectclass trail
         queuepolicy drop
         maxlatencyseconds 0.075
@@ -159,7 +119,7 @@ LIGHTOVR
 
     smokeeventrule "transient.fire.fixture"
     {
-        representation transient-cloud
+        representation "transient-cloud"
         effectclass fire
         queuepolicy drop
         maxlatencyseconds 0.075
@@ -172,7 +132,7 @@ LIGHTOVR
 
     smokeeventrule "transient.impact.fixture"
     {
-        representation transient-cloud
+        representation "transient-cloud"
         effectclass impact
         queuepolicy drop
         maxlatencyseconds 0.050
