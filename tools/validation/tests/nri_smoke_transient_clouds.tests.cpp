@@ -177,6 +177,194 @@ void TestSemanticBuilder()
 		"semantic builder must reject non-finite shaping fields");
 }
 
+void TestExplosionBillowShaping()
+{
+	NRISmokeTransientGroupShapeInput input = {};
+	input.position[0] = 10.0f;
+	input.position[1] = 20.0f;
+	input.position[2] = -5.0f;
+	input.velocity[2] = 2.0f;
+	input.initialRadius = 45.0f;
+	input.initialDensity = 2.4f;
+	input.opticalAmount = 48.0f;
+	input.expansionVelocity = 18.0f;
+	input.densityHalfLife = 10.0f;
+	input.lobeLifetimeSeconds = 4.0f;
+	input.groupLifetimeSeconds = 4.0f;
+	input.densityAttackSeconds = 0.04f;
+	input.densitySustainSeconds = 2.5f;
+	input.densityReleaseSeconds = 1.5f;
+	input.radiusExponent = 0.72f;
+	input.intrinsicEmission = 7.0f;
+	input.emissionHalfLife = 0.24f;
+	input.clusterSpread = 0.82f;
+	input.lobeRadiusMinScale = 0.42f;
+	input.lobeRadiusMaxScale = 0.68f;
+	input.curlVelocity = 5.0f;
+	input.requestedLobeCount = 12u;
+	input.sourceId = 71u;
+	input.epoch = 17u;
+	input.sourceEventSerial = 1200u;
+	input.deterministicSeed = 0x534d4f4bu;
+	input.transientClass = NRISmokeTransientClass::Explosion;
+	NRISmokeTransientLobeRequest lobes[16] = {};
+	Require(NRIBuildSmokeTransientLobes(input, lobes, 16u) == 12u,
+		"production-scale explosion fixture must build all requested billow lobes");
+	NRISmokeTransientLobeRequest repeated[16] = {};
+	Require(NRIBuildSmokeTransientLobes(input, repeated, 16u) == 12u,
+		"stable explosion seed must rebuild its complete lobe batch");
+
+	float minimumInitialRadius = std::numeric_limits<float>::max();
+	float maximumInitialRadius = 0.0f;
+	float minimumLateRadius = std::numeric_limits<float>::max();
+	float maximumLateRadius = 0.0f;
+	float totalOpticalWeight = 0.0f;
+	float weightedInitialEmission = 0.0f;
+	float minimumEmission = std::numeric_limits<float>::max();
+	float maximumEmission = 0.0f;
+	float minimumHalfLife = std::numeric_limits<float>::max();
+	float maximumHalfLife = 0.0f;
+	const float lateAge = 3.0f;
+	const float shapedLateAge = input.lobeLifetimeSeconds * std::pow(
+		lateAge / input.lobeLifetimeSeconds, input.radiusExponent);
+	for (uint32_t index = 0u; index < input.requestedLobeCount; ++index)
+	{
+		const auto& lobe = lobes[index];
+		Require(Near(lobe.initialRadius, repeated[index].initialRadius) &&
+			Near(lobe.expansionVelocity, repeated[index].expansionVelocity) &&
+			Near(lobe.velocity[0], repeated[index].velocity[0]) &&
+			Near(lobe.velocity[1], repeated[index].velocity[1]) &&
+			Near(lobe.velocity[2], repeated[index].velocity[2]) &&
+			Near(lobe.intrinsicEmission, repeated[index].intrinsicEmission) &&
+			Near(lobe.emissionHalfLife, repeated[index].emissionHalfLife),
+			"explosion billow shape and glow variation must be deterministic");
+		const float radiusScale = lobe.initialRadius / input.initialRadius;
+		const float lateRadius = lobe.initialRadius +
+			lobe.expansionVelocity * shapedLateAge;
+		Require(Near(lobe.expansionVelocity,
+			input.expansionVelocity * radiusScale),
+			"explosion growth must remain correlated with its stable lobe radius scale");
+		Require(Near(lobe.initialDensity, input.initialDensity),
+			"billow shaping must not alter authored density");
+		minimumInitialRadius = std::min(minimumInitialRadius, lobe.initialRadius);
+		maximumInitialRadius = std::max(maximumInitialRadius, lobe.initialRadius);
+		minimumLateRadius = std::min(minimumLateRadius, lateRadius);
+		maximumLateRadius = std::max(maximumLateRadius, lateRadius);
+		totalOpticalWeight += lobe.opticalWeight;
+		weightedInitialEmission += lobe.opticalWeight * lobe.intrinsicEmission;
+		minimumEmission = std::min(minimumEmission, lobe.intrinsicEmission);
+		maximumEmission = std::max(maximumEmission, lobe.intrinsicEmission);
+		minimumHalfLife = std::min(minimumHalfLife, lobe.emissionHalfLife);
+		maximumHalfLife = std::max(maximumHalfLife, lobe.emissionHalfLife);
+
+		float initialOffsetSquared = 0.0f;
+		float outwardDot = 0.0f;
+		for (uint32_t axis = 0u; axis < 3u; ++axis)
+		{
+			const float initialOffset = lobe.position[axis] - input.position[axis];
+			const float commonVelocity = input.velocity[axis] + input.up[axis] *
+				(input.riseVelocity + input.expansionVelocity * 0.08f);
+			initialOffsetSquared += initialOffset * initialOffset;
+			outwardDot += initialOffset * (lobe.velocity[axis] - commonVelocity);
+		}
+		Require(std::sqrt(initialOffsetSquared) <= lobe.initialRadius + 1.0e-4f,
+			"every explosion lobe must overlap the connected core at spawn");
+		Require(outwardDot > 0.0f,
+			"explosion lobe centers must propagate outward from their authored core");
+	}
+	Require(Near(totalOpticalWeight, input.opticalAmount) &&
+		Near(weightedInitialEmission / totalOpticalWeight,
+			input.intrinsicEmission, 1.0e-4f),
+		"billow and emission shaping must preserve density-weighted source amount at spawn");
+	Require(minimumEmission >= input.intrinsicEmission * 0.65f - 1.0e-4f &&
+		maximumEmission <= input.intrinsicEmission * 1.25f + 1.0e-4f &&
+		maximumEmission > minimumEmission,
+		"explosion lobes must retain bounded stable emission variation");
+	Require(minimumHalfLife >= input.emissionHalfLife * 0.8f - 1.0e-5f &&
+		maximumHalfLife <= input.emissionHalfLife * 1.2f + 1.0e-5f &&
+		maximumHalfLife > minimumHalfLife,
+		"explosion glow decay must vary modestly without leaving its authored envelope");
+	Require(Near(maximumInitialRadius / minimumInitialRadius,
+		maximumLateRadius / minimumLateRadius, 1.0e-4f) &&
+		(maximumLateRadius - minimumLateRadius) /
+			((maximumLateRadius + minimumLateRadius) * 0.5f) > 0.3f,
+		"late expansion must preserve visible macro-lobe size variation");
+
+	for (const float age : { 0.0f, 1.5f, 3.0f })
+	{
+		float boundsMin[3] = {
+			std::numeric_limits<float>::max(),
+			std::numeric_limits<float>::max(),
+			std::numeric_limits<float>::max()
+		};
+		float boundsMax[3] = {
+			-std::numeric_limits<float>::max(),
+			-std::numeric_limits<float>::max(),
+			-std::numeric_limits<float>::max()
+		};
+		const float shapedAge = input.lobeLifetimeSeconds * std::pow(
+			age / input.lobeLifetimeSeconds, input.radiusExponent);
+		for (uint32_t index = 0u; index < input.requestedLobeCount; ++index)
+		{
+			const auto& lobe = lobes[index];
+			const float radius = lobe.initialRadius +
+				lobe.expansionVelocity * shapedAge;
+			float coreDistanceSquared = 0.0f;
+			for (uint32_t axis = 0u; axis < 3u; ++axis)
+			{
+				const float position = lobe.position[axis] + lobe.velocity[axis] * age;
+				const float commonCore = input.position[axis] + input.velocity[axis] * age +
+					input.up[axis] * (input.riseVelocity +
+						input.expansionVelocity * 0.08f) * age;
+				const float fromCore = position - commonCore;
+				coreDistanceSquared += fromCore * fromCore;
+				boundsMin[axis] = std::min(boundsMin[axis], position - radius);
+				boundsMax[axis] = std::max(boundsMax[axis], position + radius);
+			}
+			Require(std::sqrt(coreDistanceSquared) <= radius + 1.0e-4f,
+				"spawn, mid, and late billows must all retain a shared connected core");
+		}
+		for (uint32_t axis = 0u; axis < 3u; ++axis)
+			Require(std::isfinite(boundsMin[axis]) && std::isfinite(boundsMax[axis]) &&
+				boundsMax[axis] > boundsMin[axis],
+				"billow bounds must remain finite and non-empty across absolute time");
+	}
+
+	auto profile = NRISmokeTransientClouds::ProfileForQuality(2u);
+	NRISmokeTransientClouds direct;
+	direct.Reset(input.epoch);
+	direct.BeginFrame(0.0, 256u, profile);
+	const auto directAdmission = direct.AdmitBatch(lobes, 12u);
+	Require(directAdmission.Accepted(),
+		"billow absolute-time fixture must admit its complete group");
+	direct.BeginFrame(2.4, 256u, profile);
+	NRISmokeTransientClouds stepped;
+	stepped.Reset(input.epoch);
+	stepped.BeginFrame(0.0, 256u, profile);
+	const auto steppedAdmission = stepped.AdmitBatch(lobes, 12u);
+	Require(steppedAdmission.Accepted(),
+		"stepped billow fixture must admit its complete group");
+	for (uint32_t step = 1u; step <= 12u; ++step)
+		stepped.BeginFrame(static_cast<double>(step) * 0.2, 256u, profile);
+	Require(direct.GetGpuLobes().size() == stepped.GetGpuLobes().size(),
+		"billow dt comparison must retain identical visible populations");
+	for (uint32_t index = 0u; index < direct.GetGpuLobes().size(); ++index)
+	{
+		const auto& a = direct.GetGpuLobes()[index];
+		const auto& b = stepped.GetGpuLobes()[index];
+		Require(Near(a.radius, b.radius) && Near(a.position[0], b.position[0]) &&
+			Near(a.position[1], b.position[1]) && Near(a.position[2], b.position[2]) &&
+			Near(a.densityScale, b.densityScale) && Near(a.emissionScale, b.emissionScale),
+			"billow position, radius, density, and emission must use absolute time");
+	}
+	const auto& directGroup = Group(direct, directAdmission.handle);
+	const auto& steppedGroup = Group(stepped, steppedAdmission.handle);
+	for (uint32_t axis = 0u; axis < 3u; ++axis)
+		Require(Near(directGroup.boundsMin[axis], steppedGroup.boundsMin[axis]) &&
+			Near(directGroup.boundsMax[axis], steppedGroup.boundsMax[axis]),
+			"billow group bounds must be invariant to frame subdivision");
+}
+
 void TestTrailCoverage()
 {
 	NRISmokeTransientGroupShapeInput trail = {};
@@ -212,6 +400,26 @@ void TestTrailCoverage()
 			(lobes[index].initialRadius + lobes[index - 1u].initialRadius) + 1.0e-5f,
 			"adjacent explicit trail shoulders must overlap even across a long hitch span");
 	}
+	NRISmokeTransientLobeRequest pressureReduced[2] = {};
+	const uint32_t pressureCount = NRIBuildSmokeTransientLobes(
+		trail, pressureReduced, 2u);
+	Require(pressureCount == 2u &&
+		Near(pressureReduced[0].position[0], -12.0f) &&
+		Near(pressureReduced[1].position[0], 12.0f),
+		"Low pressure fallback must retain both trail-span endpoints");
+	float reducedDistanceSquared = 0.0f;
+	for (uint32_t axis = 0u; axis < 3u; ++axis)
+	{
+		const float delta = pressureReduced[1].position[axis] -
+			pressureReduced[0].position[axis];
+		reducedDistanceSquared += delta * delta;
+	}
+	Require(std::sqrt(reducedDistanceSquared) <= 0.9f *
+		(pressureReduced[0].initialRadius + pressureReduced[1].initialRadius) + 1.0e-5f,
+		"two-lobe pressure fallback must conservatively cover the complete trail span");
+	Require(Near(pressureReduced[0].opticalWeight +
+		pressureReduced[1].opticalWeight, trail.opticalAmount),
+		"two-lobe pressure fallback must retain complete trail optical amount");
 
 	trail.position[0] = 12.0f;
 	trail.position[2] = 12.0f;
@@ -401,9 +609,10 @@ void TestIntrinsicEmissionOpticalInvariant()
 	Require(reduced.AdmitBatch(requests, 8u).admittedLobes == 4u,
 		"intrinsic-emission fixture must exercise deterministic owner reduction");
 	float fullSource = 0.0f;
-	for (const auto& lobe : full.GetGpuLobes())
+	for (uint32_t index = 0u; index < full.GetGpuLobes().size(); ++index)
 	{
-		Require(Near(lobe.emissionScale, input.intrinsicEmission),
+		const auto& lobe = full.GetGpuLobes()[index];
+		Require(Near(lobe.emissionScale, requests[index].intrinsicEmission),
 			"GPU emission scale must be a coefficient, not another optical weight");
 		fullSource += lobe.densityScale * lobe.emissionScale;
 	}
@@ -669,6 +878,7 @@ int main()
 {
 	TestProfiles();
 	TestSemanticBuilder();
+	TestExplosionBillowShaping();
 	TestTrailCoverage();
 	TestIdentityLifetimeAndReservation();
 	TestCapacityAndOpticalReduction();

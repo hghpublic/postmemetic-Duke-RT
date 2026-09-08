@@ -217,11 +217,29 @@ uint32_t NRIBuildSmokeTransientLobes(const NRISmokeTransientGroupShapeInput& inp
 		? input.trailSpan / static_cast<float>(count - 1u) : input.trailSpan) : 0.0f;
 	const float trailMinimumRadius = explicitTrail ? 0.5f * std::sqrt(
 		trailSpacing * trailSpacing + 4.0f * trailJitter * trailJitter) / 0.9f : 0.0f;
+	float explosionEmissionUnitMean = 0.0f;
+	if (input.transientClass == NRISmokeTransientClass::Explosion)
+	{
+		for (uint32_t index = 0u; index < count; ++index)
+			explosionEmissionUnitMean += UnitFloat(seed, index, 5u);
+		explosionEmissionUnitMean /= static_cast<float>(count);
+	}
+	// Centered variation retains the exact batch mean while staying inside the
+	// authored 0.65x..1.25x range, including small deterministic batches.
+	const float explosionEmissionAmplitude = std::min({ 0.6f,
+		explosionEmissionUnitMean > 1.0e-6f
+			? 0.35f / explosionEmissionUnitMean : 0.6f,
+		explosionEmissionUnitMean < 1.0f - 1.0e-6f
+			? 0.25f / (1.0f - explosionEmissionUnitMean) : 0.6f });
 	for (uint32_t index = 0u; index < count; ++index)
 	{
 		const float unit = (static_cast<float>(index) + 0.5f) /
 			static_cast<float>(count);
 		const float phase = UnitFloat(seed, index, 0u) * (2.0f * Pi);
+		const float radiusUnit = UnitFloat(seed, index, 3u);
+		const float radiusScale = input.lobeRadiusMinScale +
+			(input.lobeRadiusMaxScale - input.lobeRadiusMinScale) * radiusUnit;
+		const float lobeInitialRadius = input.initialRadius * radiusScale;
 		const float ringX = std::cos(phase);
 		const float ringY = std::sin(phase);
 		float radial[3] = {};
@@ -232,6 +250,30 @@ uint32_t NRIBuildSmokeTransientLobes(const NRISmokeTransientGroupShapeInput& inp
 		switch (input.transientClass)
 		{
 		case NRISmokeTransientClass::Explosion:
+		{
+			const float z = 1.0f - 2.0f * unit;
+			const float planar = std::sqrt(std::max(1.0f - z * z, 0.0f));
+			const float rawOffset = input.initialRadius * input.clusterSpread *
+				(0.45f + 0.55f * UnitFloat(seed, index, 1u));
+			const float offsetDistance = std::min(rawOffset,
+				lobeInitialRadius * 0.78f);
+			const float scaledGrowth = input.expansionVelocity * radiusScale;
+			const float positiveGrowth = std::max(scaledGrowth, 0.0f);
+			const float outwardVelocity = positiveGrowth > 0.0f
+				? std::clamp(input.curlVelocity + positiveGrowth * 0.42f,
+					-positiveGrowth * 0.78f, positiveGrowth * 0.78f)
+				: input.curlVelocity;
+			const float buoyantVelocity = input.riseVelocity +
+				std::max(input.expansionVelocity, 0.0f) * 0.08f;
+			for (uint32_t axis = 0u; axis < 3u; ++axis)
+			{
+				const float direction = radial[axis] * planar + forward[axis] * z;
+				offset[axis] = direction * offsetDistance;
+				velocityDelta[axis] = direction * outwardVelocity +
+					cloudUp[axis] * buoyantVelocity;
+			}
+			break;
+		}
 		case NRISmokeTransientClass::Diagnostic:
 		{
 			const float z = 1.0f - 2.0f * unit;
@@ -308,16 +350,15 @@ uint32_t NRIBuildSmokeTransientLobes(const NRISmokeTransientGroupShapeInput& inp
 			request.halfAxisU[axis] = input.halfAxisU[axis];
 			request.halfAxisV[axis] = input.halfAxisV[axis];
 		}
-		const float radiusUnit = UnitFloat(seed, index, 3u);
-		request.initialRadius = input.initialRadius *
-			(input.lobeRadiusMinScale + (input.lobeRadiusMaxScale -
-				input.lobeRadiusMinScale) * radiusUnit);
+		request.initialRadius = lobeInitialRadius;
 		if (explicitTrail)
 			request.initialRadius = std::max(request.initialRadius, trailMinimumRadius);
 		request.initialDensity = input.initialDensity;
 		request.opticalWeight = input.opticalAmount / static_cast<float>(count);
 		request.shape = input.shape;
-		request.expansionVelocity = input.expansionVelocity;
+		request.expansionVelocity = input.transientClass ==
+			NRISmokeTransientClass::Explosion
+			? input.expansionVelocity * radiusScale : input.expansionVelocity;
 		request.densityHalfLife = input.densityHalfLife;
 		request.lifetimeSeconds = input.lobeLifetimeSeconds;
 		request.styleIndex = input.styleIndex;
@@ -335,8 +376,20 @@ uint32_t NRIBuildSmokeTransientLobes(const NRISmokeTransientGroupShapeInput& inp
 		request.densitySustainSeconds = input.densitySustainSeconds;
 		request.densityReleaseSeconds = input.densityReleaseSeconds;
 		request.radiusExponent = input.radiusExponent;
-		request.intrinsicEmission = input.intrinsicEmission;
-		request.emissionHalfLife = input.emissionHalfLife;
+		if (input.transientClass == NRISmokeTransientClass::Explosion)
+		{
+			const float emissionUnit = UnitFloat(seed, index, 5u);
+			request.intrinsicEmission = input.intrinsicEmission *
+				(1.0f + explosionEmissionAmplitude *
+					(emissionUnit - explosionEmissionUnitMean));
+			request.emissionHalfLife = input.emissionHalfLife *
+				(0.8f + 0.4f * radiusUnit);
+		}
+		else
+		{
+			request.intrinsicEmission = input.intrinsicEmission;
+			request.emissionHalfLife = input.emissionHalfLife;
+		}
 		request.corePlateau = input.corePlateau;
 		request.edgeErosion = input.edgeErosion;
 		request.noiseScale = input.noiseScale;
@@ -647,15 +700,23 @@ NRISmokeTransientAdmission NRISmokeTransientClouds::AdmitBatch(
 		const uint32_t representative = begin + (end - begin - 1u) / 2u;
 		admitted[outputIndex] = requests[representative];
 		double opticalQuantity = 0.0;
+		double intrinsicSource = 0.0;
 		for (uint32_t inputIndex = begin; inputIndex < end; ++inputIndex)
+		{
 			opticalQuantity += static_cast<double>(requests[inputIndex].initialDensity) *
 				static_cast<double>(requests[inputIndex].opticalWeight);
+			intrinsicSource += static_cast<double>(requests[inputIndex].initialDensity) *
+				static_cast<double>(requests[inputIndex].opticalWeight) *
+				static_cast<double>(requests[inputIndex].intrinsicEmission);
+		}
 		const double reducedWeight = opticalQuantity /
 			static_cast<double>(admitted[outputIndex].initialDensity);
 		if (!std::isfinite(reducedWeight) || reducedWeight <= 0.0 ||
 			reducedWeight > static_cast<double>(std::numeric_limits<float>::max()))
 			return Drop(NRISmokeTransientDropReason::InvalidRequest, count);
 		admitted[outputIndex].opticalWeight = static_cast<float>(reducedWeight);
+		admitted[outputIndex].intrinsicEmission = static_cast<float>(
+			intrinsicSource / opticalQuantity);
 		admitted[outputIndex].batchIndex = outputIndex;
 		admitted[outputIndex].batchCount = admitCount;
 	}
