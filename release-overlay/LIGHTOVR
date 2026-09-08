@@ -310,7 +310,7 @@ LIGHTOVR
     {
         density 3.45
         // Transient-only controls leave the Grid rollback optics intact.
-        opticalamountscale 0.30
+        opticalamountscale 0.075
         extinction 0.002
         albedo 0.34 0.32 0.3
         anisotropy 0.15
@@ -346,16 +346,16 @@ LIGHTOVR
     smokestyle "duke_fire_smoke"
     {
         density 3.0
-        opticalamountscale 0.2
+        opticalamountscale 0.05
         extinction 0.008
         albedo 0.3 0.29 0.28
         anisotropy 0.12
         radius 7.0
         expansionvelocity 10.0
         lifetime 18.0
-        transientlifetimeseconds 3.0
+        transientlifetimeseconds 5.5
         densityhalflife 6.0
-        risevelocity 32.0
+        risevelocity 120.0
         velocityrandom 20.0
         velocityinherit 0.0
         buoyancy 7.0
@@ -366,12 +366,12 @@ LIGHTOVR
         momentumscale 1.0
         coolinghalflife 5.0
         densityattackseconds 0.08
-        densitysustainseconds 1.5
-        densityreleaseseconds 1.42
+        densitysustainseconds 2.75
+        densityreleaseseconds 2.75
         radiusexponent 0.90
         intrinsicemission 0.5
         emissionhalflife 0.18
-        clusterspread 0.45
+        clusterspread 1.30
         loberadiusrandom 0.40 0.70
         curlvelocity 4.0
         coreplateau 0.60
@@ -383,6 +383,7 @@ LIGHTOVR
     smokestyle "duke_impact_smoke"
     {
         density 3.2
+        opticalamountscale 0.25
         extinction 0.004
         albedo 0.4 0.39 0.38
         anisotropy 0.08
@@ -413,6 +414,7 @@ LIGHTOVR
     smokestyle "duke_muzzle_smoke"
     {
         density 1.2
+        opticalamountscale 0.25
         extinction 0.004
         albedo 0.44 0.43 0.42
         anisotropy 0.1
@@ -443,7 +445,7 @@ LIGHTOVR
     smokestyle "duke_trail_smoke"
     {
         density 1.2
-        opticalamountscale 0.5
+        opticalamountscale 0.125
         extinction 0.004
         albedo 0.42 0.44 0.46
         anisotropy -0.1
@@ -543,7 +545,8 @@ LIGHTOVR
         radiusscale 3.0
         velocitycone 0.0
         velocityscale 0.0
-        intervalseconds 0.28
+        // Longer packets retain the two-fire Low profile's spare group capacity.
+        intervalseconds 0.5
         pulseamount 0.90
         pulseperiodcadences 12
         pulsephase 0.7916667
