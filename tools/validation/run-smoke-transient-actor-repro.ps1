@@ -146,7 +146,10 @@ else {
         # absent; the projectile and impact remain real gameplay actors.
         $setup = 'map e1l1; wait 1; closemenu; wait 240; god; give weapons; give ammo; slot 5; ' + $rpgViewSetup
     }
-    $observationTransition = if ($TrailSideView) { 'warptocoords -1700 560 -708 117 0; ' } else { '' }
+    # warptocoords writes sprite (feet) Z, not eye Z. Standing sprite Z is
+    # floor -580 in sector 306; Duke's -40 view offset gives eye Z -620,
+    # almost level with the RPG at -615.986. The old -708 caused a falling view.
+    $observationTransition = if ($TrailSideView) { 'warptocoords -1700 560 -580 117 0; ' } else { '' }
     $commands = "+wait 45; $setup; nri_ptautoexposurefreeze true; set nri_ptsmoketrace 2; nri_ptsmokereset; perf_looptraceframes 0; perf_compactframes $CaptureFrames; +Fire; wait 8; -Fire; ${observationTransition}${postFire}wait 1; screenshot; wait 5; screenshot; wait 12; screenshot; wait 24; screenshot; wait 45; screenshot; nri_ptsmokestatus; wait $DrainTics; quit"
 }
 
@@ -158,7 +161,7 @@ elseif ($TrailSideView) {
     [ordered]@{
         mode = 'trail-side-view'
         launch = [ordered]@{ position = @(-1616, 760, -708); yaw = 180; pitch = 0; sector = 306 }
-        observation = [ordered]@{ position = @(-1700, 560, -708); yaw = 117; pitch = 0; sector = 306; firstScreenshotWaitUpdates = 1 }
+        observation = [ordered]@{ position = @(-1700, 560, -580); eyeZ = -620; yaw = 117; pitch = 0; sector = 306; firstScreenshotWaitUpdates = 1 }
         geometryValidation = 'World Tour E1L1.MAP point-in-polygon: both points are inside flat sector 306 (ceiling -968, floor -580)'
         cameraValidation = 'geometry-safe camera candidate; screenshot review is required before art acceptance'
     }
