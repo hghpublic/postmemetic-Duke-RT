@@ -9,6 +9,7 @@ param(
     [switch]$IncludeOtherSources,
     [switch]$Production,
     [switch]$Cold,
+    [switch]$TrailSideView,
     [ValidateSet('all', 'point', 'directional', 'emissive', 'none')][string]$Lighting = 'all',
     [switch]$ApiValidation,
     [string]$RazePath = 'build/terminal-ninja/raze.exe',
@@ -29,6 +30,7 @@ $classBits = @{ explosion = 1; trail = 2; fire = 4 }
 if ($ClassMask -lt 0) { $ClassMask = [int]$classBits[$Effect] }
 if ($ClassMask -lt 0 -or $ClassMask -gt 63) { throw 'ClassMask must be in [0,63].' }
 if ($Production -and $Cold) { throw '-Cold requires the candidate actor fixture; it cannot edit production authoring in place.' }
+if ($TrailSideView -and $Effect -ne 'trail') { throw '-TrailSideView is only valid with -Effect trail.' }
 $sourceClassMask = if ($IncludeOtherSources) { 63 } else { [int]$classBits[$Effect] }
 $baseContent = (Resolve-Path -LiteralPath $File -ErrorAction Stop).Path
 $releaseOverlay = (Resolve-Path -LiteralPath (Join-Path $repoRoot 'release-overlay') -ErrorAction Stop).Path
@@ -36,7 +38,7 @@ $actorFixture = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot 'overlays/sm
 $resolvedGameGrp = (Resolve-Path -LiteralPath $GameGrp -ErrorAction Stop).Path
 $resolvedConfigTemplate = (Resolve-Path -LiteralPath $ConfigTemplate -ErrorAction Stop).Path
 if (-not $OutputDirectory) {
-    $OutputDirectory = Join-Path $repoRoot ('tools/logs/smoke-transient-actor/{0}-{1}-mask{2}-p{3}-f{4}-mapfog{5}' -f (Get-Date -Format 'yyyyMMdd-HHmmss'), $Effect, $ClassMask, $Profile, $CaptureFrames, [int][bool]$IncludeMapFog)
+    $OutputDirectory = Join-Path $repoRoot ('tools/logs/smoke-transient-actor/{0}-{1}-mask{2}-p{3}-f{4}-side{5}-mapfog{6}' -f (Get-Date -Format 'yyyyMMdd-HHmmss'), $Effect, $ClassMask, $Profile, $CaptureFrames, [int][bool]$TrailSideView, [int][bool]$IncludeMapFog)
 }
 $output = [IO.Path]::GetFullPath($OutputDirectory)
 if (Test-Path -LiteralPath (Join-Path $output 'scenario.json')) {
@@ -131,21 +133,39 @@ else {
     $rpgSavePath = if ($RpgSaveDirectory) { Join-Path $RpgSaveDirectory 'smoke-offscreen.dsave' } else { '' }
     $hasRpgSave = $rpgSavePath -and (Test-Path -LiteralPath $rpgSavePath -PathType Leaf)
     $postFire = if ($Effect -eq 'explosion') { 'wait 60; ' } else { '' }
+    $validatedFloorViewSetup = 'warptocoords -1616 760 -708 180 8; wait 2; +Move_Forward; wait 2; -Move_Forward; wait 20'
+    $trailSideLaunchSetup = 'warptocoords -1616 760 -708 180 0; wait 2; +Move_Forward; wait 2; -Move_Forward; wait 20'
+    $rpgViewSetup = if ($TrailSideView) { $trailSideLaunchSetup } else { $validatedFloorViewSetup }
     if ($hasRpgSave) {
-        $setup = 'load smoke-offscreen; wait 35; closemenu; wait 240; god; slot 5; warptocoords -1616 760 -708 180 8; wait 2; +Move_Forward; wait 2; -Move_Forward; wait 20'
+        $setup = 'load smoke-offscreen; wait 35; closemenu; wait 240; god; slot 5; ' + $rpgViewSetup
     }
     else {
         # Core's `give` CCMD accepts both WEAPONS and AMMO, and Duke binds the
         # RPG to slot 5. This is the portable path when smoke-offscreen.dsave is
         # absent; the projectile and impact remain real gameplay actors.
-        $setup = 'map e1l1; wait 1; closemenu; wait 240; god; give weapons; give ammo; slot 5; warptocoords -1616 760 -708 180 8; wait 2; +Move_Forward; wait 2; -Move_Forward; wait 20'
+        $setup = 'map e1l1; wait 1; closemenu; wait 240; god; give weapons; give ammo; slot 5; ' + $rpgViewSetup
     }
-    $commands = "+wait 45; $setup; nri_ptautoexposurefreeze true; set nri_ptsmoketrace 2; nri_ptsmokereset; perf_looptraceframes 0; perf_compactframes $CaptureFrames; +Fire; wait 8; -Fire; ${postFire}wait 1; screenshot; wait 5; screenshot; wait 12; screenshot; wait 24; screenshot; wait 45; screenshot; nri_ptsmokestatus; wait $DrainTics; quit"
+    $observationTransition = if ($TrailSideView) { 'warptocoords -1800 560 -708 153 0; ' } else { '' }
+    $commands = "+wait 45; $setup; nri_ptautoexposurefreeze true; set nri_ptsmoketrace 2; nri_ptsmokereset; perf_looptraceframes 0; perf_compactframes $CaptureFrames; +Fire; wait 8; -Fire; ${observationTransition}${postFire}wait 1; screenshot; wait 5; screenshot; wait 12; screenshot; wait 24; screenshot; wait 45; screenshot; nri_ptsmokestatus; wait $DrainTics; quit"
 }
 
 $ruleIds = @{ explosion = 'duke_explosion_cloud'; trail = 'duke_rpg_trail_continuous'; fire = 'duke_fire_sustained' }
+$captureViewpoint = if ($Effect -eq 'fire') {
+    [ordered]@{ targetActors = @(195, 196); position = @(800, 3584, -96); yaw = 180; pitch = 10; sector = 325; targetDistanceWorldUnits = 226 }
+}
+elseif ($TrailSideView) {
+    [ordered]@{
+        mode = 'trail-side-view'
+        launch = [ordered]@{ position = @(-1616, 760, -708); yaw = 180; pitch = 0; sector = 298 }
+        observation = [ordered]@{ position = @(-1800, 560, -708); yaw = 153; pitch = 0; firstScreenshotWaitUpdates = 1 }
+        cameraValidation = 'unverified camera candidate; screenshot review is required before acceptance'
+    }
+}
+else {
+    [ordered]@{ position = @(-1616, 760, -708); yaw = 180; pitch = 8; sector = 298; target = 'roof floor before fence'; autoAim = $false; requireRuntimeImpactLogValidation = $true }
+}
 $scenario = [ordered]@{
-    name = "smoke-transient-actor-$Effect-mask$ClassMask-p$Profile-f$CaptureFrames-light$Lighting-cold$([int][bool]$Cold)-mapfog$([int][bool]$IncludeMapFog)-production$([int][bool]$Production)"
+    name = "smoke-transient-actor-$Effect-mask$ClassMask-p$Profile-f$CaptureFrames-light$Lighting-side$([int][bool]$TrailSideView)-cold$([int][bool]$Cold)-mapfog$([int][bool]$IncludeMapFog)-production$([int][bool]$Production)"
     backend = 'd3d12'
     description = 'Real-actor transient/rollback routing, lifecycle, lighting, capacity, and display-referred age captures.'
     commands = $commands
@@ -164,11 +184,8 @@ $scenario = [ordered]@{
         production = [bool]$Production; cold = [bool]$Cold; lighting = $Lighting
         apiValidation = [bool]$ApiValidation
         drainTics = $DrainTics; includeMapFog = [bool]$IncludeMapFog; usedRpgSave = [bool]$hasRpgSave
-        viewpoint = $(if ($Effect -eq 'fire') {
-            [ordered]@{ targetActors = @(195, 196); position = @(800, 3584, -96); yaw = 180; pitch = 10; sector = 325; targetDistanceWorldUnits = 226 }
-        } else {
-            [ordered]@{ position = @(-1616, 760, -708); yaw = 180; pitch = 8; sector = 298; target = 'roof floor before fence'; autoAim = $false; requireRuntimeImpactLogValidation = $true }
-        })
+        trailSideView = [bool]$TrailSideView
+        viewpoint = $captureViewpoint
         baseContent = $baseContent; releaseOverlay = $releaseOverlay
         actorFixtureSource = $actorFixture; actorFixtureSnapshot = $fixtureSnapshot
         actorFixtureMounted = -not [bool]$Production

@@ -39,6 +39,27 @@ foreach ($runner in @($eventRunner, $actorRunner)) {
     Assert-Match $runner 'nri_ptsmokemapemitters = \(\[string\]\[bool\]\$IncludeMapFog\)\.ToLowerInvariant\(\)' 'Transient harnesses must disable map emitters by default.'
 }
 Assert-Match $eventRunner '\[ValidateSet\(''e1l1'', ''e3l6''\)\]\[string\]\$Map = ''e1l1''' 'Event captures must offer only the validated E1L1 and E3L6 map cohorts.'
+foreach ($productionEventRule in @(
+    'duke.pistol.primary',
+    'duke.chaingun.primary',
+    'duke.shotgun.primary',
+    'duke.hitscan.impact.wall',
+    'duke.hitscan.impact.plane')) {
+    Assert-Match $eventRunner ("'" + [regex]::Escape($productionEventRule) + "'") "The event harness production whitelist is missing $productionEventRule."
+}
+foreach ($muzzleEventRule in @('duke.pistol.primary', 'duke.chaingun.primary', 'duke.shotgun.primary')) {
+    Assert-Match $eventRunner ("'" + [regex]::Escape($muzzleEventRule) + "'\s*=\s*'muzzle'") "$muzzleEventRule must be classified as a muzzle event."
+}
+foreach ($impactEventRule in @('duke.hitscan.impact.wall', 'duke.hitscan.impact.plane')) {
+    Assert-Match $eventRunner ("'" + [regex]::Escape($impactEventRule) + "'\s*=\s*'impact'") "$impactEventRule must be classified as an impact event."
+}
+Assert-Match $eventRunner '\[switch\]\$Production[\s\S]*\[string\]\$EventRule' 'Event captures must expose explicit production-authoring and production-rule selection.'
+Assert-Match $eventRunner '\$Cold -and \$Production[\s\S]*cannot edit production authoring in place' 'Cold capture must not mutate or masquerade as production authoring.'
+Assert-Match $eventRunner 'if \(\$EventRule\)[\s\S]*requires -Production[\s\S]*-ccontains \$EventRule[\s\S]*belongs to Effect[\s\S]*elseif \(\$Production\)[\s\S]*require -EventRule' 'Production event selection must be exact, explicit, and class-compatible.'
+Assert-Match $eventRunner '\$selectedEventRule = if \(\$EventRule\) \{ \$EventRule \} else \{ "transient\.\$Effect\.fixture" \}' 'Candidate and production captures must resolve one explicit emitted event rule.'
+Assert-Match $eventRunner 'if \(-not \$Production\) \{ \$extra\.Add\(''-file''\); \$extra\.Add\(\$fixtureSnapshot\) \}' 'Production event captures must skip the candidate fixture mount.'
+Assert-Match $eventRunner 'nri_ptsmoke_test \$selectedEventRule \$Distance[\s\S]*requiredPrefixes = @\("NRI PT smoke event test queued: event=\$selectedEventRule "' 'The emitted event and required log attribution must use the same resolved rule.'
+Assert-Match $eventRunner 'eventRule = \$selectedEventRule[\s\S]*\[''production''\] = \[bool\]\$Production[\s\S]*fixtureMounted = -not \[bool\]\$Production' 'Scenario metadata must preserve the actual event rule, content mode, and fixture mount decision.'
 Assert-Match $eventRunner "use_mouse = 'false'; use_joystick = 'false'; cl_viewbob = '0'; cl_dukepitchmode = '0'" 'Event captures must disable live input, view bob, and automatic pitch changes like actor captures.'
 Assert-Match $eventRunner '\$screenshotWaitUpdates = @\(1, 5, 12, 24, 45\)[\s\S]*god; \$\{viewSetup\}centerview; wait 2; nri_ptautoexposurefreeze true; set nri_ptsmoketrace 2; nri_ptsmokereset' 'Event captures must settle the selected deterministic view, freeze its meter, then start route tracing and reset immediately before emission.'
 Assert-Match $eventRunner "nri_ptsmoketrace = '0'" 'Event startup must exclude pre-warm map activity from capture route attribution.'
@@ -122,8 +143,6 @@ foreach ($canonicalActorRule in @('duke_explosion_cloud', 'duke_rpg_trail_contin
     Assert-Match $actorFixture ('smokeactorrule\s+"' + [regex]::Escape($canonicalActorRule) + '"') "Actor fixture must override canonical rule $canonicalActorRule instead of adding a duplicate actor source."
 }
 Assert-Match $actorFixture 'smokeactorrule\s+"duke_fire_sustained"[\s\S]*offset\s+0\.0\s+0\.0\s+-32\.0' 'The candidate fire packet must start inside the floor-anchored FIRE/FIRE2 volume before rising.'
-if ($release -match 'representation\s+transient-cloud') {
-    throw 'Production LIGHTOVR must remain unchanged until the runtime gate is accepted.'
-}
+& (Join-Path $PSScriptRoot 'smoke-transient-production.tests.ps1')
 
 Write-Host 'Smoke transient routing static validation passed.'

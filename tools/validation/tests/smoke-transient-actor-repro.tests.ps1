@@ -21,10 +21,14 @@ function Require-Match([string]$Text, [string]$Pattern, [string]$Message) {
     if ($Text -notmatch $Pattern) { throw $Message }
 }
 
-Require-Match $runner "map e1l1; wait 1; closemenu; wait 240; god; give weapons; give ammo; slot 5; warptocoords -1616 760 -708 180 8; wait 2; \+Move_Forward; wait 2; -Move_Forward; wait 20'[\s\S]*\+Fire; wait 8; -Fire" 'RPG/explosion capture must preserve its shallow floor-target pitch instead of centering back to a skyward shot.'
+Require-Match $runner '\$validatedFloorViewSetup = ''warptocoords -1616 760 -708 180 8; wait 2; \+Move_Forward; wait 2; -Move_Forward; wait 20''[\s\S]*\$rpgViewSetup = if \(\$TrailSideView\) \{ \$trailSideLaunchSetup \} else \{ \$validatedFloorViewSetup \}' 'The default RPG/explosion capture must retain its validated shallow floor-target setup.'
 if ($runner -match "warptocoords -1616 760 -708 180 8[^'`r`n]*centerview") {
     throw 'The floor-target actor setup must not erase its authored pitch with centerview.'
 }
+Require-Match $runner '\[switch\]\$TrailSideView[\s\S]*if \(\$TrailSideView -and \$Effect -ne ''trail''\)[\s\S]*only valid with -Effect trail' 'The alternate side camera must be explicitly requested and restricted to trail captures.'
+Require-Match $runner '\$trailSideLaunchSetup = ''warptocoords -1616 760 -708 180 0; wait 2; \+Move_Forward; wait 2; -Move_Forward; wait 20''' 'Trail side-view captures must fire level from the current roof launch point.'
+Require-Match $runner '\$observationTransition = if \(\$TrailSideView\) \{ ''warptocoords -1800 560 -708 153 0; '' \} else \{ '''' \}[\s\S]*\+Fire; wait 8; -Fire; \$\{observationTransition\}\$\{postFire\}wait 1; screenshot' 'Trail side-view captures must move immediately after the eight-update RPG pulse and take the first observation screenshot one update later.'
+Require-Match $runner 'mode = ''trail-side-view''[\s\S]*launch = \[ordered\]@\{ position = @\(-1616, 760, -708\); yaw = 180; pitch = 0; sector = 298 \}[\s\S]*observation = \[ordered\]@\{ position = @\(-1800, 560, -708\); yaw = 153; pitch = 0; firstScreenshotWaitUpdates = 1 \}[\s\S]*cameraValidation = ''unverified camera candidate; screenshot review is required before acceptance''' 'Trail side-view metadata must preserve both camera transforms and explicitly require screenshot review.'
 Require-Match $runner 'smoke-offscreen\.dsave[\s\S]*Test-Path[\s\S]*if \(\$hasRpgSave\)[\s\S]*load smoke-offscreen' 'The optional RPG save path must only activate when smoke-offscreen.dsave actually exists.'
 Require-Match $runner 'map e1l1; wait 1; closemenu; wait 240; god; warptocoords 800 3584 -96 180 10[\s\S]*\+Move_Forward[\s\S]*nri_ptsmokereset' 'Fire actor capture must use the farther valid sector-325 view of E1L1 FIRE/FIRE2 sprites 195/196.'
 Require-Match $runner 'targetActors = @\(195, 196\)' 'Actor metadata must preserve the map-derived fire target contract.'

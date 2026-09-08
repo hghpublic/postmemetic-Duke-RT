@@ -309,6 +309,8 @@ LIGHTOVR
     smokestyle "duke_explosion_smoke"
     {
         density 3.45
+        // Transient-only controls leave the Grid rollback optics intact.
+        opticalamountscale 0.30
         extinction 0.002
         albedo 0.34 0.32 0.3
         anisotropy 0.15
@@ -326,6 +328,19 @@ LIGHTOVR
         temperature 1.0
         momentumscale 1.0
         coolinghalflife 2.0
+        densityattackseconds 0.04
+        densitysustainseconds 1.55
+        densityreleaseseconds 3.45
+        radiusexponent 0.82
+        intrinsicemission 0.8
+        emissionhalflife 0.16
+        clusterspread 1.10
+        loberadiusrandom 0.42 0.68
+        curlvelocity 5.0
+        coreplateau 0.62
+        edgeerosion 0.14
+        noisescale 0.032
+        noisestrength 0.22
     }
 
     smokestyle "duke_fire_smoke"
@@ -443,7 +458,9 @@ LIGHTOVR
         actorclass "DukeExplosion2"
         trigger spawn
         activation immediate
-        representation grid
+        representation "transient-cloud"
+        effectclass explosion
+        lobecount 12
         queuepolicy retry
         analyticcarriers 1
         emitterforeground off

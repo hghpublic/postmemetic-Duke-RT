@@ -11,6 +11,14 @@ param(
     [switch]$IncludeMapFog,
     [switch]$IncludeOtherSources,
     [switch]$Cold,
+    [switch]$Production,
+    [ValidateSet(
+        'duke.pistol.primary',
+        'duke.chaingun.primary',
+        'duke.shotgun.primary',
+        'duke.hitscan.impact.wall',
+        'duke.hitscan.impact.plane')]
+    [string]$EventRule,
     [ValidateSet('e1l1', 'e3l6')][string]$Map = 'e1l1',
     [ValidateRange(1, 4096)][int]$Distance = 256,
     [ValidateSet('all', 'point', 'directional', 'emissive', 'none')][string]$Lighting = 'all',
@@ -33,6 +41,30 @@ if (($FroxelPixels -ne 0 -or $FroxelDepth -ne 0) -and $Profile -ne 0) {
 }
 $minimumSuppressedMapRules = if ($Map -eq 'e1l1') { 4 } else { 0 }
 $classBits = @{ explosion = 1; trail = 2; fire = 4; muzzle = 8; impact = 16 }
+$productionEventRuleEffects = [ordered]@{
+    'duke.pistol.primary' = 'muzzle'
+    'duke.chaingun.primary' = 'muzzle'
+    'duke.shotgun.primary' = 'muzzle'
+    'duke.hitscan.impact.wall' = 'impact'
+    'duke.hitscan.impact.plane' = 'impact'
+}
+if ($Cold -and $Production) {
+    throw '-Cold requires the candidate event fixture; it cannot edit production authoring in place.'
+}
+if ($EventRule) {
+    if (-not $Production) { throw '-EventRule selects shipped event authoring and requires -Production.' }
+    if (-not (@($productionEventRuleEffects.Keys) -ccontains $EventRule)) {
+        throw "EventRule must exactly match one allowed production event rule: $(@($productionEventRuleEffects.Keys) -join ', ')."
+    }
+    $expectedEffect = [string]$productionEventRuleEffects[$EventRule]
+    if ($Effect -cne $expectedEffect) {
+        throw "EventRule '$EventRule' belongs to Effect '$expectedEffect', not '$Effect'."
+    }
+}
+elseif ($Production) {
+    throw '-Production event captures require -EventRule so they cannot fall back to candidate fixture IDs.'
+}
+$selectedEventRule = if ($EventRule) { $EventRule } else { "transient.$Effect.fixture" }
 $sourceClassMask = if ($IncludeOtherSources) { 63 } else { [int]$classBits[$Effect] }
 $baseContent = (Resolve-Path -LiteralPath $File -ErrorAction Stop).Path
 $releaseOverlay = (Resolve-Path -LiteralPath (Join-Path $repoRoot 'release-overlay') -ErrorAction Stop).Path
@@ -40,7 +72,8 @@ $fixture = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot 'overlays/smoke-t
 $resolvedGameGrp = (Resolve-Path -LiteralPath $GameGrp -ErrorAction Stop).Path
 $resolvedConfigTemplate = (Resolve-Path -LiteralPath $ConfigTemplate -ErrorAction Stop).Path
 if (-not $OutputDirectory) {
-    $OutputDirectory = Join-Path $repoRoot ('tools/logs/smoke-transient/{0}-{1}-{2}-mask{3}-p{4}-mapfog{5}' -f (Get-Date -Format 'yyyyMMdd-HHmmss'), $Map, $Effect, $ClassMask, $Profile, [int][bool]$IncludeMapFog)
+    $ruleTag = $selectedEventRule.Replace('.', '-')
+    $OutputDirectory = Join-Path $repoRoot ('tools/logs/smoke-transient/{0}-{1}-{2}-{3}-mask{4}-p{5}-production{6}-mapfog{7}' -f (Get-Date -Format 'yyyyMMdd-HHmmss'), $Map, $Effect, $ruleTag, $ClassMask, $Profile, [int][bool]$Production, [int][bool]$IncludeMapFog)
 }
 $output = [IO.Path]::GetFullPath($OutputDirectory)
 if (Test-Path -LiteralPath (Join-Path $output 'scenario.json')) {
@@ -81,7 +114,7 @@ $extra = [Collections.Generic.List[string]]::new()
 $extra.Add('-config'); $extra.Add($config)
 $extra.Add('-width'); $extra.Add('1280'); $extra.Add('-height'); $extra.Add('720')
 $extra.Add('-file'); $extra.Add($releaseOverlay)
-$extra.Add('-file'); $extra.Add($fixtureSnapshot)
+if (-not $Production) { $extra.Add('-file'); $extra.Add($fixtureSnapshot) }
 $settings = [ordered]@{
     vid_fullscreen = 'false'; vid_defwidth = '1280'; vid_defheight = '720'
     use_mouse = 'false'; use_joystick = 'false'; cl_viewbob = '0'; cl_dukepitchmode = '0'
@@ -109,7 +142,7 @@ if ($FroxelDepth -gt 0) { $settings['nri_ptsmokefroxelz'] = [string]$FroxelDepth
 foreach ($setting in $settings.GetEnumerator()) {
     $extra.Add('+set'); $extra.Add([string]$setting.Key); $extra.Add([string]$setting.Value)
 }
-$emit = ((1..$Burst | ForEach-Object { "nri_ptsmoke_test transient.$Effect.fixture $Distance" }) -join '; ')
+$emit = ((1..$Burst | ForEach-Object { "nri_ptsmoke_test $selectedEventRule $Distance" }) -join '; ')
 $grid = if ($MixedGrid) { 'nri_ptsmoke_test; ' } else { '' }
 $testLight = if ($TestPointLight) { 'nri_ptlightspawn 1.0 0.8 0.6 5.0 512 128; wait 2; ' } else { '' }
 $screenshotWaitUpdates = @(1, 5, 12, 24, 45)
@@ -128,15 +161,23 @@ $viewpoint = if ($Map -eq 'e1l1') {
 } else { $null }
 $commands = "+wait 45; map $Map; wait 1; closemenu; wait 240; closemenu; god; ${viewSetup}centerview; wait 2; nri_ptautoexposurefreeze true; set nri_ptsmoketrace 2; nri_ptsmokereset; ${testLight}perf_looptraceframes 0; perf_compactframes 64; ${grid}${emit}; $screenshotCommands; nri_ptsmokestatus; wait 180; quit"
 $scenario = [ordered]@{
-    name = "smoke-transient-$Map-$Effect-mask$ClassMask-p$Profile-source$sourceClassMask-cold$([int][bool]$Cold)-mapfog$([int][bool]$IncludeMapFog)"
+    name = "smoke-transient-$Map-$Effect-$($selectedEventRule.Replace('.', '-'))-mask$ClassMask-p$Profile-source$sourceClassMask-production$([int][bool]$Production)-cold$([int][bool]$Cold)-mapfog$([int][bool]$IncludeMapFog)"
     backend = 'd3d12'
     description = 'Same-build transient/legacy A/B with test-isolated map fog by default; first-use and aging display-referred captures with joined GPU counters.'
     commands = $commands
     capture = [ordered]@{ loopTraceFrames = 0; runs = 1; timeoutSeconds = $TimeoutSeconds; stopWhenLoopTraceFramesCaptured = $false }
     launch = [ordered]@{ file = $baseContent; gameGrp = $resolvedGameGrp; extraArgs = $extra.ToArray() }
-    requiredPrefixes = @('NRI PT smoke event test queued:', 'screenshot saved', 'PERF pt smoke route frame NRI:', 'PERF pt smoke transient NRI:', 'PERF pt gpu timing NRI:', 'PERF compact capture complete:')
+    requiredPrefixes = @("NRI PT smoke event test queued: event=$selectedEventRule ", 'screenshot saved', 'PERF pt smoke route frame NRI:', 'PERF pt smoke transient NRI:', 'PERF pt gpu timing NRI:', 'PERF compact capture complete:')
     forbiddenPatterns = @('Device removed', 'device lost', 'NRI render failed', 'NRI error:', 'validation error', 'failed to create', 'assertion failed', 'fatal error', 'LIGHTOVR: Script error', 'LIGHTOVR parse error', 'no resolved smoke-event rule', 'Unknown command')
-    transient = [ordered]@{ map = $Map; effect = $Effect; mask = $ClassMask; profile = $Profile; burst = $Burst; distance = $Distance; lighting = $Lighting; testPointLight = [bool]$TestPointLight; representation = $Representation; mixedGrid = [bool]$MixedGrid; includeMapFog = [bool]$IncludeMapFog; minimumSuppressedMapRules = $minimumSuppressedMapRules; delayedCommandUpdatesPerSecond = 30; playClockUnitsPerUpdate = 4; screenshotWaitUpdates = $screenshotWaitUpdates; screenshotGameplayAgesSeconds = $screenshotGameplayAgesSeconds; settings = $settings }
+    transient = [ordered]@{ map = $Map; effect = $Effect; eventRule = $selectedEventRule; mask = $ClassMask; profile = $Profile; burst = $Burst; distance = $Distance; lighting = $Lighting; testPointLight = [bool]$TestPointLight; representation = $Representation; mixedGrid = [bool]$MixedGrid; includeMapFog = [bool]$IncludeMapFog; minimumSuppressedMapRules = $minimumSuppressedMapRules; delayedCommandUpdatesPerSecond = 30; playClockUnitsPerUpdate = 4; screenshotWaitUpdates = $screenshotWaitUpdates; screenshotGameplayAgesSeconds = $screenshotGameplayAgesSeconds; settings = $settings }
+}
+$scenario.transient['production'] = [bool]$Production
+$scenario.transient['content'] = [ordered]@{
+    baseContent = $baseContent
+    releaseOverlay = $releaseOverlay
+    fixtureSource = $fixture
+    fixtureSnapshot = $fixtureSnapshot
+    fixtureMounted = -not [bool]$Production
 }
 $scenario.transient['sourceClassMask'] = $sourceClassMask
 $scenario.transient['cold'] = [bool]$Cold
