@@ -144,6 +144,118 @@ const NRISmokeTransientGroupGpu& Group(const NRISmokeTransientClouds& owner,
 	return owner.GetGpuGroups()[handle.slot];
 }
 
+void TetraAnchor(const NRISmokeTransientGroupGpu& group, uint32_t index,
+	float coefficient, float output[3])
+{
+	static constexpr float Signs[4][3] = {
+		{ 1.0f, 1.0f, 1.0f }, { -1.0f, -1.0f, 1.0f },
+		{ -1.0f, 1.0f, -1.0f }, { 1.0f, -1.0f, -1.0f }
+	};
+	for (uint32_t axis = 0u; axis < 3u; ++axis)
+	{
+		const float center = (group.boundsMin[axis] + group.boundsMax[axis]) * 0.5f;
+		output[axis] = center + (group.boundsMax[axis] - group.boundsMin[axis]) *
+			coefficient * Signs[index][axis];
+	}
+}
+
+float PointMedium(const std::vector<NRISmokeTransientLobeGpu>& lobes,
+	const float position[3])
+{
+	float medium = 0.0f;
+	for (const NRISmokeTransientLobeGpu& lobe : lobes)
+	{
+		const float distance = Distance3(position, lobe.position);
+		const float normalized = distance / std::max(lobe.radius, 0.001f);
+		if (normalized >= 1.0f || lobe.densityScale <= 0.0f) continue;
+		const float plateau = std::clamp(lobe.corePlateau, 0.0f, 0.95f);
+		const float shell = std::clamp((1.0f - normalized) /
+			std::max(1.0f - plateau, 0.05f), 0.0f, 1.0f);
+		const float kernel = normalized <= plateau ? 1.0f :
+			shell * shell * (3.0f - 2.0f * shell);
+		medium += lobe.densityScale * kernel;
+	}
+	return medium;
+}
+
+uint32_t PositiveAnchorCount(const NRISmokeTransientGroupGpu& group,
+	const std::vector<NRISmokeTransientLobeGpu>& lobes, uint32_t anchorCount,
+	float coefficient)
+{
+	uint32_t positive = 0u;
+	for (uint32_t index = 0u; index < anchorCount; ++index)
+	{
+		float anchor[3] = {};
+		TetraAnchor(group, index, coefficient, anchor);
+		if (PointMedium(lobes, anchor) > 1.0e-6f) ++positive;
+	}
+	return positive;
+}
+
+NRISmokeTransientGroupShapeInput ProductionAnchorFixture(
+	NRISmokeTransientClass transientClass)
+{
+	NRISmokeTransientGroupShapeInput input = {};
+	input.up[1] = 1.0f;
+	input.initialDensity = transientClass == NRISmokeTransientClass::Explosion ?
+		1.5f : 3.0f;
+	input.initialRadius = transientClass == NRISmokeTransientClass::Explosion ?
+		45.0f : 21.0f;
+	input.opticalAmount = transientClass == NRISmokeTransientClass::Explosion ?
+		21.6f : 1.8f;
+	input.expansionVelocity = transientClass == NRISmokeTransientClass::Explosion ?
+		18.0f : 10.0f;
+	input.densityHalfLife = transientClass == NRISmokeTransientClass::Explosion ?
+		2.2f : 6.0f;
+	input.lobeLifetimeSeconds = transientClass == NRISmokeTransientClass::Explosion ?
+		5.0f : 3.0f;
+	input.groupLifetimeSeconds = input.lobeLifetimeSeconds;
+	input.densityAttackSeconds = transientClass == NRISmokeTransientClass::Explosion ?
+		0.04f : 0.08f;
+	input.densitySustainSeconds = transientClass == NRISmokeTransientClass::Explosion ?
+		1.55f : 1.5f;
+	input.densityReleaseSeconds = transientClass == NRISmokeTransientClass::Explosion ?
+		3.45f : 1.42f;
+	input.radiusExponent = transientClass == NRISmokeTransientClass::Explosion ?
+		0.82f : 0.9f;
+	input.intrinsicEmission = transientClass == NRISmokeTransientClass::Explosion ?
+		0.8f : 0.5f;
+	input.emissionHalfLife = transientClass == NRISmokeTransientClass::Explosion ?
+		0.16f : 0.18f;
+	input.clusterSpread = transientClass == NRISmokeTransientClass::Explosion ?
+		1.1f : 0.45f;
+	input.lobeRadiusMinScale = 0.4f;
+	input.lobeRadiusMaxScale = transientClass == NRISmokeTransientClass::Explosion ?
+		0.68f : 0.7f;
+	if (transientClass == NRISmokeTransientClass::Explosion)
+		input.lobeRadiusMinScale = 0.42f;
+	input.riseVelocity = transientClass == NRISmokeTransientClass::Explosion ?
+		9.0f : 32.0f;
+	input.curlVelocity = transientClass == NRISmokeTransientClass::Explosion ?
+		5.0f : 4.0f;
+	input.corePlateau = transientClass == NRISmokeTransientClass::Explosion ?
+		0.62f : 0.6f;
+	input.edgeErosion = transientClass == NRISmokeTransientClass::Explosion ?
+		0.14f : 0.16f;
+	input.noiseScale = transientClass == NRISmokeTransientClass::Explosion ?
+		0.032f : 0.035f;
+	input.noiseStrength = transientClass == NRISmokeTransientClass::Explosion ?
+		0.22f : 0.2f;
+	input.requestedLobeCount = transientClass == NRISmokeTransientClass::Explosion ?
+		12u : 5u;
+	input.styleIndex = 1u;
+	input.sourceId = transientClass == NRISmokeTransientClass::Explosion ? 71u : 72u;
+	input.epoch = 19u;
+	input.sourceEventSerial = transientClass == NRISmokeTransientClass::Explosion ?
+		1200u : 1201u;
+	input.deterministicSeed = transientClass == NRISmokeTransientClass::Explosion ?
+		0x534d4f4bu : 0x46495245u;
+	input.transientClass = transientClass;
+	input.lightRefresh = transientClass == NRISmokeTransientClass::FirePacket ?
+		NRISmokeTransientLightRefresh::Slow : NRISmokeTransientLightRefresh::Frozen;
+	return input;
+}
+
 void TestProfiles()
 {
 	const auto reference = NRISmokeTransientClouds::ProfileForQuality(0u);
@@ -640,6 +752,62 @@ void TestExplosionBillowShaping()
 		Require(Near(directGroup.boundsMin[axis], steppedGroup.boundsMin[axis]) &&
 			Near(directGroup.boundsMax[axis], steppedGroup.boundsMax[axis]),
 			"billow group bounds must be invariant to frame subdivision");
+}
+
+void TestInsetAnchorDensityCoverage()
+{
+	constexpr float oldSurfaceCoefficient = 0.2886751346f;
+	constexpr float insetCoefficient = 0.07216878365f;
+	for (const NRISmokeTransientClass transientClass : {
+		NRISmokeTransientClass::Explosion, NRISmokeTransientClass::FirePacket })
+	{
+		const NRISmokeTransientGroupShapeInput input =
+			ProductionAnchorFixture(transientClass);
+		NRISmokeTransientLobeRequest requests[16] = {};
+		const uint32_t requestCount = NRIBuildSmokeTransientLobes(input,
+			requests, 16u);
+		Require(requestCount == input.requestedLobeCount,
+			"production anchor fixture must build its complete lobe batch");
+		const double firstFullAge = input.densityAttackSeconds * 0.81;
+
+		NRISmokeTransientClouds mediumOwner;
+		const auto medium = NRISmokeTransientClouds::ProfileForQuality(2u);
+		mediumOwner.Reset(input.epoch);
+		mediumOwner.BeginFrame(0.0, medium.maximumActiveLobes, medium);
+		const auto mediumAdmission = mediumOwner.AdmitBatch(requests, requestCount);
+		Require(mediumAdmission.Accepted(),
+			"medium anchor fixture must admit its production lobe batch");
+		mediumOwner.BeginFrame(firstFullAge, medium.maximumActiveLobes, medium);
+		const auto& mediumGroup = Group(mediumOwner, mediumAdmission.handle);
+		Require((mediumGroup.flags & NRISmokeTransientGroupFlagFullLightAllowed) != 0u,
+			"anchor coverage must be measured at first-full attack maturity");
+		const uint32_t oldPositive = PositiveAnchorCount(mediumGroup,
+			mediumOwner.GetGpuLobes(), 4u, oldSurfaceCoefficient);
+		const uint32_t insetPositive = PositiveAnchorCount(mediumGroup,
+			mediumOwner.GetGpuLobes(), 4u, insetCoefficient);
+		Require(oldPositive == 2u,
+			"production compound bounds must retain the two old empty-anchor regressions");
+		Require(insetPositive == 4u,
+			"all inset medium-profile anchors must sample positive first-full medium");
+
+		auto lowTwo = NRISmokeTransientClouds::ProfileForQuality(3u);
+		lowTwo.maximumActiveLobes = 2u;
+		lowTwo.maximumLobesPerGroup = 2u;
+		lowTwo.minimumReducedLobes = 2u;
+		NRISmokeTransientClouds lowOwner;
+		lowOwner.Reset(input.epoch);
+		lowOwner.BeginFrame(0.0, 2u, lowTwo);
+		const auto lowAdmission = lowOwner.AdmitBatch(requests, requestCount);
+		Require(lowAdmission.Accepted() && lowAdmission.admittedLobes == 2u,
+			"low anchor fixture must deterministically reduce to two lobes");
+		lowOwner.BeginFrame(firstFullAge, 2u, lowTwo);
+		const auto& lowGroup = Group(lowOwner, lowAdmission.handle);
+		Require((lowGroup.flags & NRISmokeTransientGroupFlagFullLightAllowed) != 0u &&
+			lowGroup.requiredAnchorMask == 0x3u &&
+			PositiveAnchorCount(lowGroup, lowOwner.GetGpuLobes(), 2u,
+			insetCoefficient) == 2u,
+			"the low-profile two-anchor subset must sample positive first-full medium");
+	}
 }
 
 void TestTrailCoverage()
@@ -1262,6 +1430,7 @@ int main()
 	TestPositiveUpBuoyancy();
 	TestNonFirePositiveUpRise();
 	TestExplosionBillowShaping();
+	TestInsetAnchorDensityCoverage();
 	TestTrailCoverage();
 	TestIdentityLifetimeAndReservation();
 	TestCapacityAndOpticalReduction();

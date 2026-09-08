@@ -218,7 +218,18 @@ void SmokeTransientEvaluateExternal(SmokeTransientGroup group, float3 receiverPo
 			{
 				unshadowed = true;
 			}
-			const float3 estimator = incident * visibility /
+			// Emissive surfaces can dominate a fire packet. Apply the same local
+			// cloud attenuation as analytic/directional lighting; scene visibility
+			// alone otherwise leaves a dense plume glowing uniformly from within.
+			float selfTransmittance = 1.0;
+			if (fullBuild &&
+				(gSmokeConstants.LightSourceFlags & NRI_SMOKE_TRANSIENT_SELF_SHADOW) != 0u)
+			{
+				InterlockedAdd(gSmokeControl[0].TransientLightSelfTransmittanceTests, 1u);
+				selfTransmittance = exp(-min(SmokeTransientGroupOpticalDepth(group,
+					receiverPosition, direction, distanceToLight), 20.0));
+			}
+			const float3 estimator = incident * visibility * selfTransmittance /
 				max(candidate.selectionPdf * (float)sampleCount, 1e-6);
 			SmokeTransientAccumulateIncident(estimator, direction, lobes);
 			if (any(estimator > 0.0))

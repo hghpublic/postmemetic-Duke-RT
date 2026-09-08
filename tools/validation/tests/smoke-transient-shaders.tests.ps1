@@ -54,6 +54,8 @@ Require-NoMatch $lighting 'NoiseScale\s*\*\s*lobe\.Radius|lobe\.NoiseScale\s*\*\
 Require-Match $lighting 'f\s*\*\s*f\s*\*\s*\(3\.0\s*-\s*2\.0\s*\*\s*f\)' 'Boundary noise is not smoothly interpolated in fixed space.'
 Require-Match $lighting 'Materialization only removes shell mass[\s\S]*conservative upper optical-depth bound[\s\S]*opticalDepth\s*\+=\s*\(coreIntegral\s*\+\s*shellIntegral\)' 'Self-shadow optical depth must conservatively bound the boundary-eroded materialized medium.'
 Require-Match $lighting 'header\.ShapeRevision\s*==\s*SmokeTransientShapeRevision\(group\)[\s\S]*header\.LightingBoundsRevision\s*==\s*SmokeTransientLightingBoundsRevision\(group\)' 'Cache identity does not reject stale shape or lighting-bounds revisions.'
+Require-Match $lighting 'SmokeTransientAnchorPosition[\s\S]*\(upper\s*-\s*lower\)\s*\*\s*0\.07216878365' 'Transient cache anchors must retain the symmetric one-quarter-radius inset.'
+Require-NoMatch $lighting 'SmokeTransientAnchorPosition[\s\S]{0,300}\(upper\s*-\s*lower\)\s*\*\s*0\.2886751346' 'Transient cache anchors regressed to the empty support-surface tetrahedron.'
 
 Require-Match $build 'if\s*\(wantsFull\)[\s\S]*TransientLightFullBuildClaims' 'Fallback groups can consume the full-build budget.'
 Require-Match $build 'previousValid\s*\?\s*!previousBankB\s*:\s*!fallbackBankB' 'A refresh can overwrite its active cache bank before publication.'
@@ -65,8 +67,8 @@ Require-Match $build 'uint\s+selectedCount\s*=\s*0u;[\s\S]*LightMode\s*>\s*0u[\s
 Require-Match $build 'environment\s*=\s*all\(isfinite\(sampled\)\)\s*\?\s*max\(sampled,\s*0\.0\)\s*:\s*0\.0[\s\S]*cubemapQuadratureWeight\s*=\s*2\.094395' 'Optional sky lighting must use zero-preserving six-axis solid-angle quadrature.'
 Require-NoMatch $build 'max\(sampled,\s*0\.02|:\s*0\.02\.xxx' 'A black sky must not acquire an artificial transient ambient floor.'
 Require-NoMatch $build 'gSmokeRuntimeLightTileHeaders|gSmokeRuntimeLightTileIndices' 'Transient cache selection acquired camera-tile identity.'
-if ([regex]::Matches($build, 'fullBuild\s*&&\s*\(gSmokeConstants\.LightSourceFlags\s*&\s*NRI_SMOKE_TRANSIENT_SELF_SHADOW\)').Count -ne 2) {
-    throw 'Both full-cache self-transmittance paths must honor nri_ptsmoketransientselfshadow through LightSourceFlags.'
+if ([regex]::Matches($build, 'fullBuild\s*&&\s*\(gSmokeConstants\.LightSourceFlags\s*&\s*NRI_SMOKE_TRANSIENT_SELF_SHADOW\)').Count -ne 3) {
+    throw 'All three full-cache self-transmittance paths must honor nri_ptsmoketransientselfshadow through LightSourceFlags.'
 }
 
 Require-Match $materialize 'SmokeTransientRaySegmentIntersectsAabb[\s\S]*cacheLoaded' 'Cache taps are not deferred until after conservative group rejection.'

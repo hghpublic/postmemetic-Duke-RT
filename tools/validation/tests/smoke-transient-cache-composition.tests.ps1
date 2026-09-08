@@ -80,10 +80,15 @@ function Scale-From-Center($value, $center, [double]$scale) {
 }
 function Get-TetraAnchor([int]$index, $lower, $upper) {
     $center = New-Vec3 (($lower.X + $upper.X) * 0.5) (($lower.Y + $upper.Y) * 0.5) (($lower.Z + $upper.Z) * 0.5)
-    $extent = New-Vec3 (($upper.X - $lower.X) * 0.2886751346) (($upper.Y - $lower.Y) * 0.2886751346) (($upper.Z - $lower.Z) * 0.2886751346)
+    $extent = New-Vec3 (($upper.X - $lower.X) * 0.07216878365) (($upper.Y - $lower.Y) * 0.07216878365) (($upper.Z - $lower.Z) * 0.07216878365)
     $signs = @(@(1, 1, 1), @(-1, -1, 1), @(-1, 1, -1), @(1, -1, -1))[$index]
     return New-Vec3 ($center.X + $extent.X * $signs[0]) ($center.Y + $extent.Y * $signs[1]) ($center.Z + $extent.Z * $signs[2])
 }
+$unitLower = New-Vec3 -1 -1 -1
+$unitUpper = New-Vec3 1 1 1
+$unitAnchor = Get-TetraAnchor 0 $unitLower $unitUpper
+$unitAnchorRadius = [math]::Sqrt($unitAnchor.X * $unitAnchor.X + $unitAnchor.Y * $unitAnchor.Y + $unitAnchor.Z * $unitAnchor.Z)
+Assert-Near $unitAnchorRadius 0.25 1e-10 'Inset tetrahedron must sit at one quarter of a tight support sphere radius.'
 function Resolve-LocalField($position, $lower, $upper, [double[]]$values) {
     $weights = @()
     for ($i = 0; $i -lt 4; ++$i) {

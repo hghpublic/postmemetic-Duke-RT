@@ -85,7 +85,12 @@ bool SmokeTransientHeaderIdentityMatches(SmokeTransientLightHeader header,
 float3 SmokeTransientAnchorPosition(uint anchorIndex, float3 lower, float3 upper)
 {
 	const float3 center = (lower + upper) * 0.5;
-	const float3 extent = (upper - lower) * 0.2886751346;
+	// A regular tetrahedron at the old scale touched the support surface of a
+	// tight spherical AABB. Compound binder/satellite bounds could therefore put
+	// every sample in a thin shell or an empty corner. Retain the symmetric field,
+	// but inset it to one quarter radius so full-cache samples represent the dense
+	// interior without changing anchor count or cache ABI.
+	const float3 extent = (upper - lower) * 0.07216878365;
 	if (anchorIndex == 0u) return center + extent * float3(1.0, 1.0, 1.0);
 	if (anchorIndex == 1u) return center + extent * float3(-1.0, -1.0, 1.0);
 	if (anchorIndex == 2u) return center + extent * float3(-1.0, 1.0, -1.0);
