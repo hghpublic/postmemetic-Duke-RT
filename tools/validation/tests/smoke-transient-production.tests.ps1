@@ -10,6 +10,11 @@ $cutovers = @{
     duke_explosion_cloud = @{ Class = 'explosion'; Lobes = 12; Legacy = 'grid' }
     duke_rpg_trail_continuous = @{ Class = 'trail'; Lobes = 4; Legacy = 'grid' }
     duke_fire_sustained = @{ Class = 'fire'; Lobes = 5; Legacy = 'grid' }
+    'duke.pistol.primary' = @{ Class = 'muzzle'; Lobes = 5; Legacy = 'analytic' }
+    'duke.chaingun.primary' = @{ Class = 'muzzle'; Lobes = 5; Legacy = 'analytic' }
+    'duke.shotgun.primary' = @{ Class = 'muzzle'; Lobes = 5; Legacy = 'analytic' }
+    'duke.hitscan.impact.wall' = @{ Class = 'impact'; Lobes = 6; Legacy = 'analytic' }
+    'duke.hitscan.impact.plane' = @{ Class = 'impact'; Lobes = 6; Legacy = 'analytic' }
 }
 
 # Canonical field hashes at 64e8366e7a. Strip only the explicitly transient-only

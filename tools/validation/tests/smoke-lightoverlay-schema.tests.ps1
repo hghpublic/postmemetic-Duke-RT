@@ -12,6 +12,13 @@ function Assert-Contains([string]$Text, [string]$Pattern, [string]$Message) {
     if ($Text -notmatch $Pattern) { throw $Message }
 }
 
+function Get-AuthoredSmokeEventBlock([string]$eventId) {
+    $pattern = 'smokeeventrule\s+"' + [regex]::Escape($eventId) + '"\s*\{[^}]*\}'
+    $match = [regex]::Match($authored, $pattern)
+    if (-not $match.Success) { throw "Missing authored smoke event rule: $eventId" }
+    return $match.Value
+}
+
 Assert-Contains $header 'struct ParsedLightOverlaySmokeStyle' 'Missing parsed smoke style contract.'
 Assert-Contains $header 'struct ResolvedLightOverlaySmokeStyle : ParsedLightOverlaySmokeStyle' 'Resolved smoke styles must retain every normalized authored style field.'
 Assert-Contains $header 'struct ResolvedLightOverlaySmokeActorRule' 'Missing resolved smoke actor contract.'
@@ -159,11 +166,12 @@ Assert-Contains $implementation 'AddOrReplaceLightOverlayRule\(ParsedLightOverla
 
 Assert-Contains $authored 'smokestyle\s+"duke_muzzle_smoke"' 'Duke muzzle smoke style is not authored.'
 foreach ($eventId in @('duke.pistol.primary', 'duke.shotgun.primary', 'duke.chaingun.primary')) {
-    Assert-Contains $authored ('smokeeventrule\s+"' + [regex]::Escape($eventId) + '"') "Missing authored smoke event rule: $eventId"
-    Assert-Contains $authored ('smokeeventrule\s+"' + [regex]::Escape($eventId) + '"[\s\S]*?representation\s+analytic[\s\S]*?queuepolicy\s+drop[\s\S]*?maxlatencyseconds\s+0\.075') "Muzzle smoke must use fresh immediate-or-drop analytic presentation: $eventId"
+    $eventBlock = Get-AuthoredSmokeEventBlock $eventId
+    Assert-Contains $eventBlock 'representation\s+"transient-cloud"[\s\S]*?effectclass\s+muzzle[\s\S]*?lobecount\s+5[\s\S]*?queuepolicy\s+drop[\s\S]*?maxlatencyseconds\s+0\.075[\s\S]*?analyticcarriers\s+1' "Muzzle smoke must use the exact transient presentation with analytic rollback: $eventId"
 }
 foreach ($eventId in @('duke.hitscan.impact.plane', 'duke.hitscan.impact.wall')) {
-    Assert-Contains $authored ('smokeeventrule\s+"' + [regex]::Escape($eventId) + '"[\s\S]*?representation\s+analytic[\s\S]*?queuepolicy\s+drop[\s\S]*?maxlatencyseconds\s+0\.05(?:0)?') "Impact smoke must use fresh immediate-or-drop analytic presentation: $eventId"
+    $eventBlock = Get-AuthoredSmokeEventBlock $eventId
+    Assert-Contains $eventBlock 'representation\s+"transient-cloud"[\s\S]*?effectclass\s+impact[\s\S]*?lobecount\s+6[\s\S]*?queuepolicy\s+drop[\s\S]*?maxlatencyseconds\s+0\.05(?:0)?[\s\S]*?analyticcarriers\s+2' "Impact smoke must use the exact transient presentation with analytic rollback: $eventId"
 }
 Assert-Contains $authored 'smokeeventrule\s+"nri\.smoke\.test"' 'Missing smoke-only diagnostic event rule.'
 foreach ($fixtureText in @($transientFixture, $transientActorFixture)) {
@@ -177,10 +185,10 @@ foreach ($class in @('explosion', 'trail', 'fire', 'muzzle', 'impact')) {
 }
 Assert-Contains $authored 'smokeeventrule\s+"duke\.shotgun\.primary"[\s\S]*?velocitycone\s+22\.0' 'Shotgun smoke must retain authored directional spread.'
 foreach ($eventId in @('duke.pistol.primary', 'duke.chaingun.primary')) {
-    Assert-Contains $authored ('smokeeventrule\s+"' + [regex]::Escape($eventId) + '"[\s\S]*?spawnradius\s+3\.0[\s\S]*?densityscale\s+1(?:\.0)?(?:\s|$)') "Pistol/chaingun muzzle smoke must retain enlarged analytic support without doubled opacity: $eventId"
+    Assert-Contains $authored ('smokeeventrule\s+"' + [regex]::Escape($eventId) + '"[\s\S]*?spawnradius\s+3\.0[\s\S]*?densityscale\s+1(?:\.0)?(?:\s|$)') "Pistol/chaingun muzzle smoke must retain enlarged rollback support without doubled opacity: $eventId"
 }
-Assert-Contains $authored 'smokeeventrule\s+"duke\.hitscan\.impact\.plane"[\s\S]*?densityscale\s+0\.8' 'Plane-impact analytic smoke must retain reduced optical mass.'
-Assert-Contains $authored 'smokeeventrule\s+"duke\.hitscan\.impact\.wall"[\s\S]*?densityscale\s+0\.9' 'Wall-impact analytic smoke must retain reduced optical mass.'
+Assert-Contains $authored 'smokeeventrule\s+"duke\.hitscan\.impact\.plane"[\s\S]*?densityscale\s+0\.8' 'Plane-impact smoke must retain reduced optical mass.'
+Assert-Contains $authored 'smokeeventrule\s+"duke\.hitscan\.impact\.wall"[\s\S]*?densityscale\s+0\.9' 'Wall-impact smoke must retain reduced optical mass.'
 if ($authored -match 'smokeactorrule\s+"duke_fire_sustained"') {
     Assert-Contains $authored 'smokeactorrule\s+"duke_fire_sustained"[\s\S]*?actorclass\s+"DukeFire"[\s\S]*?emitterforeground\s+on' 'The local Duke dumpster-fire smoke rule must keep its emitter surface in the foreground.'
 }

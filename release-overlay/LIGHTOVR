@@ -389,6 +389,7 @@ LIGHTOVR
         radius 5.0
         expansionvelocity 5.0
         lifetime 3.5
+        transientlifetimeseconds 0.8
         densityhalflife 1.8
         risevelocity 2.5
         velocityrandom 3.0
@@ -400,6 +401,13 @@ LIGHTOVR
         temperature 1.0
         momentumscale 1.0
         coolinghalflife 2.0
+        densitysustainseconds 0.30
+        densityreleaseseconds 0.50
+        radiusexponent 0.90
+        clusterspread 0.52
+        loberadiusrandom 0.78 1.18
+        coreplateau 0.50
+        edgeerosion 0.08
     }
 
     smokestyle "duke_muzzle_smoke"
@@ -411,6 +419,7 @@ LIGHTOVR
         radius 5.0
         expansionvelocity 3.0
         lifetime 1.35
+        transientlifetimeseconds 0.8
         densityhalflife 0.55
         risevelocity 0.0
         velocityrandom 0.0
@@ -422,6 +431,13 @@ LIGHTOVR
         temperature 0.0
         momentumscale 1.0
         coolinghalflife 1.0
+        densitysustainseconds 0.30
+        densityreleaseseconds 0.50
+        radiusexponent 0.90
+        clusterspread 0.52
+        loberadiusrandom 0.78 1.18
+        coreplateau 0.50
+        edgeerosion 0.08
     }
 
     smokestyle "duke_trail_smoke"
@@ -567,7 +583,9 @@ LIGHTOVR
     smokeeventrule "duke.chaingun.primary"
     {
         style "duke_muzzle_smoke"
-        representation analytic
+        representation "transient-cloud"
+        effectclass muzzle
+        lobecount 5
         queuepolicy drop
         maxlatencyseconds 0.075
         analyticcarriers 1
@@ -586,7 +604,9 @@ LIGHTOVR
     smokeeventrule "duke.hitscan.impact.plane"
     {
         style "duke_impact_smoke"
-        representation analytic
+        representation "transient-cloud"
+        effectclass impact
+        lobecount 6
         queuepolicy drop
         maxlatencyseconds 0.05
         analyticcarriers 2
@@ -605,7 +625,9 @@ LIGHTOVR
     smokeeventrule "duke.hitscan.impact.wall"
     {
         style "duke_impact_smoke"
-        representation analytic
+        representation "transient-cloud"
+        effectclass impact
+        lobecount 6
         queuepolicy drop
         maxlatencyseconds 0.05
         analyticcarriers 2
@@ -624,7 +646,9 @@ LIGHTOVR
     smokeeventrule "duke.pistol.primary"
     {
         style "duke_muzzle_smoke"
-        representation analytic
+        representation "transient-cloud"
+        effectclass muzzle
+        lobecount 5
         queuepolicy drop
         maxlatencyseconds 0.075
         analyticcarriers 1
@@ -643,7 +667,9 @@ LIGHTOVR
     smokeeventrule "duke.shotgun.primary"
     {
         style "duke_muzzle_smoke"
-        representation analytic
+        representation "transient-cloud"
+        effectclass muzzle
+        lobecount 5
         queuepolicy drop
         maxlatencyseconds 0.075
         analyticcarriers 1
