@@ -84,7 +84,7 @@ struct NRISmokeTransientGroupShapeInput
 {
 	float position[3] = {};
 	float velocity[3] = {};
-	float up[3] = { 0.0f, -1.0f, 0.0f };
+	float up[3] = { 0.0f, 1.0f, 0.0f };
 	float trailAxis[3] = {};
 	float trailSpan = 0.0f;
 	float initialRadius = 0.0f;

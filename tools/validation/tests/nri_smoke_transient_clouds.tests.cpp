@@ -194,6 +194,7 @@ void TestSemanticBuilder()
 	NRISmokeTransientGroupShapeInput input = {};
 	input.position[0] = 1.0f;
 	input.velocity[2] = 3.0f;
+	input.up[1] = 1.0f;
 	input.initialRadius = 2.0f;
 	input.initialDensity = 1.5f;
 	input.opticalAmount = 100.0f;
@@ -249,6 +250,158 @@ void TestSemanticBuilder()
 		"semantic builder must reject non-finite shaping fields");
 }
 
+void TestPositiveUpBuoyancy()
+{
+	NRISmokeTransientGroupShapeInput fire = {};
+	fire.position[1] = 10.0f;
+	fire.velocity[1] = 6.0f;
+	fire.up[1] = 1.0f;
+	fire.initialRadius = 10.0f;
+	fire.initialDensity = 1.0f;
+	fire.opticalAmount = 5.0f;
+	fire.expansionVelocity = 2.0f;
+	fire.densityHalfLife = 2.0f;
+	fire.lobeLifetimeSeconds = 3.0f;
+	fire.groupLifetimeSeconds = 3.0f;
+	fire.clusterSpread = 0.45f;
+	fire.lobeRadiusMinScale = 0.4f;
+	fire.lobeRadiusMaxScale = 0.7f;
+	fire.riseVelocity = 12.0f;
+	fire.curlVelocity = 4.0f;
+	fire.requestedLobeCount = 5u;
+	fire.sourceId = 17u;
+	fire.epoch = 4u;
+	fire.sourceEventSerial = 1234u;
+	fire.transientClass = NRISmokeTransientClass::FirePacket;
+	NRISmokeTransientLobeRequest fireLobes[16] = {};
+	Require(NRIBuildSmokeTransientLobes(fire, fireLobes, 16u) == 5u,
+		"positive-up fire fixture must build its complete packet");
+	float meanInitialY = 0.0f;
+	float meanLaterY = 0.0f;
+	for (uint32_t index = 0u; index < fire.requestedLobeCount; ++index)
+	{
+		const auto& lobe = fireLobes[index];
+		const float unit = (static_cast<float>(index) + 0.5f) /
+			static_cast<float>(fire.requestedLobeCount);
+		const float expectedInitialY = fire.position[1] + fire.initialRadius *
+			fire.clusterSpread * 1.6f * unit;
+		Require(Near(lobe.position[1], expectedInitialY) &&
+			Near(lobe.velocity[1], fire.velocity[1] + fire.riseVelocity),
+			"fire axial placement and rise must follow explicit path-tracing +Y without vertical curl even when source velocity is vertical");
+		meanInitialY += lobe.position[1];
+		meanLaterY += lobe.position[1] + lobe.velocity[1];
+	}
+	meanInitialY /= static_cast<float>(fire.requestedLobeCount);
+	meanLaterY /= static_cast<float>(fire.requestedLobeCount);
+	Require(meanInitialY > fire.position[1] && meanLaterY > meanInitialY,
+		"positive-up fire must form a rising packet instead of propagating below its source");
+
+	NRISmokeTransientGroupShapeInput explosion = fire;
+	explosion.transientClass = NRISmokeTransientClass::Explosion;
+	explosion.requestedLobeCount = 8u;
+	explosion.expansionVelocity = 10.0f;
+	explosion.riseVelocity = 5.0f;
+	NRISmokeTransientLobeRequest explosionLobes[16] = {};
+	Require(NRIBuildSmokeTransientLobes(explosion, explosionLobes, 16u) == 8u,
+		"vertical-velocity explosion fixture must build its complete billow");
+	const float expectedBinderY = explosion.velocity[1] + explosion.riseVelocity +
+		explosion.expansionVelocity * 0.08f;
+	Require(Near(explosionLobes[0].velocity[1], expectedBinderY) &&
+		Near(explosionLobes[1].velocity[1], expectedBinderY),
+		"explosion binder buoyancy must follow authored +Y instead of a projected orientation basis");
+
+	NRISmokeTransientGroupShapeInput fallback = fire;
+	std::fill(fallback.up, fallback.up + 3, 0.0f);
+	fallback.velocity[0] = 0.0f;
+	fallback.velocity[1] = 0.0f;
+	fallback.velocity[2] = 0.0f;
+	NRISmokeTransientLobeRequest fallbackLobes[16] = {};
+	Require(NRIBuildSmokeTransientLobes(fallback, fallbackLobes, 16u) == 5u,
+		"zero-velocity fire must retain a deterministic horizontal ring basis");
+	for (uint32_t index = 0u; index < fallback.requestedLobeCount; ++index)
+	{
+		const float unit = (static_cast<float>(index) + 0.5f) /
+			static_cast<float>(fallback.requestedLobeCount);
+		const float expectedInitialY = fallback.position[1] + fallback.initialRadius *
+			fallback.clusterSpread * 1.6f * unit;
+		Require(Near(fallbackLobes[index].position[1], expectedInitialY) &&
+			Near(fallbackLobes[index].velocity[1], fallback.riseVelocity),
+			"zero-velocity fire must use +Y fallback gravity while radial curl remains horizontal");
+	}
+}
+
+void TestNonFirePositiveUpRise()
+{
+	const std::array<NRISmokeTransientClass, 4> classes = {
+		NRISmokeTransientClass::TrailChunk,
+		NRISmokeTransientClass::Muzzle,
+		NRISmokeTransientClass::Impact,
+		NRISmokeTransientClass::Diagnostic,
+	};
+	for (const NRISmokeTransientClass transientClass : classes)
+	{
+		NRISmokeTransientGroupShapeInput baseline = {};
+		baseline.position[0] = 10.0f;
+		baseline.position[1] = 20.0f;
+		baseline.position[2] = -5.0f;
+		baseline.velocity[0] = 2.0f;
+		baseline.velocity[1] = -3.0f;
+		baseline.velocity[2] = 4.0f;
+		baseline.up[1] = 4.0f;
+		baseline.trailAxis[0] = 1.0f;
+		baseline.trailSpan = 12.0f;
+		baseline.initialRadius = 2.0f;
+		baseline.initialDensity = 1.0f;
+		baseline.opticalAmount = 10.0f;
+		baseline.expansionVelocity = 3.0f;
+		baseline.densityHalfLife = 2.0f;
+		baseline.lobeLifetimeSeconds = 3.0f;
+		baseline.groupLifetimeSeconds = 3.0f;
+		baseline.clusterSpread = 0.6f;
+		baseline.lobeRadiusMinScale = 0.7f;
+		baseline.lobeRadiusMaxScale = 1.2f;
+		baseline.curlVelocity = 2.5f;
+		baseline.lobeDelayStepSeconds = 0.07f;
+		baseline.requestedLobeCount = 6u;
+		baseline.sourceId = 29u;
+		baseline.epoch = 7u;
+		baseline.authoredGameplaySeconds = 41.0;
+		baseline.sourceEventSerial = 7788u;
+		baseline.deterministicSeed = 99u;
+		baseline.transientClass = transientClass;
+		NRISmokeTransientLobeRequest baselineLobes[16] = {};
+		Require(NRIBuildSmokeTransientLobes(baseline, baselineLobes, 16u) ==
+			baseline.requestedLobeCount,
+			"non-fire rise baseline must build its complete deterministic batch");
+
+		NRISmokeTransientGroupShapeInput rising = baseline;
+		rising.riseVelocity = 7.25f;
+		NRISmokeTransientLobeRequest risingLobes[16] = {};
+		Require(NRIBuildSmokeTransientLobes(rising, risingLobes, 16u) ==
+			rising.requestedLobeCount,
+			"non-fire positive-up rise fixture must build its complete batch");
+		for (uint32_t index = 0u; index < baseline.requestedLobeCount; ++index)
+		{
+			const auto& still = baselineLobes[index];
+			const auto& raised = risingLobes[index];
+			Require(Near(raised.velocity[0], still.velocity[0]) &&
+				Near(raised.velocity[1], still.velocity[1] + rising.riseVelocity) &&
+				Near(raised.velocity[2], still.velocity[2]),
+				"non-fire authored rise must add exactly once to inherited +Y velocity");
+			Require(Near(raised.position[0], still.position[0]) &&
+				Near(raised.position[1], still.position[1]) &&
+				Near(raised.position[2], still.position[2]) &&
+				Near(raised.initialRadius, still.initialRadius) &&
+				Near(RadiusAt(raised, 0.75f), RadiusAt(still, 0.75f)) &&
+				Near(raised.lobeDelaySeconds, still.lobeDelaySeconds) &&
+				raised.batchIndex == still.batchIndex &&
+				raised.batchCount == still.batchCount &&
+				raised.authoredGameplaySeconds == still.authoredGameplaySeconds,
+				"non-fire authored rise must not alter initial support, growth, or cadence identity");
+		}
+	}
+}
+
 void TestExplosionBillowShaping()
 {
 	NRISmokeTransientGroupShapeInput input = {};
@@ -256,6 +409,7 @@ void TestExplosionBillowShaping()
 	input.position[1] = 20.0f;
 	input.position[2] = -5.0f;
 	input.velocity[2] = 2.0f;
+	input.up[1] = 1.0f;
 	input.initialRadius = 45.0f;
 	input.initialDensity = 2.4f;
 	input.opticalAmount = 48.0f;
@@ -394,7 +548,7 @@ void TestExplosionBillowShaping()
 	for (const float age : { 0.0f, 1.5f, 3.0f })
 	{
 		Require(RequestGraphConnected(lobes, input.requestedLobeCount, age),
-			"positive-growth exponent-at-most-one billows must retain a connected overlap graph");
+			"authored positive-growth exponent-at-most-one billows must retain a connected overlap graph");
 		float boundsMin[3] = {
 			std::numeric_limits<float>::max(),
 			std::numeric_limits<float>::max(),
@@ -442,7 +596,7 @@ void TestExplosionBillowShaping()
 			reducedOwner.BeginFrame(age, reducedCount, reducedProfile);
 			const auto& gpuLobes = reducedOwner.GetGpuLobes();
 			Require(gpuLobes.size() == reducedCount && GpuGraphConnected(gpuLobes),
-				"production-domain reduced explosion counts must preserve a connected graph");
+				"authored production-domain reduced explosion counts must preserve a connected graph");
 			for (uint32_t axis = 0u; axis < 3u; ++axis)
 			{
 				const float primaryPosition = lobes[0].position[axis] +
@@ -492,6 +646,7 @@ void TestTrailCoverage()
 {
 	NRISmokeTransientGroupShapeInput trail = {};
 	trail.velocity[0] = 500.0f;
+	trail.up[1] = 1.0f;
 	trail.trailAxis[0] = 1.0f;
 	trail.trailSpan = 24.0f;
 	trail.initialRadius = 0.5f;
@@ -697,6 +852,7 @@ void TestIntrinsicEmissionOpticalInvariant()
 {
 	NRISmokeTransientGroupShapeInput input = {};
 	input.velocity[2] = 1.0f;
+	input.up[1] = 1.0f;
 	input.initialRadius = 2.0f;
 	input.initialDensity = 1.5f;
 	input.opticalAmount = 12.0f;
@@ -1046,6 +1202,8 @@ int main()
 {
 	TestProfiles();
 	TestSemanticBuilder();
+	TestPositiveUpBuoyancy();
+	TestNonFirePositiveUpRise();
 	TestExplosionBillowShaping();
 	TestTrailCoverage();
 	TestIdentityLifetimeAndReservation();

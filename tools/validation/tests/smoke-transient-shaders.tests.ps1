@@ -48,6 +48,8 @@ Require-Match $lighting 'SmokeTransientSpherePlateauIntegral[\s\S]*coreIntegral[
 Require-Match $lighting 'shellIntegral\s*\*=\s*lerp' 'Boundary detail is not isolated to the shell integral.'
 Require-Match $lighting 'SmokeTransientBoundaryErosionAmplitude[\s\S]*1\.0\s*-\s*\(1\.0\s*-\s*edge\)\s*\*\s*\(1\.0\s*-\s*strength\)' 'Independent boundary controls are not combined into a useful bounded amplitude.'
 Require-NoMatch $lighting 'EdgeErosion\s*\*\s*lobe\.NoiseStrength|lobe\.EdgeErosion\s*\*\s*NoiseStrength' 'Boundary amplitude regressed to the imperceptible product of authored controls.'
+Require-Match $lighting 'shellIntegral\s*>\s*0\.0\s*&&\s*\(lobe\.EdgeErosion\s*>\s*0\.0\s*\|\|\s*lobe\.NoiseStrength\s*>\s*0\.0\)' 'Either independent boundary control must activate shell modulation.'
+Require-NoMatch $lighting 'lobe\.EdgeErosion\s*>\s*0\.0\s*&&\s*lobe\.NoiseStrength\s*>\s*0\.0' 'Boundary modulation incorrectly requires both independent controls.'
 Require-NoMatch $lighting 'NoiseScale\s*\*\s*lobe\.Radius|lobe\.NoiseScale\s*\*\s*lobe\.Radius' 'Noise frequency changes as the lobe radius grows.'
 Require-Match $lighting 'f\s*\*\s*f\s*\*\s*\(3\.0\s*-\s*2\.0\s*\*\s*f\)' 'Boundary noise is not smoothly interpolated in fixed space.'
 Require-Match $lighting 'Materialization only removes shell mass[\s\S]*conservative upper optical-depth bound[\s\S]*opticalDepth\s*\+=\s*\(coreIntegral\s*\+\s*shellIntegral\)' 'Self-shadow optical depth must conservatively bound the boundary-eroded materialized medium.'

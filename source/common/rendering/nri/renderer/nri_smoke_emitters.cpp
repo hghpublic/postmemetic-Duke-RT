@@ -428,7 +428,9 @@ void NRISmokeEmitterSystem::Gather(uint32_t epoch, double gameplayTimeSeconds, c
 			NRISmokeTransientGroupShapeInput shape = {};
 			std::copy(command.position, command.position + 3, shape.position);
 			std::copy(command.velocity, command.velocity + 3, shape.velocity);
-			shape.up[1] = -1.0f;
+			// Path-tracing space is Y-up. Keep transient buoyancy in that convention;
+			// the legacy analytic comparison route below retains its old sign.
+			shape.up[1] = 1.0f;
 			std::copy(command.halfAxisU, command.halfAxisU + 3, shape.halfAxisU);
 			std::copy(command.halfAxisV, command.halfAxisV + 3, shape.halfAxisV);
 			shape.initialRadius = initialRadius;

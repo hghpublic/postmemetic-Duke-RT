@@ -207,7 +207,7 @@ float SmokeTransientSphereKernelAverage(SmokeTransientLobe lobe, float3 ray,
 		gSmokeConstants.CameraPosition, unitRay, nearDepth * rayLength, farDepth * rayLength,
 		coreIntegral, shellIntegral);
 	const float segmentLength = max((farDepth - nearDepth) * rayLength, 1e-6);
-	if (shellIntegral > 0.0 && lobe.EdgeErosion > 0.0 && lobe.NoiseStrength > 0.0)
+	if (shellIntegral > 0.0 && (lobe.EdgeErosion > 0.0 || lobe.NoiseStrength > 0.0))
 	{
 		const float3 samplePosition = gSmokeConstants.CameraPosition + ray * ((nearDepth + farDepth) * 0.5);
 		const float noise = SmokeTransientBoundaryNoise(samplePosition,

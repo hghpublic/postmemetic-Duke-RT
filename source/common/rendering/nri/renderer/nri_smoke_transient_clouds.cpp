@@ -201,7 +201,7 @@ uint32_t NRIBuildSmokeTransientLobes(const NRISmokeTransientGroupShapeInput& inp
 	const float forwardFallback[3] = { 0.0f, 0.0f, 1.0f };
 	float forward[3] = {};
 	Normalize3(forwardSource, forwardFallback, forward);
-	const float upFallback[3] = { 0.0f, -1.0f, 0.0f };
+	const float upFallback[3] = { 0.0f, 1.0f, 0.0f };
 	float authoredUp[3] = {};
 	Normalize3(input.up, upFallback, authoredUp);
 	float rightCandidate[3] = {};
@@ -218,6 +218,32 @@ uint32_t NRIBuildSmokeTransientLobes(const NRISmokeTransientGroupShapeInput& inp
 	Cross3(right, forward, cloudUpCandidate);
 	float cloudUp[3] = {};
 	Normalize3(cloudUpCandidate, upFallback, cloudUp);
+	// Fire rings live in the plane perpendicular to gravity. Deriving that plane
+	// from the full source velocity would tip curl vertically, and a vertical source
+	// velocity would make the projected-up fallback point sideways.
+	float fireForwardCandidate[3] = {};
+	float forwardUpDot = 0.0f;
+	for (uint32_t axis = 0u; axis < 3u; ++axis)
+		forwardUpDot += forward[axis] * authoredUp[axis];
+	for (uint32_t axis = 0u; axis < 3u; ++axis)
+		fireForwardCandidate[axis] = forward[axis] - authoredUp[axis] * forwardUpDot;
+	if (Length3(fireForwardCandidate) <= 1.0e-6f)
+	{
+		const float preferredForward[3] = { 0.0f, 0.0f, 1.0f };
+		float preferredUpDot = 0.0f;
+		for (uint32_t axis = 0u; axis < 3u; ++axis)
+			preferredUpDot += preferredForward[axis] * authoredUp[axis];
+		for (uint32_t axis = 0u; axis < 3u; ++axis)
+			fireForwardCandidate[axis] = preferredForward[axis] -
+				authoredUp[axis] * preferredUpDot;
+	}
+	const float fireForwardFallback[3] = { 1.0f, 0.0f, 0.0f };
+	float fireForward[3] = {};
+	Normalize3(fireForwardCandidate, fireForwardFallback, fireForward);
+	float fireRightCandidate[3] = {};
+	Cross3(fireForward, authoredUp, fireRightCandidate);
+	float fireRight[3] = {};
+	Normalize3(fireRightCandidate, rightFallback, fireRight);
 
 	const uint64_t seed = static_cast<uint64_t>(input.deterministicSeed) ^
 		input.sourceEventSerial ^ (static_cast<uint64_t>(input.sourceId) << 32u);
@@ -297,7 +323,7 @@ uint32_t NRIBuildSmokeTransientLobes(const NRISmokeTransientGroupShapeInput& inp
 				// Keeping their relative motion zero makes them safe topology anchors for
 				// deterministic owner-side lobe reduction.
 				for (uint32_t axis = 0u; axis < 3u; ++axis)
-					velocityDelta[axis] = cloudUp[axis] * buoyantVelocity;
+					velocityDelta[axis] = authoredUp[axis] * buoyantVelocity;
 			}
 			else
 			{
@@ -341,7 +367,7 @@ uint32_t NRIBuildSmokeTransientLobes(const NRISmokeTransientGroupShapeInput& inp
 				{
 					offset[axis] = direction[axis] * offsetDistance;
 					velocityDelta[axis] = direction[axis] * outwardVelocity +
-						cloudUp[axis] * buoyantVelocity;
+						authoredUp[axis] * buoyantVelocity;
 				}
 			}
 			break;
@@ -378,14 +404,16 @@ uint32_t NRIBuildSmokeTransientLobes(const NRISmokeTransientGroupShapeInput& inp
 		{
 			const float ringRadius = input.initialRadius * input.clusterSpread *
 				(0.22f + 0.28f * unit);
-			float tangent[3] = {};
 			for (uint32_t axis = 0u; axis < 3u; ++axis)
 			{
-				offset[axis] = radial[axis] * ringRadius + cloudUp[axis] *
+				const float fireRadial = fireRight[axis] * ringX +
+					fireForward[axis] * ringY;
+				const float fireTangent = fireRight[axis] * -ringY +
+					fireForward[axis] * ringX;
+				offset[axis] = fireRadial * ringRadius + authoredUp[axis] *
 					input.initialRadius * input.clusterSpread * 1.6f * unit;
-				tangent[axis] = right[axis] * -ringY + cloudUp[axis] * ringX;
-				velocityDelta[axis] = cloudUp[axis] * input.riseVelocity +
-					tangent[axis] * input.curlVelocity;
+				velocityDelta[axis] = authoredUp[axis] * input.riseVelocity +
+					fireTangent * input.curlVelocity;
 			}
 			break;
 		}
@@ -412,6 +440,15 @@ uint32_t NRIBuildSmokeTransientLobes(const NRISmokeTransientGroupShapeInput& inp
 			}
 			break;
 		}
+		}
+		// Explosion and fire author their class-specific buoyant/axial motion above.
+		// Every other transient class retains its shaped motion while applying the
+		// common authored rise once in the normalized world-up direction.
+		if (input.transientClass != NRISmokeTransientClass::Explosion &&
+			input.transientClass != NRISmokeTransientClass::FirePacket)
+		{
+			for (uint32_t axis = 0u; axis < 3u; ++axis)
+				velocityDelta[axis] += authoredUp[axis] * input.riseVelocity;
 		}
 
 		NRISmokeTransientLobeRequest request = {};
@@ -770,8 +807,8 @@ NRISmokeTransientAdmission NRISmokeTransientClouds::AdmitBatch(
 			(static_cast<uint64_t>(outputIndex + 1u) * count) / admitCount);
 		// Explosion batch index zero is the primary connected binder. Retaining it
 		// in the first reduction bucket makes every reduced satellite keep its
-		// authored admission-time overlap path to the core. Positive-growth explosion
-		// styles with radius exponent at most one retain that path over lifetime;
+		// authored admission-time overlap path to the core. In the authored production
+		// domain, positive growth and radius exponent at most one retain that path;
 		// other classes preserve midpoint selection.
 		const uint32_t representative = outputIndex == 0u &&
 			requests[0].transientClass == NRISmokeTransientClass::Explosion

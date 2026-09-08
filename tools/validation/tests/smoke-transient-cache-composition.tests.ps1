@@ -173,6 +173,9 @@ function Get-BoundaryShellMultiplier([double]$noise, [double]$amplitude) {
 }
 $boundaryAmplitude = Get-BoundaryErosionAmplitude 0.14 0.22
 Assert-Near $boundaryAmplitude 0.3292 1e-12 'Production boundary controls do not retain their bounded-union amplitude.'
+Assert-Near (Get-BoundaryErosionAmplitude 0.14 0.0) 0.14 1e-12 'Edge erosion alone must remain an active boundary control.'
+Assert-Near (Get-BoundaryErosionAmplitude 0.0 0.22) 0.22 1e-12 'Noise strength alone must remain an active boundary control.'
+Assert-Near (Get-BoundaryErosionAmplitude 0.0 0.0) 0.0 1e-12 'Zero boundary controls must preserve the unmodulated shell.'
 $minimumShellMultiplier = Get-BoundaryShellMultiplier 0.0 $boundaryAmplitude
 $meanShellMultiplier = Get-BoundaryShellMultiplier 0.5 $boundaryAmplitude
 $maximumShellMultiplier = Get-BoundaryShellMultiplier 1.0 $boundaryAmplitude

@@ -253,6 +253,10 @@ Representation is source policy rather than style policy. A style can therefore 
 
 `nri_ptsmoketransientselfshadow` defaults to true and controls coarse cloud self-shadowing at light-cache anchors. It is independent of the experimental grid self-shadow switch. Changing it rebuilds cloud lighting without resetting cloud geometry.
 
+For isolated captures, `nri_ptsmokesourceclassmask` uses the same class bits but filters **authored sources before emission**, regardless of their selected representation. It defaults to `63` and is session-only. This is different from the representation rollback mask: a filtered source emits nothing; a rolled-back source still emits through its old route. Map fog is controlled separately by the default-on, session-only `nri_ptsmokemapemitters`. Set the masks first, then use `nri_ptsmokereset` to remove existing density before comparing captures.
+
+Transient point, directional, and emissive lighting is sampled into a bounded per-group incident-light cache. New visible smoke has a complete coarse fallback while a full build is deferred; the initial full self-shadow build waits for the density attack to mature. Explosions and trail chunks then freeze this cache. Fire permits a low-rate replacement while retaining the last complete record. This avoids sparse first-frame lighting and apply-stage scene rays, but moving lights and small shadow boundaries will not relight short-lived clouds exactly.
+
 The mount-ready validation overlay is `tools/validation/overlays/smoke-transient-fixtures`. Pass that directory to `-file`; it contains the required literal `LIGHTOVR` file. In a live map, the existing event test command gives a repeatable camera-relative source without gameplay input:
 
 ```text
