@@ -21,12 +21,12 @@ $cutovers = @{
 # fields below and restore the old representation before comparing. This proves
 # that cutovers retain legacy counts, optics, cadence, admission/freshness and
 # analytic carrier counts. Map emitters and the fog style are compared verbatim.
-# The explicitly asserted common fire placement/rise/cadence/pulse exceptions below
+# The explicitly asserted common fire placement/rise/cadence/pulse/foreground exceptions below
 # are normalized back to their baseline values before hashing.
 # Fire is denser than the quarter-strength effects to maintain a continuous plume.
 $expectedOpticalScale = @{
     duke_explosion_smoke = 0.075
-    duke_fire_smoke = 0.10
+    duke_fire_smoke = 0.25
     duke_impact_smoke = 0.25
     duke_muzzle_smoke = 0.25
     duke_trail_smoke = 0.125
@@ -91,6 +91,10 @@ foreach ($block in $blocks) {
                 throw 'Sustained fire must retain a strong density floor between billows.'
             }
             $body = $body -replace '(?m)^(\s*pulseamount\s+)0\.15\s*$', '${1}0.90'
+            if ($body -notmatch '(?m)^\s*emitterforeground\s+off\s*$') {
+                throw 'Fire must not erase intervening smoke over flame pixels.'
+            }
+            $body = $body -replace '(?m)^(\s*emitterforeground\s+)off\s*$', '${1}on'
         }
     }
     elseif ($isTransient) { throw "Production $name has no accepted cutover entry." }

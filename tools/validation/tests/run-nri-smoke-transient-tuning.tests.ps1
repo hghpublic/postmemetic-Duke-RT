@@ -37,7 +37,7 @@ foreach ($entry in $expectedOptics.GetEnumerator()) {
 $fireStyle = Block 'smokestyle' 'duke_fire_smoke'
 $fireRule = Block 'smokeactorrule' 'duke_fire_sustained'
 $unchangedStyle = [ordered]@{
-    density = 3.0; radius = 7.0; expansionvelocity = 10.0; densityhalflife = 6.0
+    density = 3.0; extinction = 0.008; radius = 7.0; expansionvelocity = 10.0; densityhalflife = 6.0
     densityattackseconds = 0.08; radiusexponent = 0.90; intrinsicemission = 0.5
     emissionhalflife = 0.18; curlvelocity = 4.0; coreplateau = 0.60
     edgeerosion = 0.16; noisescale = 0.035; noisestrength = 0.20
@@ -57,6 +57,8 @@ foreach ($requiredRuleText in @(
     'densityscale\s+3\.0', 'radiusscale\s+3\.0')) {
     Require ($fireRule -match $requiredRuleText) "Production fire rule lost $requiredRuleText."
 }
+Require ($fireRule -match '(?m)^\s*emitterforeground\s+off\s*$') `
+    'Production fire must keep emitterforeground off so its sprite does not cut out smoke resolve.'
 
 $optical = Scalar $fireStyle 'opticalamountscale'
 $lifetime = Scalar $fireStyle 'transientlifetimeseconds'
@@ -66,11 +68,11 @@ $densityRelease = Scalar $fireStyle 'densityreleaseseconds'
 $spread = Scalar $fireStyle 'clusterspread'
 $cadence = Scalar $fireRule 'intervalseconds'
 $pulse = Scalar $fireRule 'pulseamount'
-Require ($optical -eq 0.10) "Production fire optical scale must remain 0.10; found $optical."
+Require ($optical -eq 0.25) "Production fire optical scale must remain 0.25; found $optical."
 Require ($lifetime -eq 5.5) "Production fire lifetime must remain 5.5; found $lifetime."
 Require ($rise -eq 120.0) "Production fire rise must remain 120.0; found $rise."
-Require ($sustain -eq 2.75) "Production fire sustain must remain 2.75; found $sustain."
-Require ($densityRelease -eq 2.75) "Production fire release must remain 2.75; found $densityRelease."
+Require ($sustain -eq 1.5) "Production fire sustain must remain 1.5; found $sustain."
+Require ($densityRelease -eq 4.0) "Production fire release must remain 4.0; found $densityRelease."
 Require ($spread -eq 1.30) "Production fire spread must remain 1.30; found $spread."
 Require ($cadence -eq 0.5) "Production fire cadence must remain 0.5; found $cadence."
 Require ($radiusMin -eq 0.70 -and $radiusMax -eq 1.00) `

@@ -346,7 +346,7 @@ LIGHTOVR
     smokestyle "duke_fire_smoke"
     {
         density 3.0
-        opticalamountscale 0.10
+        opticalamountscale 0.25
         extinction 0.008
         albedo 0.3 0.29 0.28
         anisotropy 0.12
@@ -366,8 +366,9 @@ LIGHTOVR
         momentumscale 1.0
         coolinghalflife 5.0
         densityattackseconds 0.08
-        densitysustainseconds 2.75
-        densityreleaseseconds 2.75
+        // Let the denser packet thin gradually through most of its ascent.
+        densitysustainseconds 1.5
+        densityreleaseseconds 4.0
         radiusexponent 0.90
         intrinsicemission 0.5
         emissionhalflife 0.18
@@ -535,7 +536,8 @@ LIGHTOVR
         lobecount 5
         queuepolicy retry
         analyticcarriers 1
-        emitterforeground on
+        // Integrate smoke in front of the flame instead of punching it out.
+        emitterforeground off
         style "duke_fire_smoke"
         count 9
         // Start the plume inside the floor-anchored FIRE/FIRE2 flame volume.

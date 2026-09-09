@@ -166,28 +166,36 @@ EvaluatedGroup Evaluate(const FireTuning& tuning, double age,
 }
 
 void TestDensityRetuneAndNormalizedEnvelope(const FireTuning& original,
-	const FireTuning& sparse, const FireTuning& candidate)
+	const FireTuning& sparse, const FireTuning& currentDense,
+	const FireTuning& candidate)
 {
 	const auto oldRequests = BuildFire(original, 1u, 101u, 0.0);
 	const auto sparseRequests = BuildFire(sparse, 1u, 101u, 0.0);
+	const auto currentDenseRequests = BuildFire(currentDense, 1u, 101u, 0.0);
 	const auto newRequests = BuildFire(candidate, 1u, 101u, 0.0);
 	for (uint32_t index = 0u; index < FireLobes; ++index)
 	{
 		Require(Near(newRequests[index].opticalWeight,
-			oldRequests[index].opticalWeight * 0.5f),
-			"the dense-fire retune must carry half of the original short-fire optical weight");
+			oldRequests[index].opticalWeight * 1.25f),
+			"the fire retune must carry 1.25 times the original short-fire optical weight");
 		Require(Near(newRequests[index].opticalWeight,
-			sparseRequests[index].opticalWeight * 2.0f),
-			"the dense-fire retune must double the tall sparse preset's optical weight");
+			sparseRequests[index].opticalWeight * 5.0f),
+			"the fire retune must carry five times the tall sparse preset's optical weight");
+		Require(Near(newRequests[index].opticalWeight,
+			currentDenseRequests[index].opticalWeight * 2.5f),
+			"the fire retune must carry 2.5 times the preceding dense preset's optical weight");
 	}
 
 	for (float releasePhase : { 0.0f, 0.25f, 0.5f, 0.75f, 0.99f })
 	{
 		const double oldAge = original.sustain + original.release * releasePhase;
 		const double sparseAge = sparse.sustain + sparse.release * releasePhase;
+		const double currentDenseAge = currentDense.sustain +
+			currentDense.release * releasePhase;
 		const double newAge = candidate.sustain + candidate.release * releasePhase;
 		const auto oldGroup = Evaluate(original, oldAge, 101u);
 		const auto sparseGroup = Evaluate(sparse, sparseAge, 101u);
+		const auto currentDenseGroup = Evaluate(currentDense, currentDenseAge, 101u);
 		const auto newGroup = Evaluate(candidate, newAge, 101u);
 		for (uint32_t index = 0u; index < FireLobes; ++index)
 		{
@@ -197,13 +205,18 @@ void TestDensityRetuneAndNormalizedEnvelope(const FireTuning& original,
 				(InitialDensity * newRequests[index].opticalWeight);
 			const float sparseEnvelope = sparseGroup.lobes[index].densityScale /
 				(InitialDensity * sparseRequests[index].opticalWeight);
+			const float currentDenseEnvelope =
+				currentDenseGroup.lobes[index].densityScale /
+				(InitialDensity * currentDenseRequests[index].opticalWeight);
 			Require(Near(oldEnvelope, newEnvelope, 5.0e-4f),
 				"original and candidate release envelopes must agree at equal normalized phase");
 			Require(Near(sparseEnvelope, newEnvelope, 5.0e-4f),
 				"the dense retune must preserve the tall preset's normalized release envelope");
+			Require(Near(currentDenseEnvelope, newEnvelope, 5.0e-4f),
+				"the longer release must preserve the preceding dense preset's normalized envelope");
 			Require(Near(newGroup.lobes[index].densityScale,
-				sparseGroup.lobes[index].densityScale * 2.0f, 5.0e-4f),
-				"equal-phase GPU density must double relative to the tall sparse preset");
+				currentDenseGroup.lobes[index].densityScale * 2.5f, 5.0e-4f),
+				"equal-phase GPU density must increase 2.5 times over the preceding dense preset");
 		}
 	}
 }
@@ -215,9 +228,9 @@ void TestLateVisibleHeight(const FireTuning& baseline,
 	float maximumEmitterRatio = 0.0f;
 	float minimumPlaneRatio = std::numeric_limits<float>::max();
 	float maximumPlaneRatio = 0.0f;
-	// The user-visible height target is the developed plume, not the first quarter
-	// of release while the longer candidate is still climbing out of the flame.
-	for (float releasePhase : { 0.5f, 0.75f, 0.95f })
+	// The longer release reaches the requested height late in its visible life. Do
+	// not pretend that equal normalized release phase also means equal plume age.
+	for (float releasePhase : { 0.75f, 0.95f })
 	{
 		const auto oldGroup = Evaluate(baseline,
 			baseline.sustain + baseline.release * releasePhase, 202u);
@@ -242,6 +255,116 @@ void TestLateVisibleHeight(const FireTuning& baseline,
 	std::cout << "height_ratio_emitter=" << minimumEmitterRatio << ".." <<
 		maximumEmitterRatio << " height_ratio_flame_plane=" << minimumPlaneRatio <<
 		".." << maximumPlaneRatio << '\n';
+}
+
+void TestSmoothFadeAndNativeExpiration(const FireTuning& candidate)
+{
+	auto profile = NRISmokeTransientClouds::ProfileForQuality(2u);
+	NRISmokeTransientClouds owner;
+	owner.Reset(Epoch);
+	owner.BeginFrame(0.0, NRISmokeTransientClouds::FixedLobeCapacity, profile);
+	const auto requests = BuildFire(candidate, 0x6a086ee7u, 303u, 0.0);
+	const auto admission = owner.AdmitBatch(requests.data(),
+		static_cast<uint32_t>(requests.size()));
+	Require(admission.Accepted(), "the fade fixture must admit its fire packet");
+
+	constexpr double Tick = 1.0 / 120.0;
+	const float initialOpticalDensity = InitialDensity * RuleCount *
+		candidate.opticalScale;
+	float previousDensity = initialOpticalDensity;
+	float lastVisibleDensity = previousDensity;
+	float lastOpticalDepthBound = 0.0f;
+	for (double age = static_cast<double>(candidate.sustain); age <
+		static_cast<double>(candidate.lifetime); age += Tick)
+	{
+		owner.BeginFrame(age, NRISmokeTransientClouds::FixedLobeCapacity, profile);
+		Require(owner.IsLive(admission.handle),
+			"the group must remain live throughout the authored release interval");
+		float density = 0.0f;
+		lastOpticalDepthBound = 0.0f;
+		for (const auto& lobe : owner.GetGpuLobes())
+		{
+			density += lobe.densityScale;
+			// Bound every kernel by one and every ray chord by the full diameter.
+			// Production style density=3, extinction=.008 are guarded by the runner.
+			lastOpticalDepthBound += 2.0f * lobe.radius * lobe.densityScale * 3.0f * 0.008f;
+		}
+		Require(density <= previousDensity + 2.0e-5f,
+			"120 Hz release density must be monotonic");
+		Require((previousDensity - density) / initialOpticalDensity <=
+			static_cast<float>(1.5 * Tick / candidate.release) + 2.0e-5f,
+			"release must respect the smooth curve's maximum slope, not just be monotonic");
+		previousDensity = density;
+		lastVisibleDensity = density;
+	}
+	Require(lastVisibleDensity / initialOpticalDensity < 5.0e-5f,
+		"the last 120 Hz sample must be optically tiny before native expiration");
+	const float lastOpacityBound = 1.0f - std::exp(-lastOpticalDepthBound);
+	Require(lastOpacityBound < 0.001f,
+		"even a worst-case ray through the last 120 Hz packet must have less than 0.1% opacity");
+	owner.BeginFrame(candidate.lifetime,
+		NRISmokeTransientClouds::FixedLobeCapacity, profile);
+	Require(!owner.IsLive(admission.handle) && owner.GetSnapshot().activeGroups == 0u &&
+		owner.GetSnapshot().visibleGroups == 0u && owner.GetGpuLobes().empty() &&
+		owner.GetSnapshot().groupsExpired == 1u &&
+		owner.GetSnapshot().lobesExpired == FireLobes,
+		"native expiration must retire the already-negligible packet exactly at lifetime");
+	std::cout << "fade_last_relative_density=" <<
+		(lastVisibleDensity / initialOpticalDensity) <<
+		" opacity_bound=" << lastOpacityBound << '\n';
+}
+
+void TestCapacityRejectionDoesNotEvict(const FireTuning& candidate)
+{
+	auto profile = NRISmokeTransientClouds::ProfileForQuality(2u);
+	profile.maximumActiveGroups = 1u;
+	profile.maximumActiveLobes = FireLobes;
+	profile.maximumLobesPerGroup = FireLobes;
+	NRISmokeTransientClouds owner;
+	owner.Reset(Epoch);
+	owner.BeginFrame(0.25, FireLobes, profile);
+	const auto first = BuildFire(candidate, 0x101u, 401u, 0.0);
+	const auto accepted = owner.AdmitBatch(first.data(),
+		static_cast<uint32_t>(first.size()));
+	Require(accepted.Accepted(), "the capacity fixture must admit its first packet");
+	const auto groupsBefore = owner.GetGpuGroups();
+	const auto lobesBefore = owner.GetGpuLobes();
+	Require(lobesBefore.size() == FireLobes,
+		"the accepted capacity fixture must expose all five lobes");
+
+	const auto second = BuildFire(candidate, 0x102u, 402u, 0.25);
+	const auto rejected = owner.AdmitBatch(second.data(),
+		static_cast<uint32_t>(second.size()));
+	Require(!rejected.Accepted() &&
+		rejected.dropReason == NRISmokeTransientDropReason::GroupCapacity,
+		"a full custom profile must reject the new group for group capacity");
+	Require(owner.IsLive(accepted.handle) && owner.GetSnapshot().activeGroups == 1u &&
+		owner.GetSnapshot().activeLobes == FireLobes &&
+		owner.GetSnapshot().droppedGroupCapacity == FireLobes,
+		"capacity rejection must retain the accepted group and account only the rejected lobes");
+	const auto& groupsAfter = owner.GetGpuGroups();
+	const auto& lobesAfter = owner.GetGpuLobes();
+	Require(groupsAfter.size() == groupsBefore.size() &&
+		lobesAfter.size() == lobesBefore.size(),
+		"capacity rejection must not alter existing GPU record counts");
+	const auto& groupBefore = groupsBefore[accepted.handle.slot];
+	const auto& groupAfter = groupsAfter[accepted.handle.slot];
+	Require(groupAfter.generation == groupBefore.generation &&
+		groupAfter.firstLobe == groupBefore.firstLobe &&
+		groupAfter.lobeCount == groupBefore.lobeCount,
+		"capacity rejection must preserve the existing group handle mapping");
+	for (uint32_t index = 0u; index < FireLobes; ++index)
+	{
+		for (uint32_t axis = 0u; axis < 3u; ++axis)
+			Require(Near(lobesAfter[index].position[axis],
+				lobesBefore[index].position[axis]),
+				"capacity rejection must preserve existing lobe positions");
+		Require(Near(lobesAfter[index].densityScale,
+			lobesBefore[index].densityScale),
+			"capacity rejection must preserve existing lobe density");
+	}
+	std::cout << "capacity_reject_preserved=" << lobesAfter.size() <<
+		"lobes dropped=" << owner.GetSnapshot().droppedGroupCapacity << '\n';
 }
 
 struct BridgeMargins
@@ -481,8 +604,14 @@ int main(int argc, char** argv)
 		0.28f, LobeRadiusMin, LobeRadiusMax, 0.90f };
 	const FireTuning sparse = { 0.05f, 5.5f, 120.0f, 2.75f, 2.75f, 1.30f,
 		0.50f, LobeRadiusMin, LobeRadiusMax, 0.90f };
-	Require(Near(candidate.opticalScale, original.opticalScale * 0.5f),
-		"production dense fire optical scale must be half the original short-fire value");
+	const FireTuning currentDense = { 0.10f, 5.5f, 120.0f, 2.75f, 2.75f, 1.30f,
+		0.50f, 0.70f, 1.00f, 0.15f };
+	Require(Near(candidate.opticalScale, 0.25f),
+		"production fire optical scale must remain at the denser 0.25 target");
+	Require(Near(candidate.lifetime, currentDense.lifetime) &&
+		Near(candidate.riseVelocity, currentDense.riseVelocity) &&
+		Near(candidate.cadence, currentDense.cadence),
+		"density release tuning must preserve the 5.5-second life, rise, and cadence");
 	Require(candidate.lifetime > candidate.sustain && candidate.release > 0.0f &&
 		candidate.sustain + candidate.release <= candidate.lifetime + 1.0e-5f &&
 		candidate.cadence > 0.0f && candidate.lobeRadiusMin > 0.0f &&
@@ -490,10 +619,12 @@ int main(int argc, char** argv)
 		candidate.pulseAmount >= 0.0f && candidate.pulseAmount <= 1.0f,
 		"candidate lifetime, release envelope, and cadence must be internally valid");
 
-	TestDensityRetuneAndNormalizedEnvelope(original, sparse, candidate);
+	TestDensityRetuneAndNormalizedEnvelope(original, sparse, currentDense, candidate);
 	TestLateVisibleHeight(original, candidate);
 	TestRepresentativePacketBridges(sparse, candidate);
 	TestPulseFloor(sparse, candidate);
+	TestSmoothFadeAndNativeExpiration(candidate);
+	TestCapacityRejectionDoesNotEvict(candidate);
 	TestTwoSourceCapacity(candidate,
 		static_cast<uint32_t>(NRISmokeTransientQuality::Medium));
 	TestTwoSourceCapacity(candidate,

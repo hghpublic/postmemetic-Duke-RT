@@ -190,6 +190,6 @@ foreach ($eventId in @('duke.pistol.primary', 'duke.chaingun.primary')) {
 Assert-Contains $authored 'smokeeventrule\s+"duke\.hitscan\.impact\.plane"[\s\S]*?densityscale\s+0\.8' 'Plane-impact smoke must retain reduced optical mass.'
 Assert-Contains $authored 'smokeeventrule\s+"duke\.hitscan\.impact\.wall"[\s\S]*?densityscale\s+0\.9' 'Wall-impact smoke must retain reduced optical mass.'
 if ($authored -match 'smokeactorrule\s+"duke_fire_sustained"') {
-    Assert-Contains $authored 'smokeactorrule\s+"duke_fire_sustained"[\s\S]*?actorclass\s+"DukeFire"[\s\S]*?emitterforeground\s+on' 'The local Duke dumpster-fire smoke rule must keep its emitter surface in the foreground.'
+    Assert-Contains $authored 'smokeactorrule\s+"duke_fire_sustained"\s*\{[^}]*actorclass\s+"DukeFire"[^}]*emitterforeground\s+off' 'The local Duke fire rule must allow intervening smoke instead of punching out flame pixels.'
 }
 Write-Host 'Smoke LIGHTOVR schema static validation passed.'

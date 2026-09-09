@@ -712,6 +712,7 @@ Common failure checks:
 - smoke is too dark: raise `albedo` or verify that relevant point, directional, and emissive lighting reaches it; do not treat albedo as self-emission
 - plume is a uniform tube: add `velocityrandom`, `expansionvelocity`, and grid turbulence, then balance drag and half-life
 - the fire itself is hidden by its plume: use `emitterforeground on`, understanding that this actor mask wins over all smoke at those pixels
+- smoke abruptly cuts out over animated flames: keep `emitterforeground off` so smoke in front of the flame is integrated normally; the sustained-fire production rule uses this setting to avoid sprite-shaped holes
 - performance or capacity suffers: reduce source `count`, emission frequency, source radius, or the number of simultaneous emitters before increasing global smoke capacities
 
 ## Muzzle Flash Rule Breakdown
