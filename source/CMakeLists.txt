@@ -936,6 +936,8 @@ set (NRI_SOURCES
 	common/rendering/nri/renderer/nri_descriptor_sets.cpp
 	common/rendering/nri/renderer/nri_dynamic_scene_status.cpp
 	common/rendering/nri/renderer/nri_dynamic_overlay_blas.cpp
+	common/rendering/nri/renderer/nri_emissive_sampling_build.cpp
+	common/rendering/nri/renderer/nri_emissive_sampling_geometry.cpp
 	common/rendering/nri/renderer/nri_emissive_sampling_distribution.cpp
 	common/rendering/nri/renderer/nri_emissive_sampling_upload.cpp
 	common/rendering/nri/renderer/nri_cvars.cpp
@@ -1043,6 +1045,9 @@ set (NRI_SOURCES
 	common/rendering/nri/renderer/nri_scene_buffer_residency.cpp
 	common/rendering/nri/renderer/nri_sector_lighting.cpp
 	common/rendering/nri/renderer/nri_scene_lights.cpp
+	common/rendering/nri/renderer/nri_scene_light_registry.cpp
+	common/rendering/nri/renderer/nri_scene_light_rules.cpp
+	common/rendering/nri/renderer/nri_scene_light_rule_validation.cpp
 	common/rendering/nri/renderer/nri_scene_upload.cpp
 	common/rendering/nri/renderer/nri_scene_upload_identity.cpp
 	common/rendering/nri/renderer/nri_scene_upload_dirty_plan.cpp

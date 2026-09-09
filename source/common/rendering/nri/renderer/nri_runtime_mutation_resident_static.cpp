@@ -505,6 +505,7 @@ bool NRIRenderer::RefreshResidentStaticMaterialSlices(
 			remappedChunkBridge.lightMetadata.data(),
 			atlasChunk.materialCount,
 			mStaticMapScene.materialBridge.lightMetadata.data() + atlasChunk.materialOffset);
+		++chunkCache.lightGeneration;
 
 		if (!reusedCachedGpuPayload)
 		{

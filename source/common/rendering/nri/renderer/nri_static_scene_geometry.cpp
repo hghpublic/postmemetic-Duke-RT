@@ -676,6 +676,7 @@ bool RebuildResidentStaticCpuAtlasMirror(
 	}
 
 	staticScene.geometry = std::move(atlasGeometry);
+	++staticScene.geometryGeneration;
 	staticScene.gpuMaterials = std::move(atlasGpuMaterials);
 	return true;
 }

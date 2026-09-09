@@ -1036,6 +1036,11 @@ bool NRIRenderer::TryApplyRuntimeMutationChunkToResidentScene(
 
 			mStaticMapChunkAtlas = std::move(nextAtlasState);
 			mStaticMapChunkAtlas.chunks[chunkListIndex] = nextAtlasChunk;
+			if (mStaticMapChunkAtlas.vertexCount > mStaticMapScene.geometry.vertices.size() ||
+				mStaticMapChunkAtlas.primitiveCount > mStaticMapScene.geometry.primitives.size())
+			{
+				++mStaticMapScene.geometryGeneration;
+			}
 			mStaticMapScene.geometry.vertices.resize(std::max<size_t>(mStaticMapScene.geometry.vertices.size(), mStaticMapChunkAtlas.vertexCount));
 			mStaticMapScene.geometry.indices.resize(std::max<size_t>(mStaticMapScene.geometry.indices.size(), mStaticMapChunkAtlas.indexCount));
 			mStaticMapScene.geometry.primitives.resize(std::max<size_t>(mStaticMapScene.geometry.primitives.size(), mStaticMapChunkAtlas.primitiveCount));
@@ -1050,6 +1055,7 @@ bool NRIRenderer::TryApplyRuntimeMutationChunkToResidentScene(
 			!residentGeometryPayloadHashSkip)
 		{
 			{
+				++mStaticMapScene.geometryGeneration;
 				ScopedPtPerfTimer detailPerfTimer(mLastPerfShellTraceStats.runtimeMutationResidentApplyVertexIndexCopyMs);
 				if (preserveResidentIndexSlice)
 				{
@@ -1303,6 +1309,7 @@ bool NRIRenderer::TryApplyRuntimeMutationChunkToResidentScene(
 			 appliedAnimationOnlyRefreshed ||
 			 mutableChunk.animatedGeometrySignature == previousAnimatedGeometrySignature);
 		mStaticMapScene.lightChunkViews[chunkListIndex] = residentSceneView;
+		++mutableChunk.lightGeneration;
 		outResult.staticSceneChunkListIndex = chunkListIndex;
 		outResult.materialDirty = !preserveResidentMaterialSlice;
 		appliedPreservedResidentMaterialSlice = preserveResidentMaterialSlice;

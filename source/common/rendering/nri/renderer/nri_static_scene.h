@@ -140,6 +140,7 @@ struct StaticMapSceneCache
 		uint64_t geometryPayloadHash = 0;
 		uint64_t animatedMaterialSignature = 0;
 		uint64_t animatedGeometrySignature = 0;
+		uint64_t lightGeneration = 1;
 		bool active = true;
 		bool blasUpdateEligible = false;
 		uint32_t lastResidentBlasReasonMask = 0;
@@ -177,6 +178,9 @@ struct StaticMapSceneCache
 	bool accelerationResident = false;
 	uint64_t buildSerial = 0;
 	uint64_t materialGeneration = 0;
+	uint64_t geometryGeneration = 0;
+	uint64_t contentBuildSerial = 0;
+	uint64_t lightBindingGeneration = 0;
 	bool gpuMaterialsUseStableTextureSlots = false;
 	uint32_t sceneBuildCount = 0;
 	uint32_t gpuUploadCount = 0;

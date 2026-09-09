@@ -3094,6 +3094,7 @@ private:
 	uint32_t mBoundEmissiveDominantTile = 0;
 	uint32_t mBoundEmissiveDominantFlags = 0;
 	uint32_t mBoundEmissiveDominantDataSource = 0;
+	NRIEmissiveSamplingUploadScratch mEmissiveSamplingUploadScratch;
 	bool mEmissiveSamplingPayloadCacheValid = false;
 	uint64_t mEmissiveSamplingPayloadHash = 0;
 	bool mEmissiveStabilityTraceValid = false;

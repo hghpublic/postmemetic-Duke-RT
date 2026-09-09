@@ -896,6 +896,7 @@ bool nri_static_scene::RebuildResidentStaticMaterialBridgeFromChunks(
 	}
 
 	staticScene.materialBridge = std::move(bridge);
+	++staticScene.lightBindingGeneration;
 	++staticScene.materialGeneration;
 	if (staticScene.materialGeneration == 0)
 	{
@@ -1018,6 +1019,7 @@ bool nri_static_scene::RefreshStaticMapAnimatedMaterials(
 		}
 
 		staticScene.lightChunkViews[chunkListIndex] = std::move(liveChunkView);
+		++chunkCache.lightGeneration;
 		chunkCache.materialBridge = std::move(liveChunkMaterials);
 		chunkCache.animatedMaterialSignature = liveAnimatedMaterialSignature;
 		refreshedAnyChunk = true;
@@ -1959,6 +1961,9 @@ void nri_static_scene::InitializeStaticMapSceneCacheBuild(
 	outStaticScene.texturesResident = false;
 	outStaticScene.buffersResident = false;
 	outStaticScene.accelerationResident = false;
+	// This publication identity survives same-map cache destruction/reconstruction.
+	static uint64_t nextContentBuildSerial = 0;
+	outStaticScene.contentBuildSerial = ++nextContentBuildSerial;
 	outStaticScene.buildSerial = mapWorld.buildSerial;
 	outStaticScene.materialGeneration = 1;
 	outStaticScene.sceneBuildCount = 0;
@@ -1973,6 +1978,7 @@ void nri_static_scene::InitializeStaticMapSceneCacheBuild(
 	outStaticScene.sceneView = {};
 	outStaticScene.lightChunkViews.clear();
 	outStaticScene.geometry = {};
+	++outStaticScene.geometryGeneration;
 	outStaticScene.materialBridge = {};
 	outStaticScene.gpuMaterials.clear();
 	outStaticScene.chunks.clear();
@@ -2068,6 +2074,7 @@ void nri_static_scene::AppendStaticMapSceneCacheChunk(
 	chunkCache.animatedRefreshSuppressed = false;
 
 	AppendGeometry(chunkGeometry, chunkCache.materialOffset, outStaticScene.geometry);
+	++outStaticScene.geometryGeneration;
 	nri_scene::AppendMaterialBridge(chunkMaterials, outStaticScene.materialBridge);
 	chunkCache.geometryPayloadHash = nri_static_scene_geometry::HashResidentGeometryPayload(
 		mapWorld,

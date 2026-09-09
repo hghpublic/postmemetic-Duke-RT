@@ -210,6 +210,11 @@ CVAR(Bool, nri_ptscenedataring, true, 0)
 CVAR(Bool, nri_ptscenedataringtrace, false, 0)
 
 CVAR(Bool, nri_ptemissivestabilitytrace, false, 0)
+CVAR(Bool, nri_ptemissivecache, true, 0)
+// Full geometry/payload shadow validation; intentionally expensive and session-only.
+CVAR(Bool, nri_ptemissivecachevalidate, false, 0)
+CVAR(Bool, nri_ptlightregistry, true, 0)
+CVAR(Bool, nri_ptlightregistryvalidate, false, 0)
 CVAR(Bool, nri_ptindirectradiancecache, false, 0)
 CVAR(Bool, nri_ptindirectradiancecacheaccept, false, 0)
 

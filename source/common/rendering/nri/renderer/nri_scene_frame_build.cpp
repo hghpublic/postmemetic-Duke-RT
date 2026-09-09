@@ -1671,8 +1671,12 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 					accelerationReady = persistentVoxelAsReady && dynamicAsReady;
 				}
 				emissiveSamplingContext.runtimeMutationGeometry = hasRuntimeMutationOverlay ? &runtimeMutationFrame.geometry : nullptr;
+				emissiveSamplingContext.runtimeMutationGeometryIdentity = nri_scene::HashCombine64(
+					overlayInputs.runtimeMutationStamp.vertexPayloadStamp, overlayInputs.runtimeMutationStamp.primitivePayloadStamp);
 				emissiveSamplingContext.runtimeMutationPrimitiveBaseOffset = (uint32_t)runtimeSpaceLinkGeometry.primitives.size();
 				emissiveSamplingContext.dynamicGeometry = hasActiveDynamicOverlay ? activeDynamicGeometry : nullptr;
+				emissiveSamplingContext.dynamicGeometryIdentity = nri_scene::HashCombine64(
+					overlayInputs.activeDynamicStamp.vertexPayloadStamp, overlayInputs.activeDynamicStamp.primitivePayloadStamp);
 				emissiveSamplingContext.dynamicPrimitiveBaseOffset = (uint32_t)(runtimeSpaceLinkGeometry.primitives.size() + runtimeMutationFrame.geometry.primitives.size());
 				if (hasSurfaceLightOverlay)
 				{
@@ -1681,6 +1685,8 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 					if (surfaceLightSpan != nullptr)
 					{
 						emissiveSamplingContext.surfaceLightOverlayGeometry = &surfaceLightGeometry;
+						emissiveSamplingContext.surfaceLightOverlayGeometryIdentity = nri_scene::HashCombine64(
+							overlayInputs.surfaceLightStamp.vertexPayloadStamp, overlayInputs.surfaceLightStamp.primitivePayloadStamp);
 						emissiveSamplingContext.surfaceLightOverlayPrimitiveBaseOffset = surfaceLightSpan->primitiveOffset;
 					}
 				}
@@ -2425,6 +2431,13 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 		}
 	}
 
+	if (emissiveSamplingContext.staticGeometry != nullptr)
+	{
+		emissiveSamplingContext.staticGeometryIdentity = nri_scene::HashCombine64(
+			mStaticMapScene.contentBuildSerial, mStaticMapScene.geometryGeneration);
+	}
+	if (emissiveSamplingContext.capturedGeometry != nullptr)
+		emissiveSamplingContext.capturedGeometryIdentity = NRIEmissiveGeometryCache::PublishTransientIdentity();
 	if (!UpdateEmissiveSamplingBuffers(emissiveSamplingContext, nullptr, true))
 	{
 		LogFallback("PT emissive primitive update failed.");
