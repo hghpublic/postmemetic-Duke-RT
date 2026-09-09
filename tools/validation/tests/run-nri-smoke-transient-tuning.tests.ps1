@@ -24,7 +24,6 @@ function Scalar([string]$Body, [string]$Field) {
 
 $expectedOptics = [ordered]@{
     duke_explosion_smoke = 0.075
-    duke_fire_smoke = 0.05
     duke_trail_smoke = 0.125
     duke_impact_smoke = 0.25
     duke_muzzle_smoke = 0.25
@@ -47,8 +46,11 @@ foreach ($entry in $unchangedStyle.GetEnumerator()) {
     Require ((Scalar $fireStyle $entry.Key) -eq $entry.Value) `
         "Production fire $($entry.Key) drifted from the validated non-tuning field $($entry.Value)."
 }
-$radiusRandom = [regex]::Match($fireStyle, '(?m)^\s*loberadiusrandom\s+0\.40\s+0\.70\s*$')
-Require $radiusRandom.Success 'Production fire lobe-radius range must remain 0.40..0.70.'
+$radiusRanges = [regex]::Matches($fireStyle, '(?m)^\s*loberadiusrandom\s+([-+]?[0-9]*\.?[0-9]+)\s+([-+]?[0-9]*\.?[0-9]+)\s*$')
+Require ($radiusRanges.Count -eq 1) 'Production fire must retain exactly one two-value lobe-radius range.'
+$radiusRandom = $radiusRanges[0]
+$radiusMin = [double]::Parse($radiusRandom.Groups[1].Value, [Globalization.CultureInfo]::InvariantCulture)
+$radiusMax = [double]::Parse($radiusRandom.Groups[2].Value, [Globalization.CultureInfo]::InvariantCulture)
 foreach ($requiredRuleText in @(
     'representation\s+"transient-cloud"', 'effectclass\s+fire', 'lobecount\s+5',
     'style\s+"duke_fire_smoke"', 'count\s+9', 'spawnradius\s+4\.0',
@@ -63,13 +65,20 @@ $sustain = Scalar $fireStyle 'densitysustainseconds'
 $densityRelease = Scalar $fireStyle 'densityreleaseseconds'
 $spread = Scalar $fireStyle 'clusterspread'
 $cadence = Scalar $fireRule 'intervalseconds'
-Require ($optical -eq 0.05) "Production fire optical scale must remain 0.05; found $optical."
+$pulse = Scalar $fireRule 'pulseamount'
+Require ($optical -eq 0.10) "Production fire optical scale must remain 0.10; found $optical."
 Require ($lifetime -eq 5.5) "Production fire lifetime must remain 5.5; found $lifetime."
 Require ($rise -eq 120.0) "Production fire rise must remain 120.0; found $rise."
 Require ($sustain -eq 2.75) "Production fire sustain must remain 2.75; found $sustain."
 Require ($densityRelease -eq 2.75) "Production fire release must remain 2.75; found $densityRelease."
 Require ($spread -eq 1.30) "Production fire spread must remain 1.30; found $spread."
 Require ($cadence -eq 0.5) "Production fire cadence must remain 0.5; found $cadence."
+Require ($radiusMin -eq 0.70 -and $radiusMax -eq 1.00) `
+    "Production fire lobe-radius range must remain 0.70..1.00; found $radiusMin..$radiusMax."
+Require ($pulse -eq 0.15) "Production fire pulse amount must remain 0.15; found $pulse."
+Require ($fireRule -match '(?m)^\s*pulseperiodcadences\s+12\s*$' -and
+    $fireRule -match '(?m)^\s*pulsephase\s+0\.7916667\s*$') `
+    'Production fire pulse period/phase must remain 12 / 0.7916667.'
 
 $emitterSource = Get-Content -LiteralPath (Join-Path $root 'source/common/rendering/nri/renderer/nri_smoke_emitters.cpp') -Raw
 Require ($emitterSource -match 'shape\.deterministicSeed\s*=\s*HashAnalyticCarrier\(sourceEventSerial,\s*0u\)') `
@@ -96,8 +105,9 @@ $compile = 'call "' + $vsDevCmd + '" -arch=x64 -host_arch=x64 >nul && cl /nologo
 & cmd.exe /d /c $compile
 if ($LASTEXITCODE -ne 0) { throw "transient tuning test compilation failed with exit code $LASTEXITCODE" }
 
-$arguments = @($optical, $lifetime, $rise, $sustain, $densityRelease, $spread, $cadence) |
+$arguments = @($optical, $lifetime, $rise, $sustain, $densityRelease, $spread, $cadence,
+    $radiusMin, $radiusMax, $pulse) |
     ForEach-Object { $_.ToString('R', [Globalization.CultureInfo]::InvariantCulture) }
 & $testExe @arguments
 if ($LASTEXITCODE -ne 0) { throw "transient tuning tests failed with exit code $LASTEXITCODE" }
-Write-Host "Production fire fields exercised: optical=$optical life=$lifetime rise=$rise sustain=$sustain release=$densityRelease spread=$spread cadence=$cadence"
+Write-Host "Production fire fields exercised: optical=$optical life=$lifetime rise=$rise sustain=$sustain release=$densityRelease spread=$spread cadence=$cadence radii=$radiusMin..$radiusMax pulse=$pulse"

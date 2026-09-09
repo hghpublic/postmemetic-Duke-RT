@@ -346,7 +346,7 @@ LIGHTOVR
     smokestyle "duke_fire_smoke"
     {
         density 3.0
-        opticalamountscale 0.05
+        opticalamountscale 0.10
         extinction 0.008
         albedo 0.3 0.29 0.28
         anisotropy 0.12
@@ -372,7 +372,8 @@ LIGHTOVR
         intrinsicemission 0.5
         emissionhalflife 0.18
         clusterspread 1.30
-        loberadiusrandom 0.40 0.70
+        // Overlap rising packets without increasing their count or lifetime.
+        loberadiusrandom 0.70 1.00
         curlvelocity 4.0
         coreplateau 0.60
         edgeerosion 0.16
@@ -547,7 +548,8 @@ LIGHTOVR
         velocityscale 0.0
         // Longer packets retain the two-fire Low profile's spare group capacity.
         intervalseconds 0.5
-        pulseamount 0.90
+        // Keep billowing variation without near-empty stretches in the plume.
+        pulseamount 0.15
         pulseperiodcadences 12
         pulsephase 0.7916667
         starttime 0.0

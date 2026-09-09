@@ -21,11 +21,12 @@ $cutovers = @{
 # fields below and restore the old representation before comparing. This proves
 # that cutovers retain legacy counts, optics, cadence, admission/freshness and
 # analytic carrier counts. Map emitters and the fog style are compared verbatim.
-# The explicitly asserted common fire placement/rise/cadence exceptions below
+# The explicitly asserted common fire placement/rise/cadence/pulse exceptions below
 # are normalized back to their baseline values before hashing.
-$quarterOpticalScale = @{
+# Fire is denser than the quarter-strength effects to maintain a continuous plume.
+$expectedOpticalScale = @{
     duke_explosion_smoke = 0.075
-    duke_fire_smoke = 0.05
+    duke_fire_smoke = 0.10
     duke_impact_smoke = 0.25
     duke_muzzle_smoke = 0.25
     duke_trail_smoke = 0.125
@@ -77,7 +78,7 @@ foreach ($block in $blocks) {
         $body = [regex]::Replace($body, '(?m)^\s*(effectclass|lobecount)\s+[^\r\n]+', '')
         if ($name -eq 'duke_fire_sustained') {
             # Deliberate common placement correction and the longer plume's
-            # bounded packet cadence. These also affect Grid rollback.
+            # bounded packet cadence and steadier pulse. These also affect Grid rollback.
             if ($body -notmatch 'offset\s+0\.0\s+0\.0\s+-32\.0') {
                 throw 'Fire must start inside the authored floor-anchored flame volume.'
             }
@@ -86,6 +87,10 @@ foreach ($block in $blocks) {
                 throw 'Longer fire packets must retain the half-second two-source capacity cadence.'
             }
             $body = $body -replace '(?m)^(\s*intervalseconds\s+)0\.5\s*$', '${1}0.28'
+            if ($body -notmatch '(?m)^\s*pulseamount\s+0\.15\s*$') {
+                throw 'Sustained fire must retain a strong density floor between billows.'
+            }
+            $body = $body -replace '(?m)^(\s*pulseamount\s+)0\.15\s*$', '${1}0.90'
         }
     }
     elseif ($isTransient) { throw "Production $name has no accepted cutover entry." }
@@ -93,8 +98,8 @@ foreach ($block in $blocks) {
     if ($kind -eq 'smokestyle' -and $name -ne 'ground_mood_smoke') {
         $opticalScale = [regex]::Matches($body, '(?m)^\s*opticalamountscale\s+([0-9.]+)\s*$')
         if ($opticalScale.Count -ne 1 -or
-            [double]::Parse($opticalScale[0].Groups[1].Value, [Globalization.CultureInfo]::InvariantCulture) -ne $quarterOpticalScale[$name]) {
-            throw "Production $name must retain exactly one quarter of its initial transient optical scale."
+            [double]::Parse($opticalScale[0].Groups[1].Value, [Globalization.CultureInfo]::InvariantCulture) -ne $expectedOpticalScale[$name]) {
+            throw "Production $name must retain its validated effect-specific optical scale."
         }
         if ($name -eq 'duke_fire_smoke') {
             if ($body -notmatch '(?m)^\s*risevelocity\s+120\.0\s*$') {

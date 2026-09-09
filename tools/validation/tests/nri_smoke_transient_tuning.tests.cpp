@@ -1,4 +1,5 @@
 #include "nri_smoke_transient_clouds.h"
+#include "nri_smoke_source_envelope.h"
 
 #include <algorithm>
 #include <array>
@@ -40,6 +41,9 @@ struct FireTuning
 	float release = 0.0f;
 	float spread = 0.0f;
 	float cadence = 0.0f;
+	float lobeRadiusMin = 0.0f;
+	float lobeRadiusMax = 0.0f;
+	float pulseAmount = 0.0f;
 };
 
 struct EvaluatedGroup
@@ -104,8 +108,8 @@ NRISmokeTransientGroupShapeInput FireInput(const FireTuning& tuning,
 	input.intrinsicEmission = IntrinsicEmission;
 	input.emissionHalfLife = EmissionHalfLife;
 	input.clusterSpread = tuning.spread;
-	input.lobeRadiusMinScale = LobeRadiusMin;
-	input.lobeRadiusMaxScale = LobeRadiusMax;
+	input.lobeRadiusMinScale = tuning.lobeRadiusMin;
+	input.lobeRadiusMaxScale = tuning.lobeRadiusMax;
 	input.riseVelocity = tuning.riseVelocity;
 	input.curlVelocity = CurlVelocity;
 	input.corePlateau = CorePlateau;
@@ -161,21 +165,29 @@ EvaluatedGroup Evaluate(const FireTuning& tuning, double age,
 	return result;
 }
 
-void TestQuarterOpticsAndNormalizedEnvelope(const FireTuning& baseline,
-	const FireTuning& candidate)
+void TestDensityRetuneAndNormalizedEnvelope(const FireTuning& original,
+	const FireTuning& sparse, const FireTuning& candidate)
 {
-	const auto oldRequests = BuildFire(baseline, 1u, 101u, 0.0);
+	const auto oldRequests = BuildFire(original, 1u, 101u, 0.0);
+	const auto sparseRequests = BuildFire(sparse, 1u, 101u, 0.0);
 	const auto newRequests = BuildFire(candidate, 1u, 101u, 0.0);
 	for (uint32_t index = 0u; index < FireLobes; ++index)
+	{
 		Require(Near(newRequests[index].opticalWeight,
-			oldRequests[index].opticalWeight * 0.25f),
-			"each shaped lobe must carry exactly one quarter of baseline optical weight");
+			oldRequests[index].opticalWeight * 0.5f),
+			"the dense-fire retune must carry half of the original short-fire optical weight");
+		Require(Near(newRequests[index].opticalWeight,
+			sparseRequests[index].opticalWeight * 2.0f),
+			"the dense-fire retune must double the tall sparse preset's optical weight");
+	}
 
 	for (float releasePhase : { 0.0f, 0.25f, 0.5f, 0.75f, 0.99f })
 	{
-		const double oldAge = baseline.sustain + baseline.release * releasePhase;
+		const double oldAge = original.sustain + original.release * releasePhase;
+		const double sparseAge = sparse.sustain + sparse.release * releasePhase;
 		const double newAge = candidate.sustain + candidate.release * releasePhase;
-		const auto oldGroup = Evaluate(baseline, oldAge, 101u);
+		const auto oldGroup = Evaluate(original, oldAge, 101u);
+		const auto sparseGroup = Evaluate(sparse, sparseAge, 101u);
 		const auto newGroup = Evaluate(candidate, newAge, 101u);
 		for (uint32_t index = 0u; index < FireLobes; ++index)
 		{
@@ -183,11 +195,15 @@ void TestQuarterOpticsAndNormalizedEnvelope(const FireTuning& baseline,
 				(InitialDensity * oldRequests[index].opticalWeight);
 			const float newEnvelope = newGroup.lobes[index].densityScale /
 				(InitialDensity * newRequests[index].opticalWeight);
+			const float sparseEnvelope = sparseGroup.lobes[index].densityScale /
+				(InitialDensity * sparseRequests[index].opticalWeight);
 			Require(Near(oldEnvelope, newEnvelope, 5.0e-4f),
-				"baseline and candidate release envelopes must agree at equal normalized phase");
+				"original and candidate release envelopes must agree at equal normalized phase");
+			Require(Near(sparseEnvelope, newEnvelope, 5.0e-4f),
+				"the dense retune must preserve the tall preset's normalized release envelope");
 			Require(Near(newGroup.lobes[index].densityScale,
-				oldGroup.lobes[index].densityScale * 0.25f, 5.0e-4f),
-				"equal-phase GPU density must remain exactly quarter strength");
+				sparseGroup.lobes[index].densityScale * 2.0f, 5.0e-4f),
+				"equal-phase GPU density must double relative to the tall sparse preset");
 		}
 	}
 }
@@ -228,62 +244,91 @@ void TestLateVisibleHeight(const FireTuning& baseline,
 		".." << maximumPlaneRatio << '\n';
 }
 
-float PacketBridgeMargin(const FireTuning& candidate, uint64_t olderSerial,
-	float youngerAge)
+struct BridgeMargins
+{
+	float outer = -std::numeric_limits<float>::max();
+	float halfKernel = -std::numeric_limits<float>::max();
+};
+
+BridgeMargins PacketBridgeMargins(const FireTuning& tuning,
+	uint64_t olderSerial, float youngerAge)
 {
 	auto profile = NRISmokeTransientClouds::ProfileForQuality(2u);
 	NRISmokeTransientClouds owner;
 	owner.Reset(Epoch);
 	owner.BeginFrame(0.0, NRISmokeTransientClouds::FixedLobeCapacity, profile);
-	const auto older = BuildFire(candidate, 0x6a086ee7u, olderSerial, 0.0);
+	const auto older = BuildFire(tuning, 0x6a086ee7u, olderSerial, 0.0);
 	const auto olderAdmission = owner.AdmitBatch(older.data(),
 		static_cast<uint32_t>(older.size()));
-	owner.BeginFrame(candidate.cadence, NRISmokeTransientClouds::FixedLobeCapacity,
+	owner.BeginFrame(tuning.cadence, NRISmokeTransientClouds::FixedLobeCapacity,
 		profile);
-	const auto younger = BuildFire(candidate, 0x6a086ee7u, olderSerial + 1u,
-		candidate.cadence);
+	const auto younger = BuildFire(tuning, 0x6a086ee7u, olderSerial + 1u,
+		tuning.cadence);
 	const auto youngerAdmission = owner.AdmitBatch(younger.data(),
 		static_cast<uint32_t>(younger.size()));
 	Require(olderAdmission.Accepted() && youngerAdmission.Accepted(),
 		"adjacent production packets must be admitted");
-	owner.BeginFrame(static_cast<double>(candidate.cadence + youngerAge),
+	owner.BeginFrame(static_cast<double>(tuning.cadence + youngerAge),
 		NRISmokeTransientClouds::FixedLobeCapacity, profile);
 	const auto& groups = owner.GetGpuGroups();
 	const auto& gpuLobes = owner.GetGpuLobes();
 	const auto& olderGroup = groups[olderAdmission.handle.slot];
 	const auto& youngerGroup = groups[youngerAdmission.handle.slot];
-	float bestMargin = -std::numeric_limits<float>::max();
+	BridgeMargins result = {};
 	for (uint32_t a = 0u; a < olderGroup.lobeCount; ++a)
 		for (uint32_t b = 0u; b < youngerGroup.lobeCount; ++b)
 		{
 			const auto& oldLobe = gpuLobes[olderGroup.firstLobe + a];
 			const auto& newLobe = gpuLobes[youngerGroup.firstLobe + b];
-			bestMargin = std::max(bestMargin, oldLobe.radius + newLobe.radius -
-				Distance3(oldLobe.position, newLobe.position));
+			const float distance = Distance3(oldLobe.position, newLobe.position);
+			result.outer = std::max(result.outer,
+				oldLobe.radius + newLobe.radius - distance);
+			// The un-eroded parabolic sphere shell is (1-q*q)/(1-p*p).
+			// At p=0.6, q=0.8 gives 0.5625: a conservative >=half-kernel
+			// inner region. This excludes boundary erosion and pixel integration.
+			result.halfKernel = std::max(result.halfKernel,
+				0.8f * (oldLobe.radius + newLobe.radius) - distance);
 		}
-	return bestMargin;
+	return result;
 }
 
-void TestRepresentativePacketBridges(const FireTuning& candidate)
+void TestRepresentativePacketBridges(const FireTuning& sparse,
+	const FireTuning& candidate)
 {
 	float earlyMinimumMargin = std::numeric_limits<float>::max();
+	float innerMinimumMargin = std::numeric_limits<float>::max();
 	uint32_t earlyConnected = 0u;
+	uint32_t innerConnected = 0u;
+	uint32_t sparseConnected = 0u;
 	uint32_t earlyTested = 0u;
-	// The attack-complete boundary and a shortly-later sample are the demanding
-	// bottom-of-plume cases. Keep their outcome diagnostic: randomized adjacent
-	// packets are not authored as a universal topology guarantee.
+	// This is a bounded representative seed set, not a claim over every uint64 seed.
+	// Real 3D sphere support is tested at attack completion and shortly thereafter,
+	// rather than inferring continuity from group AABBs.
 	for (uint64_t serial = 1u; serial <= 32u; ++serial)
 		for (float youngerAge : { 0.08f, 0.15f })
 		{
-			const float margin = PacketBridgeMargin(candidate, serial, youngerAge);
-			earlyMinimumMargin = std::min(earlyMinimumMargin, margin);
-			earlyConnected += margin >= 0.0f ? 1u : 0u;
+			const BridgeMargins denseMargins = PacketBridgeMargins(candidate, serial,
+				youngerAge);
+			const BridgeMargins sparseMargins = PacketBridgeMargins(sparse, serial,
+				youngerAge);
+			earlyMinimumMargin = std::min(earlyMinimumMargin, denseMargins.outer);
+			innerMinimumMargin = std::min(innerMinimumMargin, denseMargins.halfKernel);
+			earlyConnected += denseMargins.outer >= 0.0f ? 1u : 0u;
+			innerConnected += denseMargins.halfKernel >= 0.0f ? 1u : 0u;
+			sparseConnected += sparseMargins.outer >= 0.0f ? 1u : 0u;
 			earlyTested++;
 		}
-	std::cout << "early_packet_bridges=" << earlyConnected << '/' << earlyTested <<
-		" minimum_margin=" << earlyMinimumMargin << '\n';
-	Require(earlyConnected > 0u && std::isfinite(earlyMinimumMargin),
-		"the early packet bridge diagnostic must exercise finite real 3D support");
+	std::cout << "early_packet_bridges_dense=" << earlyConnected << '/' <<
+		earlyTested << " sparse=" << sparseConnected << '/' << earlyTested <<
+		" minimum_margin=" << earlyMinimumMargin << " half_kernel=" <<
+		innerConnected << '/' << earlyTested << " half_kernel_minimum_margin=" <<
+		innerMinimumMargin << '\n';
+	Require(earlyConnected == earlyTested,
+		"all bounded representative adjacent packets must overlap outer support early");
+	Require(innerConnected > sparseConnected,
+		"larger dense-fire lobes must improve meaningful inner support over the sparse preset");
+	Require(innerConnected == earlyTested,
+		"all bounded representative dense-fire pairs must overlap conservative inner support");
 
 	// At a comparable, clearly visible fade stage the packet train must actually
 	// connect. This is a sphere-pair test across groups, stronger than overlapping
@@ -293,14 +338,40 @@ void TestRepresentativePacketBridges(const FireTuning& candidate)
 	const float lateAge = candidate.sustain + candidate.release * 0.5f;
 	for (uint64_t serial = 1u; serial <= 32u; ++serial)
 	{
-		const float margin = PacketBridgeMargin(candidate, serial, lateAge);
-		lateMinimumMargin = std::min(lateMinimumMargin, margin);
-		lateConnected += margin >= 0.0f ? 1u : 0u;
+		const BridgeMargins margins = PacketBridgeMargins(candidate, serial, lateAge);
+		lateMinimumMargin = std::min(lateMinimumMargin, margins.outer);
+		lateConnected += margins.outer >= 0.0f ? 1u : 0u;
 	}
 	std::cout << "late_packet_bridges=" << lateConnected << "/32 minimum_margin=" <<
 		lateMinimumMargin << '\n';
 	Require(lateConnected == 32u,
 		"adjacent packets must have real 3D support overlap at release midpoint");
+}
+
+void TestPulseFloor(const FireTuning& sparse, const FireTuning& candidate)
+{
+	constexpr uint32_t Period = 12u;
+	constexpr float Phase = 0.7916667f;
+	float sparseMinimum = std::numeric_limits<float>::max();
+	float candidateMinimum = std::numeric_limits<float>::max();
+	double candidateSum = 0.0;
+	for (uint64_t ordinal = 1u; ordinal <= Period; ++ordinal)
+	{
+		sparseMinimum = std::min(sparseMinimum, NRIEvaluateSmokeSourceEnvelope(
+			{ sparse.pulseAmount, Period, Phase }, ordinal));
+		const float weight = NRIEvaluateSmokeSourceEnvelope(
+			{ candidate.pulseAmount, Period, Phase }, ordinal);
+		candidateMinimum = std::min(candidateMinimum, weight);
+		candidateSum += weight;
+	}
+	Require(candidateMinimum >= 1.0f - candidate.pulseAmount - 1.0e-5f,
+		"actual source-envelope samples must respect the new dense-fire pulse floor");
+	Require(candidateMinimum > sparseMinimum + 0.5f,
+		"the retune must materially raise the minimum packet mass over tall sparse fire");
+	Require(std::abs(candidateSum - static_cast<double>(Period)) < 1.0e-5,
+		"one pulse period must retain unit mean source mass");
+	std::cout << "pulse_min_dense=" << candidateMinimum << " sparse=" <<
+		sparseMinimum << " period_sum=" << candidateSum << '\n';
 }
 
 void RequireNoDrops(const NRISmokeTransientSnapshot& snapshot)
@@ -393,8 +464,8 @@ void TestIntrinsicCoolingUnchanged(const FireTuning& baseline,
 
 int main(int argc, char** argv)
 {
-	Require(argc == 8,
-		"usage: test optical lifetime rise sustain release spread cadence");
+	Require(argc == 11,
+		"usage: test optical lifetime rise sustain release spread cadence radius_min radius_max pulse");
 	FireTuning candidate = {};
 	candidate.opticalScale = std::stof(argv[1]);
 	candidate.lifetime = std::stof(argv[2]);
@@ -403,22 +474,31 @@ int main(int argc, char** argv)
 	candidate.release = std::stof(argv[5]);
 	candidate.spread = std::stof(argv[6]);
 	candidate.cadence = std::stof(argv[7]);
-	const FireTuning baseline = { 0.20f, 3.0f, 32.0f, 1.5f, 1.42f, 0.45f, 0.28f };
-	Require(Near(candidate.opticalScale, baseline.opticalScale * 0.25f),
-		"production fire optical scale must be exactly one quarter of baseline");
+	candidate.lobeRadiusMin = std::stof(argv[8]);
+	candidate.lobeRadiusMax = std::stof(argv[9]);
+	candidate.pulseAmount = std::stof(argv[10]);
+	const FireTuning original = { 0.20f, 3.0f, 32.0f, 1.5f, 1.42f, 0.45f,
+		0.28f, LobeRadiusMin, LobeRadiusMax, 0.90f };
+	const FireTuning sparse = { 0.05f, 5.5f, 120.0f, 2.75f, 2.75f, 1.30f,
+		0.50f, LobeRadiusMin, LobeRadiusMax, 0.90f };
+	Require(Near(candidate.opticalScale, original.opticalScale * 0.5f),
+		"production dense fire optical scale must be half the original short-fire value");
 	Require(candidate.lifetime > candidate.sustain && candidate.release > 0.0f &&
 		candidate.sustain + candidate.release <= candidate.lifetime + 1.0e-5f &&
-		candidate.cadence > 0.0f,
+		candidate.cadence > 0.0f && candidate.lobeRadiusMin > 0.0f &&
+		candidate.lobeRadiusMax >= candidate.lobeRadiusMin &&
+		candidate.pulseAmount >= 0.0f && candidate.pulseAmount <= 1.0f,
 		"candidate lifetime, release envelope, and cadence must be internally valid");
 
-	TestQuarterOpticsAndNormalizedEnvelope(baseline, candidate);
-	TestLateVisibleHeight(baseline, candidate);
-	TestRepresentativePacketBridges(candidate);
+	TestDensityRetuneAndNormalizedEnvelope(original, sparse, candidate);
+	TestLateVisibleHeight(original, candidate);
+	TestRepresentativePacketBridges(sparse, candidate);
+	TestPulseFloor(sparse, candidate);
 	TestTwoSourceCapacity(candidate,
 		static_cast<uint32_t>(NRISmokeTransientQuality::Medium));
 	TestTwoSourceCapacity(candidate,
 		static_cast<uint32_t>(NRISmokeTransientQuality::Low));
-	TestIntrinsicCoolingUnchanged(baseline, candidate);
+	TestIntrinsicCoolingUnchanged(original, candidate);
 	std::cout << "Smoke transient production tuning tests passed.\n";
 	return 0;
 }
