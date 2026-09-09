@@ -1,4 +1,6 @@
 #include "nri_scene_bridge.h"
+#include "nri_scene_view_scratch.h"
+#include "nri_retained_scratch.h"
 #include "../renderer/nri_cvars.h"
 
 #include "nri_geometry_bridge.h"
@@ -6026,7 +6028,12 @@ namespace
 	void CaptureModelSprites(HWDrawInfo& di, HWDrawList& list, uint32_t drawListType, std::vector<SurfaceRef>& outSprites, SceneDebugStats& stats, DynamicVoxelCaptureMode captureMode)
 	{
 		const bool rootMeshCapture = BeginVoxelMeshCacheFrame();
-		std::vector<HWSprite*> sprites;
+		static thread_local NRIRetainedScratch<std::vector<HWSprite*>> modelScratch;
+		auto scratchLease = modelScratch.Acquire();
+		auto& sprites = scratchLease.Get();
+		sprites.clear();
+		if (sprites.capacity() >= list.sprites.Size())
+			gDynamicCapturePerfStats.modelScratchReuses++;
 		if (sprites.capacity() < list.sprites.Size())
 		{
 			gDynamicCapturePerfStats.modelScratchGrows++;
@@ -6095,6 +6102,7 @@ namespace
 				stats.voxelProxyDrawItems++;
 			}
 		}
+		sprites.clear();
 		finish();
 	}
 
@@ -6735,7 +6743,7 @@ SceneDebugStats CollectDebugStats(HWDrawInfo& di)
 
 bool CaptureDynamicScene(HWDrawInfo& di, SceneView& outView, DynamicVoxelCaptureMode voxelCaptureMode)
 {
-	outView = {};
+	ClearSceneViewRetainingCapacity(outView);
 	outView.drawInfo = &di;
 	gDynamicCapturePerfStats.calls++;
 	const bool rootVoxelCacheFrame = [&]()
@@ -6844,7 +6852,7 @@ ActorSpriteSceneCaptureResult CaptureActorSpriteScene(
 	SceneView& outView)
 {
 	ActorSpriteSceneCaptureResult result = {};
-	outView = {};
+	ClearSceneViewRetainingCapacity(outView);
 	outView.drawInfo = &di;
 	std::vector<SurfaceRef> modelSprites;
 	result.currentVoxel = CaptureActorModelSprites(
@@ -6890,7 +6898,7 @@ ActorSpriteSceneCaptureResult CaptureActorVoxelSprite(
 	SceneView& outView)
 {
 	ActorSpriteSceneCaptureResult result = {};
-	outView = {};
+	ClearSceneViewRetainingCapacity(outView);
 	outView.drawInfo = &di;
 	if (sprite.modelframe >= 0 || sprite.voxel == nullptr || sprite.voxel->model == nullptr)
 	{
@@ -7007,7 +7015,7 @@ void SetPersistentVoxelActorStartupTransientMode(bool active, const char* reason
 
 bool BuildPersistentVoxelCacheSceneView(SceneView& outView)
 {
-	outView = {};
+	ClearSceneViewRetainingCapacity(outView);
 	std::vector<PersistentVoxelCacheEntryView> entries;
 	if (!BuildPersistentVoxelCacheEntries(entries))
 	{
@@ -7744,7 +7752,7 @@ bool BuildPrecachedVoxelRawManifestViews(std::vector<PrecachedVoxelRawManifestVi
 
 bool CaptureScene(HWDrawInfo& di, SceneView& outView)
 {
-	outView = {};
+	ClearSceneViewRetainingCapacity(outView);
 	outView.drawInfo = &di;
 	const bool rootVoxelCacheFrame = BeginVoxelActorCacheFrame();
 	outView.stats = CollectDebugStats(di);

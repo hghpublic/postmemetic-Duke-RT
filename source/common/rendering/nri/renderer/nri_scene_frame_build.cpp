@@ -690,7 +690,8 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 	mSelectCapturedTopLevelInstanceScratch.clear();
 	mSelectCapturedSceneInstanceScratch.clear();
 	mSelectedDynamicOverlayBlasOccurrences.clear();
-	std::vector<SelectedDynamicOverlayBlasOccurrence> selectedDynamicOverlayBlasOccurrences;
+	auto& selectedDynamicOverlayBlasOccurrences = mSelectDynamicOverlayOccurrenceScratch;
+	selectedDynamicOverlayBlasOccurrences.clear();
 	const nri_scene::SceneView*& activeSceneView = frame.activeSceneView;
 	const nri_scene::GeometryData*& activeGeometry = frame.activeGeometry;
 	const std::vector<nri_scene::MaterialData>*& activeGpuMaterials = frame.activeGpuMaterials;
@@ -709,7 +710,8 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 	nri_scene::GeometryData& localPlayerReflectionGeometry = mSelectLocalPlayerReflectionGeometryScratch;
 	NRILocalPlayerReflectionCaptureStats localPlayerReflectionCaptureStats = {};
 	nri_scene::GeometryBuildTraceStats localPlayerReflectionGeometryTraceStats = {};
-	std::vector<SceneBufferUploadDomainSpan> sceneUploadDomainSpans;
+	auto& sceneUploadDomainSpans = frame.uploadDomainSpans;
+	sceneUploadDomainSpans.clear();
 	uint32_t activeStaticProbePrimitiveCount = 0;
 	EmissiveSamplingBuildContext emissiveSamplingContext = {};
 	NRIActorOccurrenceFrame actorOccurrenceFrame = {};
@@ -978,7 +980,7 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 			{
 				Clocker clock(NriPTGeometryBuild);
 				ScopedPtPerfTimer perfTimer(mLastPerfShellTraceStats.geometryBuildDynamicLiveMs);
-				nri_scene::BuildGeometry(dynamicSceneView, dynamicGeometry);
+				nri_scene::BuildGeometry(dynamicSceneView, dynamicGeometry, nullptr, true);
 				AssignGeometryPortalIndices(mMapWorld, dynamicGeometry);
 			}
 			mLastPerfShellTraceStats.geometryBuildDynamicLivePrimitives += (uint32_t)dynamicGeometry.primitives.size();
@@ -1209,7 +1211,7 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 						Clocker clock(NriPTGeometryBuild);
 						ScopedPtPerfTimer geometryPerfTimer(mLastPerfShellTraceStats.sceneSelectDynamicMergeGeometryMs);
 						ScopedPtPerfTimer legacyGeometryPerfTimer(mLastPerfShellTraceStats.geometryBuildMergedDynamicMs);
-						nri_scene::BuildGeometry(mergedDynamicSceneView, mergedDynamicGeometry);
+						nri_scene::BuildGeometry(mergedDynamicSceneView, mergedDynamicGeometry, nullptr, true);
 					}
 					{
 						ScopedPtPerfTimer portalPerfTimer(mLastPerfShellTraceStats.sceneSelectDynamicMergePortalAssignMs);
@@ -2029,7 +2031,7 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 					mLastStateCommitDomainGenerations = generationResult.current;
 					mHasLastStateCommitDomainGenerations = true;
 				}
-				mSelectedDynamicOverlayBlasOccurrences = std::move(selectedDynamicOverlayBlasOccurrences);
+				mSelectedDynamicOverlayBlasOccurrences.swap(selectedDynamicOverlayBlasOccurrences);
 			}
 			else
 			{
@@ -2124,7 +2126,7 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 		{
 			Clocker clock(NriPTGeometryBuild);
 			ScopedPtPerfTimer perfTimer(mLastPerfShellTraceStats.geometryBuildCapturedMs);
-			nri_scene::BuildGeometry(capturedSceneView, capturedGeometry);
+			nri_scene::BuildGeometry(capturedSceneView, capturedGeometry, nullptr, true);
 			AssignGeometryPortalIndices(mMapWorld, capturedGeometry);
 		}
 

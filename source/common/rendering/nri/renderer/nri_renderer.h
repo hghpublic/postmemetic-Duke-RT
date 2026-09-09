@@ -74,6 +74,7 @@ struct RenderSceneCompletionInputs;
 struct RenderSceneDispatchInputs;
 struct RenderSceneFrameBuildInputs;
 struct RenderSceneFrameBuildResult;
+struct NRISceneFrameScratch;
 struct RenderSceneHistorySnapshot;
 
 struct NRIDirectionalLightState
@@ -2740,6 +2741,7 @@ private:
 	std::array<nri::Pipeline*, (size_t)PipelineSlot::Count> mPipelines = {};
 	nri::DescriptorSet* mSamplerSet = nullptr;
 	std::vector<nri::DescriptorSet*> mSceneTextureSets;
+	NRISceneTextureScratch mSceneTextureScratch;
 	std::vector<uint64_t> mSceneTextureKeyScratch;
 	std::vector<uint64_t> mSceneTextureSetHashes;
 	std::vector<uint8_t> mSceneTextureSetHashValid;
@@ -2819,6 +2821,7 @@ private:
 	PrimitiveVisibilityIdentityCache mPrimitiveVisibilityIdentityCache = {};
 	NRISceneUploadProducerGenerations mSceneUploadProducerGenerations;
 	NRISceneUploadIdentityValidator mSceneUploadIdentityValidator;
+	std::unique_ptr<NRISceneFrameScratch> mSceneFrameScratch;
 	std::vector<nri_scene::MaterialData> mSelectCapturedGpuMaterialScratch;
 	std::vector<nri_scene::MaterialData> mSelectDynamicGpuMaterialScratch;
 	std::vector<nri_scene::MaterialData> mSelectPersistentVoxelGpuMaterialScratch;
@@ -2848,6 +2851,7 @@ private:
 	std::vector<SceneUploadDirtyRange> mSceneUploadIndexDirtyRangeScratch;
 	std::vector<DynamicOverlayBlasAsset> mDynamicOverlayBlasAssets;
 	std::vector<SelectedDynamicOverlayBlasOccurrence> mSelectedDynamicOverlayBlasOccurrences;
+	std::vector<SelectedDynamicOverlayBlasOccurrence> mSelectDynamicOverlayOccurrenceScratch;
 	std::vector<nri_scene::SceneVertex> mDynamicOverlayBlasVertexScratch;
 	std::vector<uint32_t> mDynamicOverlayBlasIndexScratch;
 	std::array<ResidentUploadScratchFrame, 3> mResidentUploadScratchFrames = {};

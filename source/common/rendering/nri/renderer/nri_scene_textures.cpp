@@ -1491,9 +1491,12 @@ bool NRIRenderer::EnsureSceneTextures(
 		return false;
 	}
 
-	std::vector<nri::Descriptor*> descriptors;
-	std::vector<NRISceneTextureDynamicDependency> dynamicDependencies;
-	std::unordered_set<uint32_t> pendingTextureSlots;
+	auto& descriptors = mSceneTextureScratch.descriptors;
+	auto& dynamicDependencies = mSceneTextureScratch.dynamicDependencies;
+	auto& pendingTextureSlots = mSceneTextureScratch.pendingTextureSlots;
+	descriptors.clear();
+	dynamicDependencies.clear();
+	pendingTextureSlots.clear();
 	const bool useCachedDescriptorProduct = reuseProduct != nullptr && !reuseInputs->validateReuse;
 	if (useCachedDescriptorProduct)
 	{
