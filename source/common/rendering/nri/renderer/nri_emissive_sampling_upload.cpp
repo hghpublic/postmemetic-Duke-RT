@@ -170,7 +170,9 @@ bool NRIRenderer::UpdateEmissiveSamplingBuffers(
 	const auto emitCacheTrace = [&](bool destinationReused)
 	{
 		const auto& cache = mSceneLights.GetEmissiveGeometryCacheStats();
-		if (!ShouldCollectSceneDataTiming() && !(bool)nri_ptemissivecachevalidate && cache.identityMismatches == 0)
+		// Compact capture records timing without synchronous per-frame logging.
+		const bool verboseTrace = (int)nri_pttraceframes > 0 || (int)perf_looptraceframes > 0 || (bool)nri_ptslowdowntrace;
+		if (!verboseTrace && !(bool)nri_ptemissivecachevalidate && cache.identityMismatches == 0)
 			return;
 		Printf("PERF pt emissive cache NRI: frame=%u destination_reused=%u identity=%.3f full_hash=%.3f topology=%.3f weights=%.3f validation=%.3f identities=%u mismatches=%u quarantines=%u payload_checks=%u payload_mismatches=%u hashed_vertices=%llu hashed_primitives=%llu static_scanned=%llu dynamic_scanned=%llu topology_builds=%u topology_reuses=%u primitive_builds=%u primitive_reuses=%u weights_only=%u capacity_growths=%u capacity_growth_bytes=%llu capacity_bytes=%llu upload_growth_bytes=%llu upload_capacity_bytes=%llu build_growths=%u build_growth_bytes=%llu\n",
 			mFrameIndex, destinationReused ? 1u : 0u,
