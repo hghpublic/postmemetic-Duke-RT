@@ -35,6 +35,7 @@
 #include "nri_scene_lights.h"
 #include "nri_surface_probe.h"
 #include "nri_material_policy.h"
+#include "nri_scene_material_product.h"
 #include "nri_static_scene.h"
 #include "nri_static_scene_diagnostics.h"
 #include "nri_static_scene_geometry_upload.h"
@@ -2647,6 +2648,14 @@ private:
 		nri_material_policy::ActorMaterialPresentationPolicy& outPolicy);
 	void ApplyEmissiveMaterialOverrides(const nri_scene::MaterialBridgeData& materials, std::vector<nri_scene::MaterialData>& inOutGpuMaterials) const;
 	void ApplyActorShadowMaterialOverrides(const nri_scene::MaterialBridgeData& materials, std::vector<nri_scene::MaterialData>& inOutGpuMaterials);
+	NRIMaterialProductPatchResult RefreshCombinedMaterialProduct(
+		const nri_scene::MaterialBridgeData& source,
+		size_t staticCount,
+		size_t persistentCount,
+		const std::vector<uint32_t>& deferredIndices,
+		std::vector<nri_scene::MaterialData>& combined,
+		std::vector<nri_scene::MaterialData>& persistent,
+		std::vector<nri_scene::MaterialData>& dynamic);
 	uint64_t ComputeChunkActorOverrideHash(const nri_scene::MaterialBridgeData& materials);
 	uint64_t ComputeChunkEmissiveOverrideHash(const nri_scene::MaterialBridgeData& materials) const;
 	void QueueStaticMapSceneLightingInvalidation();
@@ -2826,7 +2835,7 @@ private:
 	std::vector<nri_scene::MaterialData> mSelectDynamicGpuMaterialScratch;
 	std::vector<nri_scene::MaterialData> mSelectPersistentVoxelGpuMaterialScratch;
 	std::vector<nri_scene::MaterialData> mSelectCombinedGpuMaterialScratch;
-	std::vector<nri_scene::MaterialData> mSelectRefreshedCombinedGpuMaterialScratch;
+	NRISceneMaterialProduct mCombinedMaterialProduct;
 	std::vector<uint32_t> mSelectDeferredTextureMaterialIndexScratch;
 	nri_scene::GeometryData mSelectLocalPlayerReflectionGeometryScratch;
 	nri_scene::GeometryData mSelectOverlayGeometryScratch;

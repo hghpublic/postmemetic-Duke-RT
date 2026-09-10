@@ -630,6 +630,7 @@ bool NRIRenderer::TryApplyRuntimeMutationChunkToResidentScene(
 			mutableChunk.animatedGeometrySignature = 0;
 			mutableChunk.hasAnimatedTextureCandidates = false;
 			mutableChunk.animatedRefreshSuppressed = false;
+			nri_static_scene::UpdateAnimatedMaterialCandidate(mStaticMapScene, chunkListIndex);
 			if (chunkListIndex < mStaticMapScene.lightChunkViews.size())
 			{
 				mStaticMapScene.lightChunkViews[chunkListIndex] = {};
@@ -1315,6 +1316,7 @@ bool NRIRenderer::TryApplyRuntimeMutationChunkToResidentScene(
 			 mutableChunk.animatedGeometrySignature == previousAnimatedGeometrySignature);
 		mStaticMapScene.lightChunkViews[chunkListIndex] = residentSceneView;
 		++mutableChunk.lightGeneration;
+		nri_static_scene::UpdateAnimatedMaterialCandidate(mStaticMapScene, chunkListIndex);
 		outResult.staticSceneChunkListIndex = chunkListIndex;
 		outResult.materialDirty = !preserveResidentMaterialSlice;
 		appliedPreservedResidentMaterialSlice = preserveResidentMaterialSlice;

@@ -1021,6 +1021,8 @@ set (NRI_SOURCES
 	common/rendering/nri/renderer/nri_scene_frame_diagnostics.cpp
 	common/rendering/nri/renderer/nri_scene_frame_builder.cpp
 	common/rendering/nri/renderer/nri_scene_material_frame_cache.cpp
+	common/rendering/nri/renderer/nri_scene_material_product.cpp
+	common/rendering/nri/renderer/nri_scene_material_product_policy.cpp
 	common/rendering/nri/renderer/nri_scene_material_texture_slots.cpp
 	common/rendering/nri/renderer/nri_scene_texture_frame_cache.cpp
 	common/rendering/nri/renderer/nri_scene_texture_slot_table.cpp
@@ -1053,6 +1055,9 @@ set (NRI_SOURCES
 	common/rendering/nri/renderer/nri_scene_upload_dirty_plan.cpp
 	common/rendering/nri/renderer/nri_scene_upload_ranges.cpp
 	common/rendering/nri/renderer/nri_static_scene.cpp
+	common/rendering/nri/renderer/nri_static_scene_animated.cpp
+	common/rendering/nri/renderer/nri_static_scene_animated_bindings.cpp
+	common/rendering/nri/renderer/nri_static_material_slices.cpp
 	common/rendering/nri/renderer/nri_static_scene_diagnostics.cpp
 	common/rendering/nri/renderer/nri_static_scene_residency.cpp
 	common/rendering/nri/renderer/nri_surface_probe.cpp

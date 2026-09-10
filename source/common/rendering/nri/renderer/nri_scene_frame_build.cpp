@@ -673,13 +673,11 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 	auto& dynamicGpuMaterials = mSelectDynamicGpuMaterialScratch;
 	auto& persistentVoxelGpuMaterials = mSelectPersistentVoxelGpuMaterialScratch;
 	auto& combinedGpuMaterials = mSelectCombinedGpuMaterialScratch;
-	auto& refreshedCombinedGpuMaterials = mSelectRefreshedCombinedGpuMaterialScratch;
 	auto& deferredTextureMaterialIndices = mSelectDeferredTextureMaterialIndexScratch;
 	capturedGpuMaterials.clear();
 	dynamicGpuMaterials.clear();
 	persistentVoxelGpuMaterials.clear();
 	combinedGpuMaterials.clear();
-	refreshedCombinedGpuMaterials.clear();
 	deferredTextureMaterialIndices.clear();
 	nri_scene::ClearGeometryRetainingCapacity(mSelectLocalPlayerReflectionGeometryScratch);
 	nri_scene::ClearGeometryRetainingCapacity(actorFilteredDynamicGeometry);
@@ -2285,13 +2283,19 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 			mSceneTextureStableSlotsActive ?
 			mSceneMaterialFrameCache.ResolveTextureSlots(mSceneTextures.SlotTable()) :
 			combinedMaterialBridge;
-		refreshedCombinedGpuMaterials = refreshedMaterialSource.materials;
-		ApplyEmissiveMaterialOverrides(refreshedMaterialSource, refreshedCombinedGpuMaterials);
-		ApplyActorShadowMaterialOverrides(refreshedMaterialSource, refreshedCombinedGpuMaterials);
-		const uint32_t preservedPendingTextureMaterialCount = NRIPreservePendingTextureMaterialProxies(
-			combinedGpuMaterials,
-			refreshedCombinedGpuMaterials,
-			deferredTextureMaterialIndices);
+		const auto materialPatch = RefreshCombinedMaterialProduct(
+			refreshedMaterialSource,
+			mStaticMapScene.gpuMaterials.size(),
+			mSceneMaterialFrameCache.PersistentMaterialCount(),
+			deferredTextureMaterialIndices,
+			combinedGpuMaterials, persistentVoxelGpuMaterials, dynamicGpuMaterials);
+		if (!materialPatch.valid)
+		{
+			LogFallback("PT runtime overlay material refresh produced an invalid material slice.");
+			if (preserveHistory) RestoreRenderSceneHistorySnapshot(history);
+			return false;
+		}
+		const uint32_t preservedPendingTextureMaterialCount = (uint32_t)materialPatch.preservedRows;
 		if (preservedPendingTextureMaterialCount > 0 && nri_ptscenestats)
 		{
 			Printf(
@@ -2299,29 +2303,10 @@ bool NRIRenderer::BuildRenderSceneFrame(HWDrawInfo& di, const RenderSceneFrameBu
 				(uint32_t)deferredTextureMaterialIndices.size(),
 				preservedPendingTextureMaterialCount);
 		}
-		if (!nri_material_policy::MaterialDataVectorEqual(refreshedCombinedGpuMaterials, combinedGpuMaterials))
+		if (materialPatch.changed)
 		{
-			const size_t staticMaterialCount = mStaticMapScene.gpuMaterials.size();
-			const size_t persistentVoxelMaterialCount = mSceneMaterialFrameCache.PersistentMaterialCount();
-			if (refreshedCombinedGpuMaterials.size() < staticMaterialCount + persistentVoxelMaterialCount)
-			{
-				LogFallback("PT runtime overlay material refresh produced an invalid material slice.");
-				if (preserveHistory)
-				{
-					RestoreRenderSceneHistorySnapshot(history);
-				}
-				return false;
-			}
-
-			combinedGpuMaterials.swap(refreshedCombinedGpuMaterials);
-			persistentVoxelGpuMaterials.assign(
-				combinedGpuMaterials.begin() + staticMaterialCount,
-				combinedGpuMaterials.begin() + staticMaterialCount + persistentVoxelMaterialCount);
-			dynamicGpuMaterials.assign(
-				combinedGpuMaterials.begin() + staticMaterialCount + persistentVoxelMaterialCount,
-				combinedGpuMaterials.end());
-			if (!UploadSceneBuffers(overlayGeometry, dynamicGpuMaterials) ||
-				(persistentVoxelMaterialCount != 0 && !UploadPersistentVoxelArenaMaterialBuffers(persistentVoxelGpuMaterials, true)) ||
+			if ((materialPatch.dynamicChanged && !UploadSceneBuffers(overlayGeometry, dynamicGpuMaterials)) ||
+				(materialPatch.persistentChanged && !UploadPersistentVoxelArenaMaterialBuffers(persistentVoxelGpuMaterials, true)) ||
 				!NRISceneUploadManager::UpdateSceneDataSet(*this,
 					mStaticVertexBuffer,
 					mStaticIndexBuffer,
