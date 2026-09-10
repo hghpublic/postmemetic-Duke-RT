@@ -992,6 +992,8 @@ set (NRI_SOURCES
 	common/rendering/nri/renderer/nri_smoke_visuals.cpp
 	common/rendering/nri/renderer/nri_smoke_analytic_carriers.cpp
 	common/rendering/nri/renderer/nri_smoke_transient_clouds.cpp
+	common/rendering/nri/renderer/nri_smoke_transient_residency.cpp
+	common/rendering/nri/renderer/nri_smoke_transient_renderer.cpp
 	common/rendering/nri/renderer/nri_smoke_transient_resources.cpp
 	common/rendering/nri/renderer/nri_smoke_transient_diagnostics.cpp
 	common/rendering/nri/renderer/nri_smoke_analytic_trail_bridge.cpp

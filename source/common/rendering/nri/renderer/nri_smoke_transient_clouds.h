@@ -20,6 +20,14 @@ enum class NRISmokeTransientLightRefresh : uint32_t
 	Slow = 1u,
 };
 
+// CPU scheduling interest only; this deliberately does not change GPU layouts.
+enum class NRISmokeTransientInterest : uint32_t
+{
+	Hot = 0u,
+	Warm,
+	Dormant,
+};
+
 // Values intentionally match nri_ptsmokeworkprofile.
 enum class NRISmokeTransientQuality : uint32_t
 {
@@ -283,6 +291,7 @@ struct NRISmokeTransientSnapshot
 	uint32_t lightAnchorsScheduledThisFrame = 0u;
 	uint32_t lightSamplesScheduledThisFrame = 0u;
 	uint32_t lightVisibilityQueriesScheduledThisFrame = 0u;
+	uint32_t lightInterestDeferredGroups = 0u;
 	uint64_t allocatedGroupBytes = 0u;
 	uint64_t allocatedLobeBytes = 0u;
 };
@@ -306,6 +315,17 @@ public:
 	NRISmokeTransientAdmission AdmitLatest(const NRISmokeTransientLobeRequest& request);
 	NRISmokeTransientAdmission AdmitBatch(const NRISmokeTransientLobeRequest* requests,
 		uint32_t count);
+	// A retained event has already passed arrival validation. Reentry preserves
+	// authored age, including expired members of a still-living group; it never
+	// re-applies the source's initial-arrival latency gate.
+	NRISmokeTransientAdmission AdmitRetainedBatch(
+		const NRISmokeTransientLobeRequest* requests, uint32_t count,
+		uint32_t maximumLobes);
+	static bool ValidateBatch(const NRISmokeTransientLobeRequest* requests,
+		uint32_t count);
+	bool Release(const NRISmokeTransientHandle& handle);
+	bool SetInterest(const NRISmokeTransientHandle& handle,
+		NRISmokeTransientInterest interest);
 	// Acknowledges that the currently permitted full-light builds were actually
 	// recorded. This is submission state only; GPU cache validity stays GPU-owned.
 	void CommitLightDispatchSchedule();
@@ -351,6 +371,7 @@ private:
 		uint16_t lightingRevision = 1u;
 		NRISmokeTransientClass transientClass = NRISmokeTransientClass::Diagnostic;
 		NRISmokeTransientLightRefresh lightRefresh = NRISmokeTransientLightRefresh::Frozen;
+		NRISmokeTransientInterest interest = NRISmokeTransientInterest::Hot;
 		bool needsInitialLight = true;
 		bool fullLightAllowed = false;
 		bool active = false;
@@ -362,9 +383,12 @@ private:
 	void RetireGroup(uint32_t groupSlot, bool expired);
 	NRISmokeTransientAdmission Drop(NRISmokeTransientDropReason reason,
 		uint32_t requestedLobes);
-	bool Valid(const NRISmokeTransientLobeRequest& request) const;
-	bool ValidBatchIdentity(const NRISmokeTransientLobeRequest* requests,
-		uint32_t count) const;
+	static bool Valid(const NRISmokeTransientLobeRequest& request);
+	static bool ValidBatchIdentity(const NRISmokeTransientLobeRequest* requests,
+		uint32_t count);
+	NRISmokeTransientAdmission AdmitBatchWithLimits(
+		const NRISmokeTransientLobeRequest* requests, uint32_t count,
+		uint32_t maximumLobes, uint32_t minimumLobes, bool retained);
 	bool Visible(const LobeSlot& lobe) const;
 
 	std::array<GroupSlot, FixedGroupCapacity> mGroups = {};

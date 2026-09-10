@@ -584,7 +584,7 @@ uint32_t NRISmokeTransientClouds::DefaultLobeCountForQuality(uint32_t workProfil
 	return Counts[profileIndex][classIndex];
 }
 
-bool NRISmokeTransientClouds::Valid(const NRISmokeTransientLobeRequest& request) const
+bool NRISmokeTransientClouds::Valid(const NRISmokeTransientLobeRequest& request)
 {
 	return Finite3(request.position) && Finite3(request.velocity) &&
 		Finite3(request.halfAxisU) && Finite3(request.halfAxisV) &&
@@ -615,7 +615,7 @@ bool NRISmokeTransientClouds::Valid(const NRISmokeTransientLobeRequest& request)
 }
 
 bool NRISmokeTransientClouds::ValidBatchIdentity(
-	const NRISmokeTransientLobeRequest* requests, uint32_t count) const
+	const NRISmokeTransientLobeRequest* requests, uint32_t count)
 {
 	if (requests == nullptr || count == 0u) return false;
 	const NRISmokeTransientLobeRequest& first = requests[0];
@@ -767,6 +767,29 @@ NRISmokeTransientAdmission NRISmokeTransientClouds::AdmitLatest(
 NRISmokeTransientAdmission NRISmokeTransientClouds::AdmitBatch(
 	const NRISmokeTransientLobeRequest* requests, uint32_t count)
 {
+	return AdmitBatchWithLimits(requests, count, mProfile.maximumLobesPerGroup,
+		mProfile.minimumReducedLobes, false);
+}
+
+NRISmokeTransientAdmission NRISmokeTransientClouds::AdmitRetainedBatch(
+	const NRISmokeTransientLobeRequest* requests, uint32_t count, uint32_t maximumLobes)
+{
+	return AdmitBatchWithLimits(requests, count, maximumLobes, 1u, true);
+}
+
+bool NRISmokeTransientClouds::ValidateBatch(
+	const NRISmokeTransientLobeRequest* requests, uint32_t count)
+{
+	if (!ValidBatchIdentity(requests, count)) return false;
+	for (uint32_t index = 0u; index < count; ++index)
+		if (!Valid(requests[index])) return false;
+	return true;
+}
+
+NRISmokeTransientAdmission NRISmokeTransientClouds::AdmitBatchWithLimits(
+	const NRISmokeTransientLobeRequest* requests, uint32_t count,
+	uint32_t maximumLobes, uint32_t minimumLobes, bool retained)
+{
 	mLastDropReason = NRISmokeTransientDropReason::None;
 	mSnapshot.groupsRequested++;
 	mSnapshot.lobesRequested += count;
@@ -788,11 +811,11 @@ NRISmokeTransientAdmission NRISmokeTransientClouds::AdmitBatch(
 	const double groupAge = mGameplayTimeSeconds - requests[0].authoredGameplaySeconds;
 	if (groupAge >= requests[0].groupLifetimeSeconds)
 		return Drop(NRISmokeTransientDropReason::ExpiredOnArrival, count);
-	if (requests[0].maximumLatencySeconds > 0.0f &&
+	if (!retained && requests[0].maximumLatencySeconds > 0.0f &&
 		groupAge > requests[0].maximumLatencySeconds)
 		return Drop(NRISmokeTransientDropReason::StaleOnArrival, count);
 	for (uint32_t index = 0u; index < count; ++index)
-		if (groupAge >= static_cast<double>(requests[index].lobeDelaySeconds +
+		if (!retained && groupAge >= static_cast<double>(requests[index].lobeDelaySeconds +
 			requests[index].lifetimeSeconds))
 			return Drop(NRISmokeTransientDropReason::ExpiredOnArrival, count);
 
@@ -809,10 +832,10 @@ NRISmokeTransientAdmission NRISmokeTransientClouds::AdmitBatch(
 		if (!mLobes[index].active) freeLobes[freeCount++] = index;
 	const uint32_t profileFree = mProfile.maximumActiveLobes > mSnapshot.activeLobes
 		? mProfile.maximumActiveLobes - mSnapshot.activeLobes : 0u;
-	const uint32_t admitCount = std::min({ count, mProfile.maximumLobesPerGroup,
+	const uint32_t admitCount = std::min({ count, maximumLobes, mProfile.maximumLobesPerGroup,
 		freeCount, profileFree });
 	if (admitCount == 0u || (admitCount < count &&
-		admitCount < mProfile.minimumReducedLobes))
+		admitCount < minimumLobes))
 		return Drop(NRISmokeTransientDropReason::LobeCapacity, count);
 
 	bool reduceContinuousFire = admitCount < count && count > 1u &&
@@ -985,6 +1008,29 @@ bool NRISmokeTransientClouds::IsLive(const NRISmokeTransientHandle& handle) cons
 		group.generation == handle.generation;
 }
 
+bool NRISmokeTransientClouds::Release(const NRISmokeTransientHandle& handle)
+{
+	if (!IsLive(handle)) return false;
+	RetireGroup(handle.slot, false);
+	mGroups[handle.slot].generation = NextGeneration(mGroups[handle.slot].generation);
+	Refresh();
+	return true;
+}
+
+bool NRISmokeTransientClouds::SetInterest(const NRISmokeTransientHandle& handle,
+	NRISmokeTransientInterest interest)
+{
+	if (!IsLive(handle)) return false;
+	GroupSlot& group = mGroups[handle.slot];
+	if (group.interest == interest) return true;
+	// Existing coherent cache can still be used while first-visible preparation
+	// waits for its bounded slot. No camera-derived cache identity is introduced.
+	if (interest == NRISmokeTransientInterest::Hot) group.needsInitialLight = true;
+	group.interest = interest;
+	Refresh();
+	return true;
+}
+
 void NRISmokeTransientClouds::RetireGroup(uint32_t groupSlot, bool expired)
 {
 	GroupSlot& group = mGroups[groupSlot];
@@ -1053,6 +1099,7 @@ void NRISmokeTransientClouds::RebuildLightSchedule()
 	mSnapshot.lightAnchorsScheduledThisFrame = 0u;
 	mSnapshot.lightSamplesScheduledThisFrame = 0u;
 	mSnapshot.lightVisibilityQueriesScheduledThisFrame = 0u;
+	mSnapshot.lightInterestDeferredGroups = 0u;
 	std::vector<uint32_t> fresh;
 	std::vector<uint32_t> refresh;
 	for (uint32_t groupIndex = 0u; groupIndex < mGroups.size(); ++groupIndex)
@@ -1061,6 +1108,11 @@ void NRISmokeTransientClouds::RebuildLightSchedule()
 		group.fullLightAllowed = false;
 		group.fullLightScheduledFrame = 0u;
 		if (!group.active) continue;
+		if (group.interest != NRISmokeTransientInterest::Hot)
+		{
+			++mSnapshot.lightInterestDeferredGroups;
+			continue;
+		}
 		bool visible = false;
 		bool initialLightMature = false;
 		bool allFireMembersMature = true;
@@ -1097,7 +1149,9 @@ void NRISmokeTransientClouds::RebuildLightSchedule()
 		const GroupSlot& gb = mGroups[b];
 		const uint32_t pa = ClassPriority(ga.transientClass);
 		const uint32_t pb = ClassPriority(gb.transientClass);
-		return pa != pb ? pa < pb : ga.admissionOrdinal < gb.admissionOrdinal;
+		// Old first-use work cannot be perpetually leapfrogged by fresh bursts.
+		return ga.admittedFrame != gb.admittedFrame ? ga.admittedFrame < gb.admittedFrame :
+			(pa != pb ? pa < pb : ga.admissionOrdinal < gb.admissionOrdinal);
 	});
 	std::sort(refresh.begin(), refresh.end(), [this](uint32_t a, uint32_t b)
 	{
@@ -1110,9 +1164,16 @@ void NRISmokeTransientClouds::RebuildLightSchedule()
 	mSnapshot.fullLightFreshRequestedThisFrame = static_cast<uint32_t>(fresh.size());
 	mSnapshot.fullLightRefreshRequestedThisFrame = static_cast<uint32_t>(refresh.size());
 	uint32_t budget = mProfile.maximumFullLightBuilds;
+	// Keep visible maintenance progressing under a continuous burst stream.
+	uint32_t refreshReserve = !refresh.empty() && budget >= 2u ?
+		std::max(1u, budget / 4u) : 0u;
+	if (!refresh.empty() && budget == 1u && mGameplayTimeSeconds -
+		mGroups[refresh.front()].lastFullLightScheduleSeconds >=
+		4.0 * mProfile.fireRefreshSeconds) refreshReserve = 1u;
+	refreshReserve = std::min(refreshReserve, static_cast<uint32_t>(refresh.size()));
 	for (uint32_t groupIndex : fresh)
 	{
-		if (budget == 0u) break;
+		if (budget <= refreshReserve) break;
 		mGroups[groupIndex].fullLightAllowed = true;
 		mGroups[groupIndex].fullLightScheduledFrame = mFrameSerial;
 		--budget;

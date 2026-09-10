@@ -4,6 +4,7 @@ $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../..'))
 function Read-Source([string]$Path) { Get-Content -LiteralPath (Join-Path $root $Path) -Raw }
 function Require([bool]$Condition, [string]$Message) { if (-not $Condition) { throw $Message } }
 $smoke = Read-Source 'source/common/rendering/nri/renderer/nri_smoke.cpp'
+$transientRenderer = Read-Source 'source/common/rendering/nri/renderer/nri_smoke_transient_renderer.cpp'
 $smokeHeader = Read-Source 'source/common/rendering/nri/renderer/nri_smoke.h'
 $smokeGrid = Read-Source 'source/common/rendering/nri/renderer/nri_smoke_grid.cpp'
 $descriptorBudget = Read-Source 'source/common/rendering/nri/renderer/nri_smoke_descriptor_budget.h'
@@ -109,18 +110,24 @@ $newBlock = $volume.Substring($volume.IndexOf('// Grid/legacy incident lighting'
 Require (-not $newBlock.Contains('worldEmissiveReady')) 'Transient lighting must not depend on grid world-emissive readiness.'
 Require ($newBlock.Contains('mTransientResources.StorageBarrier')) 'Transient publication needs cross-dispatch UAV barriers.'
 Require ($smoke -match 'mSettings.transientEmissiveLights && emissiveResourcesReady') 'Transient emissive family readiness must not inherit grid profile overrides.'
-Require ($smoke -match 'transientEmissiveLights \? 16u : 0u') 'Requested transient emissive family changes must invalidate the cache policy.'
+Require ($transientRenderer -match 'transientEmissiveLights \? 16u : 0u') 'Requested transient emissive family changes must invalidate the cache policy.'
 Require ($smoke -match 'passConstants.lightMode = !fieldDiagnostics &&\s*\(pointLightsReady \|\| directionalLightReady \|\| transientEmissiveReady\)') 'Transient-only emissive lighting must work when the legacy grid profile disables it.'
 Require ($smoke.Contains('completedSlot.transientSnapshot')) 'GPU observations need the CPU snapshot from their own completed slot.'
 Require ($smoke -match 'mStatus\.gpuStatsValid\s*=\s*false;\s*mStatus\.transient\.valid\s*=\s*false;\s*mStatus\.analyticLight\.valid\s*=\s*false;') 'A failed or stale completed readback must invalidate every joined telemetry view.'
 Require ($smoke -match 'if\s*\(!mSettings\.readback\)[\s\S]{0,200}mStatus\.transient\.valid\s*=\s*false;') 'Disabling readback must not leave stale transient telemetry valid.'
 Require ($transientResourcesHeader.Contains('ConsumeCacheRecreated')) 'Transient resource ownership must expose cache recreation to the CPU owner.'
 Require ($transientResources -match 'mCacheRecreated\s*\|=\s*mStorage\[i\]\.buffer\s*!=\s*nullptr') 'Destroying live light-cache banks must publish cache recreation.'
-$prepare = $smoke.Substring($smoke.IndexOf('const auto transientServices = BuildGridServices(renderer);'))
+$prepare = $transientRenderer.Substring($transientRenderer.IndexOf('const auto services = BuildGridServices(renderer);'))
 $consume = $prepare.IndexOf('mTransientResources.ConsumeCacheRecreated()')
 $invalidate = $prepare.IndexOf('mTransientClouds.InvalidateLighting()')
 $upload = $prepare.IndexOf('mTransientResources.Upload')
 Require ($consume -ge 0 -and $consume -lt $invalidate -and $invalidate -lt $upload) 'Cache recreation must invalidate surviving CPU groups before their replacement GPU snapshot uploads.'
+Require ($smoke -match 'if \(!PrepareTransientFrame\(renderer, now\)\)') 'Simulation must delegate transient residency and upload to the focused integration owner.'
+Require ($transientRenderer -match 'mTransientResidency.BeginFrame[\s\S]*mTransientResidency.SubmitBatch[\s\S]*mTransientResidency.Resolve[\s\S]*mTransientResources.Upload') 'Retained requests must be classified, resolved, and uploaded in that order.'
+Require (-not ($smoke -match 'mTransientClouds.AdmitBatch')) 'Orchestration must not bypass retained admission with immediate-or-drop requests.'
+Require ($smoke -match 'mTransientClouds.Reset\(mStatus.simulationEpoch\);\s*mTransientResidency.Reset\(mStatus.simulationEpoch\);') 'Simulation reset must reset GPU pool ownership and retained event history together.'
+Require ($transientRenderer -match 'view.planes\[5\]\[3\] \+= farDepth') 'Conservative transient interest must include the smoke far-depth plane.'
+Require ($transientRenderer -match 'if \(!view.valid\) return view') 'Malformed camera data must conservatively bypass frustum demotion.'
 Require (-not ($transientResources -match 'DestroyDescriptor\(\*buffer\.(shaderView|storageView)\)')) 'NRI descriptor destruction takes descriptor pointers, not dereferenced descriptors.'
 Require (-not ($transientResources -match 'DestroyBuffer\(\*buffer\.buffer\)')) 'NRI buffer destruction takes buffer pointers, not dereferenced buffers.'
 Write-Host 'Transient integration contracts passed.'

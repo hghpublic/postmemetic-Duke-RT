@@ -7,6 +7,7 @@
 #include "nri_smoke_analytic_carriers.h"
 #include "nri_smoke_transient_clouds.h"
 #include "nri_smoke_transient_resources.h"
+#include "nri_smoke_transient_residency.h"
 #include "nri_smoke_transient_diagnostics.h"
 #include "nri_smoke_contracts.h"
 #include "nri_smoke_emitters.h"
@@ -352,6 +353,8 @@ private:
 		nri::Descriptor*& particleView, nri::Descriptor*& cellView);
 	bool UploadBytes(NRIRenderer& renderer, NRIBufferResource& upload, const void* data, uint64_t size);
 	bool RecordSimulation(NRIRenderer& renderer);
+	bool PrepareTransientFrame(NRIRenderer& renderer, double gameplaySeconds);
+	void PrintTransientResidency() const;
 	bool RecordVolume(NRIRenderer& renderer, const NRISmokeRouteDesc& route);
 	void DestroyViewResources(NRIRenderer& renderer);
 	void DestroyResources(NRIRenderer& renderer);
@@ -405,6 +408,7 @@ private:
 	NRISmokePromptFallback mPromptFallback;
 	NRISmokeAnalyticCarriers mAnalyticCarriers;
 	NRISmokeTransientClouds mTransientClouds;
+	NRISmokeTransientResidency mTransientResidency;
 	NRISmokeTransientResources mTransientResources;
 	NRISmokeTransientProfile mTransientProfile;
 	uint32_t mTransientLightingPolicyKey = UINT32_MAX;
