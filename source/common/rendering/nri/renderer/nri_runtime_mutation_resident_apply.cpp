@@ -1055,7 +1055,12 @@ bool NRIRenderer::TryApplyRuntimeMutationChunkToResidentScene(
 			!residentGeometryPayloadHashSkip)
 		{
 			{
-				++mStaticMapScene.geometryGeneration;
+				if (NRIEmissiveGeometryCache::CopyChangesSamplingGeometry(residentGeometry,
+					{ sourceChunk.vertexOffset, sourceChunk.vertexCount, sourceChunk.primitiveOffset, sourceChunk.primitiveCount, sourceChunk.materialOffset },
+					mStaticMapScene.geometry,
+					{ nextAtlasChunk.vertexOffset, nextAtlasChunk.vertexCount, nextAtlasChunk.primitiveOffset, nextAtlasChunk.primitiveCount, nextAtlasChunk.materialOffset },
+					!preserveResidentPrimitiveSlice))
+					++mStaticMapScene.geometryGeneration;
 				ScopedPtPerfTimer detailPerfTimer(mLastPerfShellTraceStats.runtimeMutationResidentApplyVertexIndexCopyMs);
 				if (preserveResidentIndexSlice)
 				{

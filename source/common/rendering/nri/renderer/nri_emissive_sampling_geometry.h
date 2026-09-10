@@ -18,6 +18,15 @@ struct NRIEmissiveMaterialPrimitiveRange
 	uint32_t count = 0;
 };
 
+struct NRIEmissiveGeometryCopyRange
+{
+	uint32_t vertexOffset = 0;
+	uint32_t vertexCount = 0;
+	uint32_t primitiveOffset = 0;
+	uint32_t primitiveCount = 0;
+	uint32_t materialOffset = 0;
+};
+
 struct NRIEmissivePrimitiveGeometry
 {
 	float area = 0.0f;
@@ -65,6 +74,11 @@ public:
 	uint64_t CapacityBytes() const;
 	void QuarantineAll();
 	static uint64_t HashGeometry(const nri_scene::GeometryData* geometry);
+	// Compare exactly the sampling fields written by a resident atlas copy.
+	// Motion history, UVs, normals, flags and provenance do not affect sampling.
+	static bool CopyChangesSamplingGeometry(const nri_scene::GeometryData& source,
+		const NRIEmissiveGeometryCopyRange& sourceRange, const nri_scene::GeometryData& destination,
+		const NRIEmissiveGeometryCopyRange& destinationRange, bool copyPrimitives);
 	// For captured products without a reusable producer stamp. Each publication
 	// is distinct even for nested/offscreen views in the same engine frame.
 	static uint64_t PublishTransientIdentity();

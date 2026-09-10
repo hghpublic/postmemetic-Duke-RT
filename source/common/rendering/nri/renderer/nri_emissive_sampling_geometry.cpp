@@ -141,11 +141,17 @@ uint64_t NRIEmissiveGeometryCache::ResolveIdentity(NRIEmissiveGeometryDomain dom
 	const auto start = mCollectTiming ? Clock::now() : Clock::time_point{};
 	const double previousHashMs = mStats.validationHashMs;
 	auto& state = mDomains[(size_t)domain];
+	// These capture producers publish when payloads are written, including
+	// byte-identical recaptures and changes to history/UV data. Their stamps do
+	// not identify sampling content. Retain the exact hash for these domains;
+	// static geometry and the retained surface-light product keep their fast path.
+	const bool transientContent = domain == NRIEmissiveGeometryDomain::Captured ||
+		domain == NRIEmissiveGeometryDomain::RuntimeMutation || domain == NRIEmissiveGeometryDomain::Dynamic;
 	uint64_t identity = nri_scene::HashCombine64(0x454d495347454f4dull, producerIdentity);
 	identity = nri_scene::HashCombine64(identity, geometry != nullptr ? geometry->vertices.size() : 0);
 	identity = nri_scene::HashCombine64(identity, geometry != nullptr ? geometry->primitives.size() : 0);
 	identity = nri_scene::HashCombine64(identity, geometry != nullptr ? 1u : 0u);
-	if (validate || producerIdentity == 0 || state.quarantined)
+	if (validate || producerIdentity == 0 || state.quarantined || transientContent)
 	{
 		const auto validationStart = mCollectTiming ? Clock::now() : Clock::time_point{};
 		const uint64_t exactHash = HashGeometry(geometry);
@@ -167,7 +173,7 @@ uint64_t NRIEmissiveGeometryCache::ResolveIdentity(NRIEmissiveGeometryDomain dom
 			state.validatedIdentity = identity;
 			state.validatedHash = exactHash;
 		}
-		if (producerIdentity == 0 || state.quarantined)
+		if (producerIdentity == 0 || state.quarantined || transientContent)
 			identity = nri_scene::HashCombine64(0x454d495346554c4cull, exactHash);
 		if (mCollectTiming) mStats.validationHashMs += ElapsedMs(validationStart);
 	}
@@ -255,6 +261,43 @@ void NRIEmissiveGeometryCache::QuarantineAll()
 uint64_t NRIEmissiveGeometryCache::HashGeometry(const nri_scene::GeometryData* geometry)
 {
 	return HashGeometryForEmissiveSampling(geometry);
+}
+
+bool NRIEmissiveGeometryCache::CopyChangesSamplingGeometry(const nri_scene::GeometryData& source,
+	const NRIEmissiveGeometryCopyRange& sourceRange, const nri_scene::GeometryData& destination,
+	const NRIEmissiveGeometryCopyRange& destinationRange, bool copyPrimitives)
+{
+	const auto fits = [](uint32_t offset, uint32_t count, size_t size)
+	{
+		return offset <= size && count <= size - offset;
+	};
+	if (sourceRange.vertexCount != destinationRange.vertexCount ||
+		!fits(sourceRange.vertexOffset, sourceRange.vertexCount, source.vertices.size()) ||
+		!fits(destinationRange.vertexOffset, sourceRange.vertexCount, destination.vertices.size()))
+		return true;
+	for (uint32_t i = 0; i < sourceRange.vertexCount; ++i)
+	{
+		const auto& sourceVertex = source.vertices[sourceRange.vertexOffset + i];
+		const auto& destinationVertex = destination.vertices[destinationRange.vertexOffset + i];
+		if (std::memcmp(sourceVertex.position, destinationVertex.position, sizeof(sourceVertex.position)) != 0)
+			return true;
+	}
+	if (!copyPrimitives) return false;
+	if (sourceRange.primitiveCount != destinationRange.primitiveCount ||
+		!fits(sourceRange.primitiveOffset, sourceRange.primitiveCount, source.primitives.size()) ||
+		!fits(destinationRange.primitiveOffset, sourceRange.primitiveCount, destination.primitives.size()))
+		return true;
+	for (uint32_t i = 0; i < sourceRange.primitiveCount; ++i)
+	{
+		const auto& sourcePrimitive = source.primitives[sourceRange.primitiveOffset + i];
+		const auto& destinationPrimitive = destination.primitives[destinationRange.primitiveOffset + i];
+		for (uint32_t j = 0; j < 3; ++j)
+			if (destinationPrimitive.indices[j] != destinationRange.vertexOffset + sourcePrimitive.indices[j] - sourceRange.vertexOffset)
+				return true;
+		if (destinationPrimitive.materialIndex != destinationRange.materialOffset + sourcePrimitive.materialIndex - sourceRange.materialOffset)
+			return true;
+	}
+	return false;
 }
 
 NRIEmissivePrimitiveGeometry NRIEmissiveGeometryCache::BuildPrimitive(
