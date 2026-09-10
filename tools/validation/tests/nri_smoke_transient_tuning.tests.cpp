@@ -18,7 +18,6 @@ constexpr uint32_t FireLobes = 5u;
 constexpr float InitialRadius = 21.0f; // max(spawnradius 4, style radius 7 * radiusscale 3)
 constexpr float InitialDensity = 3.0f;
 constexpr float DensityHalfLife = 6.0f;
-constexpr float RadiusExponent = 0.90f;
 constexpr float IntrinsicEmission = 0.5f;
 constexpr float CurlVelocity = 4.0f;
 constexpr float CorePlateau = 0.60f;
@@ -45,6 +44,7 @@ struct FireTuning
 	float emissionHalfLife = 0.0f;
 	float expansionVelocity = 0.0f;
 	bool continuousBirth = false;
+	float radiusExponent = 0.90f; // Historical references retain the previous curve.
 };
 
 void Require(bool condition, const std::string& message)
@@ -97,7 +97,7 @@ NRISmokeTransientGroupShapeInput FireInput(const FireTuning& tuning,
 	input.densityAttackSeconds = tuning.densityAttack;
 	input.densitySustainSeconds = tuning.sustain;
 	input.densityReleaseSeconds = tuning.release;
-	input.radiusExponent = RadiusExponent;
+	input.radiusExponent = tuning.radiusExponent;
 	input.intrinsicEmission = IntrinsicEmission;
 	input.emissionHalfLife = tuning.emissionHalfLife;
 	input.clusterSpread = tuning.spread;
@@ -141,7 +141,7 @@ float SupportRadius(const NRISmokeTransientLobeRequest& request, float groupAge)
 	const float normalizedAge = std::clamp(localAge / request.lifetimeSeconds,
 		0.0f, 1.0f);
 	return request.initialRadius + request.expansionVelocity *
-		request.lifetimeSeconds * std::pow(normalizedAge, RadiusExponent);
+		request.lifetimeSeconds * std::pow(normalizedAge, request.radiusExponent);
 }
 
 struct EvaluatedGroup
@@ -320,6 +320,62 @@ void TestGradualBirthGrowthCooling(const FireTuning& candidate)
 		"the newest growing lobe must retain sphere support at the flame base");
 	std::cout << "gradual_visible=1,2,3,4,5 newest_base_margin=" <<
 		32.0f - (newest.position[1] - newest.radius) << '\n';
+}
+
+void TestEarlierWidthWithoutTemporalChanges(const FireTuning& candidate)
+{
+	auto previous = candidate;
+	previous.radiusExponent = 0.90f;
+	float minimumEarlyRatio = std::numeric_limits<float>::max();
+	float maximumEarlyRatio = 0.0f;
+	for (uint64_t serial = 1u; serial <= 32u; ++serial)
+	{
+		const auto oldRequests = BuildFire(previous, 1u, serial, 0.0);
+		const auto newRequests = BuildFire(candidate, 1u, serial, 0.0);
+		for (uint32_t index = 0u; index < FireLobes; ++index)
+		{
+			const auto& before = oldRequests[index];
+			const auto& after = newRequests[index];
+			Require(Near(before.initialRadius, after.initialRadius) &&
+				Near(SupportRadius(before, previous.lifetime),
+					SupportRadius(after, candidate.lifetime)),
+				"earlier fire growth must preserve compact birth and final radius");
+		}
+		for (uint32_t quality : { 2u, 3u })
+			for (double age : { 0.05, 0.2, 0.25, 0.5, 0.75, 1.0, 1.5, 3.0, 5.49 })
+			{
+				const auto before = Evaluate(previous, age, serial, quality);
+				const auto after = Evaluate(candidate, age, serial, quality);
+				Require(before.lobes.size() == after.lobes.size() &&
+					before.group.flags == after.group.flags &&
+					before.group.anchorCount == after.group.anchorCount &&
+					Near(before.group.refreshIntervalSeconds, after.group.refreshIntervalSeconds),
+					"wider fire must retain birth counts and lighting schedule");
+				for (uint32_t index = 0u; index < after.lobes.size(); ++index)
+				{
+					const auto& oldLobe = before.lobes[index];
+					const auto& newLobe = after.lobes[index];
+					Require(Near(Distance3(oldLobe.position, newLobe.position), 0.0f) &&
+						Near(oldLobe.densityScale, newLobe.densityScale) &&
+						Near(oldLobe.emissionScale, newLobe.emissionScale),
+						"growth-only tuning must preserve motion, density fade, and heat decay");
+					Require(newLobe.radius >= oldLobe.radius,
+						"the earlier curve must not narrow any live fire lobe");
+					const float localAge = (newLobe.position[1] - 32.0f) /
+						candidate.riseVelocity;
+					if (localAge >= 0.25f && localAge <= 0.75f)
+					{
+						const float ratio = newLobe.radius / oldLobe.radius;
+						minimumEarlyRatio = std::min(minimumEarlyRatio, ratio);
+						maximumEarlyRatio = std::max(maximumEarlyRatio, ratio);
+					}
+				}
+			}
+	}
+	Require(minimumEarlyRatio >= 1.35f && maximumEarlyRatio <= 1.55f,
+		"early fire width must stay near the requested 1.5x on Medium and Low");
+	std::cout << "early_width_ratio=" << minimumEarlyRatio << ".." <<
+		maximumEarlyRatio << " birth/final_radius_and_temporal_fields=unchanged\n";
 }
 
 void TestLowReductionAndLightMaturity(const FireTuning& candidate)
@@ -676,8 +732,8 @@ void TestPulseFloor(const FireTuning& sparse, const FireTuning& candidate)
 
 int main(int argc, char** argv)
 {
-	Require(argc == 14,
-		"usage: test optical lifetime rise sustain release spread cadence radius_min radius_max pulse attack emission_half expansion");
+	Require(argc == 15,
+		"usage: test optical lifetime rise sustain release spread cadence radius_min radius_max pulse attack emission_half expansion radius_exponent");
 	FireTuning candidate = {};
 	candidate.opticalScale = std::stof(argv[1]);
 	candidate.lifetime = std::stof(argv[2]);
@@ -692,6 +748,7 @@ int main(int argc, char** argv)
 	candidate.densityAttack = std::stof(argv[11]);
 	candidate.emissionHalfLife = std::stof(argv[12]);
 	candidate.expansionVelocity = std::stof(argv[13]);
+	candidate.radiusExponent = std::stof(argv[14]);
 	candidate.continuousBirth = true;
 	const FireTuning original = { 0.20f, 3.0f, 32.0f, 1.5f, 1.42f, 0.45f,
 		0.28f, 0.40f, 0.70f, 0.90f, 0.08f, 0.18f, 10.0f, false };
@@ -713,6 +770,7 @@ int main(int argc, char** argv)
 
 	TestHistoricalAndSequentialRequests(original, sparse, previousDense, candidate);
 	TestGradualBirthGrowthCooling(candidate);
+	TestEarlierWidthWithoutTemporalChanges(candidate);
 	TestLowReductionAndLightMaturity(candidate);
 	TestRepresentativePacketContinuity(candidate);
 	TestLateVisibleHeight(original, candidate);

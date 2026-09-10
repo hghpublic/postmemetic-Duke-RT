@@ -514,7 +514,7 @@ void TestNonFirePositiveUpRise()
 	}
 }
 
-void TestExplosionBillowShaping()
+void TestExplosionBillowShaping(float expansionVelocity)
 {
 	NRISmokeTransientGroupShapeInput input = {};
 	input.position[0] = 10.0f;
@@ -525,7 +525,7 @@ void TestExplosionBillowShaping()
 	input.initialRadius = 45.0f;
 	input.initialDensity = 2.4f;
 	input.opticalAmount = 48.0f;
-	input.expansionVelocity = 18.0f;
+	input.expansionVelocity = expansionVelocity;
 	input.densityHalfLife = 10.0f;
 	input.lobeLifetimeSeconds = 4.0f;
 	input.groupLifetimeSeconds = 4.0f;
@@ -1429,7 +1429,8 @@ int main()
 	TestSemanticBuilder();
 	TestPositiveUpBuoyancy();
 	TestNonFirePositiveUpRise();
-	TestExplosionBillowShaping();
+	TestExplosionBillowShaping(18.0f); // Retain the previous connected-growth fixture.
+	TestExplosionBillowShaping(12.0f); // Two-thirds expansion must preserve the same invariants.
 	TestInsetAnchorDensityCoverage();
 	TestTrailCoverage();
 	TestIdentityLifetimeAndReservation();

@@ -38,7 +38,7 @@ $fireStyle = Block 'smokestyle' 'duke_fire_smoke'
 $fireRule = Block 'smokeactorrule' 'duke_fire_sustained'
 $unchangedStyle = [ordered]@{
     density = 3.0; extinction = 0.008; radius = 7.0; expansionvelocity = 10.0; densityhalflife = 6.0
-    radiusexponent = 0.90; intrinsicemission = 0.5; curlvelocity = 4.0; coreplateau = 0.60
+    intrinsicemission = 0.5; curlvelocity = 4.0; coreplateau = 0.60
     edgeerosion = 0.16; noisescale = 0.035; noisestrength = 0.20
 }
 foreach ($entry in $unchangedStyle.GetEnumerator()) {
@@ -71,6 +71,11 @@ $pulse = Scalar $fireRule 'pulseamount'
 $attack = Scalar $fireStyle 'densityattackseconds'
 $emissionHalfLife = Scalar $fireStyle 'emissionhalflife'
 $expansion = Scalar $fireStyle 'expansionvelocity'
+$radiusExponent = Scalar $fireStyle 'radiusexponent'
+Require ($radiusExponent -eq 0.60) "Production fire must front-load growth with exponent 0.60; found $radiusExponent."
+$explosionExpansion = Scalar (Block 'smokestyle' 'duke_explosion_smoke') 'expansionvelocity'
+Require ([math]::Abs($explosionExpansion / 18.0 - 2.0 / 3.0) -lt 1.0e-6) `
+    "Production explosion expansion must be two-thirds of the previous 18; found $explosionExpansion."
 Require ($optical -eq 0.25) "Production fire optical scale must remain 0.25; found $optical."
 Require ($lifetime -eq 5.5) "Production fire lifetime must remain 5.5; found $lifetime."
 Require ($rise -eq 120.0) "Production fire rise must remain 120.0; found $rise."
@@ -118,8 +123,8 @@ $compile = 'call "' + $vsDevCmd + '" -arch=x64 -host_arch=x64 >nul && cl /nologo
 if ($LASTEXITCODE -ne 0) { throw "transient tuning test compilation failed with exit code $LASTEXITCODE" }
 
 $arguments = @($optical, $lifetime, $rise, $sustain, $densityRelease, $spread, $cadence,
-    $radiusMin, $radiusMax, $pulse, $attack, $emissionHalfLife, $expansion) |
+    $radiusMin, $radiusMax, $pulse, $attack, $emissionHalfLife, $expansion, $radiusExponent) |
     ForEach-Object { $_.ToString('R', [Globalization.CultureInfo]::InvariantCulture) }
 & $testExe @arguments
 if ($LASTEXITCODE -ne 0) { throw "transient tuning tests failed with exit code $LASTEXITCODE" }
-Write-Host "Production fire fields exercised: optical=$optical life=$lifetime rise=$rise sustain=$sustain release=$densityRelease spread=$spread cadence=$cadence radii=$radiusMin..$radiusMax pulse=$pulse attack=$attack emission_half=$emissionHalfLife expansion=$expansion"
+Write-Host "Production fire fields exercised: optical=$optical life=$lifetime rise=$rise sustain=$sustain release=$densityRelease spread=$spread cadence=$cadence radii=$radiusMin..$radiusMax pulse=$pulse attack=$attack emission_half=$emissionHalfLife expansion=$expansion exponent=$radiusExponent; explosion expansion=$explosionExpansion"

@@ -357,7 +357,7 @@ Time and half-life values are seconds of smoke simulation time. Distances are en
 | `densityattackseconds <seconds>` | `0`, minimum `0` | Transient-cloud density ramp-in. Zero starts at full authored density. |
 | `densitysustainseconds <seconds>` | `0`, minimum `0` | Transient-cloud time before release begins. Zero derives the release start from lifetime. |
 | `densityreleaseseconds <seconds>` | `0`, minimum `0` | Transient-cloud density release. Zero uses `densityhalflife`; nonzero makes density independent of radius growth. |
-| `radiusexponent <value>` | `1`, minimum `0.01` | Shapes transient-cloud radius growth without implicitly diluting density by current volume. |
+| `radiusexponent <value>` | `1`, minimum `0.01` | Shapes transient-cloud radius as `initialRadius + expansionVelocity * localLifetime * (localAge / localLifetime)^exponent`, with age clamped to lifetime. Values below 1 widen earlier without changing birth or final radius. Growth does not implicitly dilute density by current volume or change the density/heat envelopes. |
 | `intrinsicemission <value>` | `0`, minimum `0` | Immediate local source strength for hot transient smoke. It requires no scene-light sampling and is separate from externally incident light. |
 | `emissionhalflife <seconds>` | `0.25`, minimum `0.001` | Independent decay of intrinsic emission. |
 | `clusterspread <scale>` | `0.75`; `[0,4]` | Class-oriented spacing of correlated lobes in units of base lobe radius. Trail hitch chunks may raise the effective spread to cover their complete spatial interval. |

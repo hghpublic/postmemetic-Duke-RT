@@ -21,7 +21,7 @@ $cutovers = @{
 # fields below and restore the old representation before comparing. This proves
 # that cutovers retain legacy counts, optics, cadence, admission/freshness and
 # analytic carrier counts. Map emitters and the fog style are compared verbatim.
-# The explicitly asserted common fire placement/rise/cadence/pulse/foreground exceptions below
+# The explicitly asserted common explosion expansion and fire placement/rise/cadence/pulse/foreground exceptions below
 # are normalized back to their baseline values before hashing.
 # Fire is denser than the quarter-strength effects to maintain a continuous plume.
 $expectedOpticalScale = @{
@@ -110,6 +110,13 @@ foreach ($block in $blocks) {
                 throw 'The taller fire plume must retain the validated authored rise speed.'
             }
             $body = $body -replace '(?m)^(\s*risevelocity\s+)120\.0\s*$', '${1}32.0'
+        }
+        if ($name -eq 'duke_explosion_smoke') {
+            # Deliberately smaller explosion growth also reduces Grid radial momentum.
+            if ($body -notmatch '(?m)^\s*expansionvelocity\s+12\.0\s*$') {
+                throw 'Explosion expansion must remain two-thirds of the previous 18.0.'
+            }
+            $body = $body -replace '(?m)^(\s*expansionvelocity\s+)12\.0\s*$', '${1}18.0'
         }
         $body = [regex]::Replace($body, '(?m)^\s*(' + ($transientStyleFields -join '|') + ')\s+[^\r\n]+', '')
     }

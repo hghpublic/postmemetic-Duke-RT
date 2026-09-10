@@ -315,7 +315,8 @@ LIGHTOVR
         albedo 0.34 0.32 0.3
         anisotropy 0.15
         radius 18.0
-        expansionvelocity 18.0
+        // Two-thirds of the previous growth; retain the compact burst's birth size.
+        expansionvelocity 12.0
         lifetime 5.0
         densityhalflife 2.2
         risevelocity 9.0
@@ -369,7 +370,8 @@ LIGHTOVR
         // Let the denser packet thin gradually through most of its ascent.
         densitysustainseconds 1.5
         densityreleaseseconds 4.0
-        radiusexponent 0.90
+        // Widen sooner to join adjacent columns, without enlarging the final radius.
+        radiusexponent 0.60
         intrinsicemission 0.5
         emissionhalflife 0.40
         clusterspread 0.20
