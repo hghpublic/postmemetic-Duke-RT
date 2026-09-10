@@ -971,6 +971,8 @@ set (NRI_SOURCES
 	common/rendering/nri/renderer/nri_persistent_voxel_pressure_policy.cpp
 	common/rendering/nri/renderer/nri_persistent_voxel_services.cpp
 	common/rendering/nri/renderer/nri_persistent_voxels.cpp
+	common/rendering/nri/renderer/nri_persistent_voxel_publication.cpp
+	common/rendering/nri/renderer/nri_voxel_publication_order.cpp
 	common/rendering/nri/renderer/nri_actor_occurrence_ledger.cpp
 	common/rendering/nri/renderer/nri_actor_occurrence_policy.cpp
 	common/rendering/nri/renderer/nri_actor_occurrence_diagnostics.cpp
@@ -1090,6 +1092,7 @@ set (NRI_SOURCES
 	common/rendering/nri/scene/nri_voxel_palette_policy.cpp
 	common/rendering/nri/scene/nri_voxel_actor_cache_maintenance.cpp
 	common/rendering/nri/scene/nri_scene_bridge.cpp
+	common/rendering/nri/scene/nri_voxel_actor_publication.cpp
 	common/rendering/nri/scene/nri_portal_bridge.cpp
 	common/rendering/nri/scene/nri_geometry_bridge.cpp
 	common/rendering/nri/scene/nri_indexed_mip_chain.cpp
