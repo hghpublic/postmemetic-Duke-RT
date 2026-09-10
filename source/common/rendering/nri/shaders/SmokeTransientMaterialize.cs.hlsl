@@ -1,6 +1,7 @@
 #include "Include/SmokeResources.hlsli"
 #include "Include/SmokeFroxel.hlsli"
 #include "Include/SmokePhase.hlsli"
+#include "Include/SmokeLightParameters.hlsli"
 #include "Include/SmokeTransientData.hlsli"
 #include "Include/SmokeTransientLighting.hlsli"
 
@@ -37,13 +38,70 @@ bool SmokeTransientLoadCache(SmokeTransientGroup group,
 	return true;
 }
 
+bool SmokeTransientLoadPreviousFireCache(SmokeTransientGroup group,
+	SmokeTransientLightHeader currentHeader,
+	SmokeTransientLightAnchor currentAnchors[NRI_SMOKE_TRANSIENT_ANCHOR_COUNT],
+	out SmokeTransientLightAnchor previousAnchors[NRI_SMOKE_TRANSIENT_ANCHOR_COUNT],
+	out float currentWeight)
+{
+	[unroll]
+	for (uint anchorIndex = 0u; anchorIndex < NRI_SMOKE_TRANSIENT_ANCHOR_COUNT; ++anchorIndex)
+		previousAnchors[anchorIndex] = (SmokeTransientLightAnchor)0;
+	currentWeight = 1.0;
+	if (group.TransientClass != NRI_SMOKE_TRANSIENT_CLASS_FIRE ||
+		(currentHeader.PublishedState & NRI_SMOKE_TRANSIENT_LIGHT_FULL) == 0u)
+		return false;
+
+	// Every anchor in a complete bank carries the same build age. Read the first
+	// required current anchor before touching the inactive bank; settled Fire
+	// packets therefore keep the original one-bank materialization cost.
+	[unroll]
+	for (uint anchorIndex = 0u; anchorIndex < NRI_SMOKE_TRANSIENT_ANCHOR_COUNT; ++anchorIndex)
+	{
+		if ((group.RequiredAnchorMask & (1u << anchorIndex)) == 0u) continue;
+		currentWeight = SmokeTransientFireLightBlend(group, group.AgeSeconds,
+			currentAnchors[anchorIndex]);
+		break;
+	}
+	if (currentWeight >= 1.0)
+		return false;
+
+	const bool previousBankB =
+		(currentHeader.PublishedState & NRI_SMOKE_TRANSIENT_LIGHT_BANK_B) == 0u;
+	uint anchorCapacity, anchorStride;
+	if (previousBankB) gSmokeTransientLightAnchorsB.GetDimensions(anchorCapacity, anchorStride);
+	else gSmokeTransientLightAnchorsA.GetDimensions(anchorCapacity, anchorStride);
+	[unroll]
+	for (uint anchorIndex = 0u; anchorIndex < NRI_SMOKE_TRANSIENT_ANCHOR_COUNT; ++anchorIndex)
+	{
+		if ((group.RequiredAnchorMask & (1u << anchorIndex)) == 0u)
+			continue;
+		const uint inputIndex = group.Slot * NRI_SMOKE_TRANSIENT_ANCHOR_COUNT + anchorIndex;
+		if (inputIndex >= anchorCapacity)
+		{
+			currentWeight = 1.0;
+			return false;
+		}
+		if (previousBankB) previousAnchors[anchorIndex] = gSmokeTransientLightAnchorsB[inputIndex];
+		else previousAnchors[anchorIndex] = gSmokeTransientLightAnchorsA[inputIndex];
+		if (!SmokeTransientAnchorIdentityMatches(previousAnchors[anchorIndex], group, anchorIndex) ||
+			!SmokeTransientFireAnchorRevisionMatches(previousAnchors[anchorIndex], group))
+		{
+			currentWeight = 1.0;
+			return false;
+		}
+	}
+	return true;
+}
+
 void SmokeTransientResolveIncident(float3 position, SmokeTransientGroup group,
 	SmokeTransientLightAnchor anchors[NRI_SMOKE_TRANSIENT_ANCHOR_COUNT],
-	out float3 incidentLobes[6])
+	out float3 incidentLobes[6], out float directionalTransport)
 {
 	[unroll]
 	for (uint lobe = 0u; lobe < 6u; ++lobe)
 		incidentLobes[lobe] = 0.0;
+	directionalTransport = 0.0;
 	float weights[NRI_SMOKE_TRANSIENT_ANCHOR_COUNT];
 	float weightSum = 0.0;
 	[unroll]
@@ -72,6 +130,9 @@ void SmokeTransientResolveIncident(float3 position, SmokeTransientGroup group,
 		[unroll]
 		for (uint lobe = 0u; lobe < 6u; ++lobe)
 			incidentLobes[lobe] += SmokeTransientLightLobe(anchors[anchorIndex], lobe) * weight;
+		if (group.TransientClass == NRI_SMOKE_TRANSIENT_CLASS_FIRE)
+			directionalTransport += SmokeTransientFireDirectionalTransport(
+				anchors[anchorIndex]) * weight;
 	}
 }
 
@@ -169,9 +230,11 @@ void main(uint3 froxel : SV_DispatchThreadID)
 
 		SmokeTransientLightHeader lightHeader = (SmokeTransientLightHeader)0;
 		SmokeTransientLightAnchor lightAnchors[NRI_SMOKE_TRANSIENT_ANCHOR_COUNT];
+		SmokeTransientLightAnchor previousLightAnchors[NRI_SMOKE_TRANSIENT_ANCHOR_COUNT];
 		bool cacheLoaded = false;
 		bool cacheValid = false;
 		float3 incidentLobes[6];
+		float directionalTransport = 0.0;
 		bool groupContributed = false;
 		float3 groupSource = 0.0;
 		const uint endLobe = min(group.FirstLobe + min(group.LobeCount,
@@ -203,7 +266,25 @@ void main(uint3 froxel : SV_DispatchThreadID)
 				cacheLoaded = true;
 				cacheValid = SmokeTransientLoadCache(group, lightHeader, lightAnchors);
 				if (cacheValid)
-					SmokeTransientResolveIncident(samplePosition, group, lightAnchors, incidentLobes);
+				{
+					SmokeTransientResolveIncident(samplePosition, group, lightAnchors,
+						incidentLobes, directionalTransport);
+					float currentWeight;
+					if (SmokeTransientLoadPreviousFireCache(group, lightHeader, lightAnchors,
+						previousLightAnchors, currentWeight))
+					{
+						float3 previousIncidentLobes[6];
+						float previousDirectionalTransport;
+						SmokeTransientResolveIncident(samplePosition, group, previousLightAnchors,
+							previousIncidentLobes, previousDirectionalTransport);
+						[unroll]
+						for (uint incidentIndex = 0u; incidentIndex < 6u; ++incidentIndex)
+							incidentLobes[incidentIndex] = lerp(previousIncidentLobes[incidentIndex],
+								incidentLobes[incidentIndex], currentWeight);
+						directionalTransport = lerp(previousDirectionalTransport,
+							directionalTransport, currentWeight);
+					}
+				}
 			}
 			if (cacheValid)
 			{
@@ -212,6 +293,16 @@ void main(uint3 froxel : SV_DispatchThreadID)
 					externalSource += sigmaS * incidentLobes[incidentIndex] *
 						SmokePhaseResponse(dot(NRI_SMOKE_TRANSIENT_LIGHT_AXES[incidentIndex],
 							viewRay), style.Anisotropy);
+				if (group.TransientClass == NRI_SMOKE_TRANSIENT_CLASS_FIRE &&
+					gSmokeConstants.LightMode > 0u &&
+					(gSmokeConstants.LightSourceFlags & NRI_SMOKE_LIGHT_SOURCE_DIRECTIONAL) != 0u)
+				{
+					// Directional scene/self visibility remains a bounded group-cache result,
+					// while current sun color/direction is cheap analytic work with no rays.
+					const float3 direction = SmokeDirectionalDirection();
+					externalSource += sigmaS * SmokeDirectionalColor() * directionalTransport *
+						SmokePhaseResponse(dot(direction, viewRay), style.Anisotropy);
+				}
 			}
 			const float3 intrinsicSource = sigmaT * max(lobe.EmissionScale, 0.0) *
 				SmokeTransientIntrinsicColor(lobe.TransientClass);

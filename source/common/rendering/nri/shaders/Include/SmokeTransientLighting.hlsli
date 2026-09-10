@@ -62,6 +62,40 @@ float3 SmokeTransientLightAnchorPosition(SmokeTransientLightAnchor record)
 	return asfloat(uint3(record.Data2.y, record.Data2.z, record.Data2.w));
 }
 
+float SmokeTransientFireDirectionalTransport(SmokeTransientLightAnchor record)
+{
+	const float transport = asfloat(record.Data2.y);
+	return isfinite(transport) ? saturate(transport) : 0.0;
+}
+
+float SmokeTransientFireBuildGroupAge(SmokeTransientLightAnchor record)
+{
+	const float age = asfloat(record.Data2.z);
+	return isfinite(age) ? max(age, 0.0) : 0.0;
+}
+
+bool SmokeTransientFireAnchorRevisionMatches(SmokeTransientLightAnchor record,
+	SmokeTransientGroup group)
+{
+	return record.Data2.w == group.Reserved;
+}
+
+float SmokeTransientFireLightBlend(SmokeTransientGroup group, float currentGroupAge,
+	SmokeTransientLightAnchor currentAnchor)
+{
+	// Gameplay age, rather than renderer-frame count, keeps the short transition
+	// stable across frame rates and pauses. A newly published complete bank starts
+	// at its coherent predecessor and reaches the new result after at most 0.2
+	// seconds. Positive shorter refresh intervals cap the transition so banks do
+	// not overlap indefinitely; a frozen zero-refresh cache retains the 0.2 ramp.
+	const float finiteInterval = isfinite(group.RefreshIntervalSeconds)
+		? max(group.RefreshIntervalSeconds, 0.0) : 0.0;
+	const float transitionSeconds = finiteInterval > 0.0
+		? min(0.2, finiteInterval) : 0.2;
+	return saturate((max(currentGroupAge, 0.0) -
+		SmokeTransientFireBuildGroupAge(currentAnchor)) / transitionSeconds);
+}
+
 bool SmokeTransientAnchorIdentityMatches(SmokeTransientLightAnchor record,
 	SmokeTransientGroup group, uint anchorIndex)
 {
@@ -299,6 +333,17 @@ float SmokeTransientGroupOpticalDepth(SmokeTransientGroup group, float3 origin,
 			max(style.Density, 0.0) * max(style.Extinction, 0.0) * gSmokeConstants.DensityScale;
 	}
 	return max(isfinite(opticalDepth) ? opticalDepth : 0.0, 0.0);
+}
+
+float SmokeTransientSelfTransmittance(SmokeTransientGroup group, float opticalDepth)
+{
+	const float physical = exp(-min(max(opticalDepth, 0.0), 20.0));
+	// Fire's four lighting anchors sit inside a dense compound packet. A physical
+	// center-to-light integral can therefore black out the cached value that is
+	// later interpolated over the entire outer billow. Keep scene visibility exact,
+	// but retain a bounded artistic fraction of externally visible light for Fire.
+	return group.TransientClass == NRI_SMOKE_TRANSIENT_CLASS_FIRE
+		? 0.18 + 0.82 * physical : physical;
 }
 
 float3 SmokeTransientIntrinsicColor(uint transientClass)

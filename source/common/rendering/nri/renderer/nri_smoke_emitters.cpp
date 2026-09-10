@@ -407,7 +407,8 @@ void NRISmokeEmitterSystem::Gather(uint32_t epoch, double gameplayTimeSeconds, c
 		const float* transientTrailAxis = nullptr,
 		float transientTrailSpan = 0.0f,
 		uint64_t analyticBridgeSourceKey = 0u,
-		uint64_t analyticBridgeSegmentRevision = 0u) -> bool
+		uint64_t analyticBridgeSegmentRevision = 0u,
+		float transientEmissionSpanSeconds = 0.0f) -> bool
 	{
 		const LightOverlaySmokeRepresentation representation = EffectiveSmokeRepresentation(
 			authoredRepresentation, transientClass, mTransientClassMask);
@@ -486,6 +487,11 @@ void NRISmokeEmitterSystem::Gather(uint32_t epoch, double gameplayTimeSeconds, c
 			shape.sourceEventSerial = sourceEventSerial;
 			shape.deterministicSeed = HashAnalyticCarrier(sourceEventSerial, 0u);
 			shape.transientClass = TransientClass(transientClass);
+			// A continuous fire source feeds this packet across one cadence instead
+			// of creating an entire vertically stacked cloud on the same update.
+			if (shape.transientClass == NRISmokeTransientClass::FirePacket)
+				shape.lobeDelayStepSeconds = transientEmissionSpanSeconds /
+					static_cast<float>(shape.requestedLobeCount);
 			shape.lightRefresh = transientClass == LightOverlaySmokeTransientClass::FirePacket
 				? NRISmokeTransientLightRefresh::Slow : NRISmokeTransientLightRefresh::Frozen;
 			NRISmokeTransientLobeRequest lobes[16] = {};
@@ -885,7 +891,8 @@ void NRISmokeEmitterSystem::Gather(uint32_t epoch, double gameplayTimeSeconds, c
 						(uint64_t)command.count * (emission.lastCadenceOrdinal -
 							emission.firstCadenceOrdinal + 1u)),
 					transientTrailAxisPointer, emission.trailSpan,
-					bridgeSourceKey, bridgeRevision);
+					bridgeSourceKey, bridgeRevision,
+					rule.trigger == LightOverlaySmokeTrigger::Interval ? rule.intervalSeconds : 0.0f);
 				if (traceMode != 0)
 				{
 					emittedPerRule[ruleIndex] += routed ? 1u : 0u;

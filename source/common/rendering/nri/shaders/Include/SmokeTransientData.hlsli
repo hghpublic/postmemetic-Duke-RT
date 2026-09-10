@@ -9,6 +9,13 @@
 #define NRI_SMOKE_TRANSIENT_BIN_SIZE_Z 4u
 #define NRI_SMOKE_TRANSIENT_MAX_GROUPS_PER_BIN 64u
 
+#define NRI_SMOKE_TRANSIENT_CLASS_EXPLOSION 0u
+#define NRI_SMOKE_TRANSIENT_CLASS_TRAIL 1u
+#define NRI_SMOKE_TRANSIENT_CLASS_FIRE 2u
+#define NRI_SMOKE_TRANSIENT_CLASS_MUZZLE 3u
+#define NRI_SMOKE_TRANSIENT_CLASS_IMPACT 4u
+#define NRI_SMOKE_TRANSIENT_CLASS_DIAGNOSTIC 5u
+
 #define NRI_SMOKE_TRANSIENT_GROUP_ACTIVE 0x1u
 #define NRI_SMOKE_TRANSIENT_GROUP_FULL_BUILD 0x2u
 #define NRI_SMOKE_TRANSIENT_GROUP_FALLBACK_BUILD 0x4u
@@ -88,7 +95,11 @@ struct SmokeTransientBinHeader
 	uint Overflow;
 };
 
-// Six packed FP16 RGB incident-radiance lobes, an anchor position, and identity.
+// Six packed FP16 RGB incident-radiance lobes and identity. Non-fire records
+// retain the original anchor position in Data2.yzw. Fire records reuse the
+// otherwise-unconsumed Data2.yzw words for directional transport, the group
+// age at which this complete bank was built, and its packed shape/lighting
+// revision; the buffer remains 64 bytes.
 struct SmokeTransientLightAnchor
 {
 	uint4 Data0;

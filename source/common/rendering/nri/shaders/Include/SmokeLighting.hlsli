@@ -6,6 +6,7 @@
 #include "EmissiveLightContracts.hlsli"
 #include "DirectionalLightSampling.hlsli"
 #include "SmokePhase.hlsli"
+#include "SmokeLightParameters.hlsli"
 
 #define NRI_SMOKE_RUNTIME_LIGHT_TILE_SIZE 64u
 #define NRI_SMOKE_MAX_SELECTED_LIGHTS 32u
@@ -18,11 +19,6 @@
 #define NRI_SMOKE_FILTER_CONTINUATION_LIMIT 32u
 #define NRI_SMOKE_SCENE_TEXTURE_COUNT 1024u
 #define NRI_SMOKE_WORLD_TLAS_REGISTER t1044
-#define NRI_SMOKE_LIGHT_SOURCE_POINT 0x1u
-#define NRI_SMOKE_LIGHT_SOURCE_DIRECTIONAL 0x2u
-#define NRI_SMOKE_LIGHT_SOURCE_DIRECTIONAL_SHADOW 0x4u
-#define NRI_SMOKE_LIGHT_SOURCE_EMISSIVE 0x8u
-#define NRI_SMOKE_LIGHT_SOURCE_INDIRECT 0x10u
 
 struct SmokeSectorLightHeaderData
 {
@@ -611,23 +607,6 @@ bool SmokeEmissiveVisibleWithBlocker(
 {
 	return SmokePointLightVisibleBiasedWithBlocker(
 		receiverPosition, lightDirection, lightDistance, 0.05, 0.05, diagnostics, blocker);
-}
-
-float3 SmokeDirectionalColor()
-{
-	const uint packed = gSmokeConstants.DirectionalColorPacked;
-	return float3(
-		(float)(packed & 0xffu),
-		(float)((packed >> 8u) & 0xffu),
-		(float)((packed >> 16u) & 0xffu)) * (8.0 / 255.0);
-}
-
-float3 SmokeDirectionalDirection()
-{
-	return normalize(float3(
-		gSmokeConstants.DirectionalDirectionX,
-		gSmokeConstants.DirectionalDirectionY,
-		gSmokeConstants.DirectionalDirectionZ));
 }
 
 uint SmokeLightingRandomSeed(uint3 froxel, uint sampleIndex, uint familySalt)

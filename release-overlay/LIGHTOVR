@@ -310,7 +310,7 @@ LIGHTOVR
     {
         density 3.45
         // Transient-only controls leave the Grid rollback optics intact.
-        opticalamountscale 0.075
+        opticalamountscale 0.05
         extinction 0.002
         albedo 0.34 0.32 0.3
         anisotropy 0.15
@@ -365,16 +365,16 @@ LIGHTOVR
         temperature 5.5
         momentumscale 1.0
         coolinghalflife 5.0
-        densityattackseconds 0.08
+        densityattackseconds 0.20
         // Let the denser packet thin gradually through most of its ascent.
         densitysustainseconds 1.5
         densityreleaseseconds 4.0
         radiusexponent 0.90
         intrinsicemission 0.5
-        emissionhalflife 0.18
-        clusterspread 1.30
-        // Overlap rising packets without increasing their count or lifetime.
-        loberadiusrandom 0.70 1.00
+        emissionhalflife 0.40
+        clusterspread 0.20
+        // Small central births expand into billows as they rise.
+        loberadiusrandom 0.30 0.45
         curlvelocity 4.0
         coreplateau 0.60
         edgeerosion 0.16
@@ -548,7 +548,7 @@ LIGHTOVR
         radiusscale 3.0
         velocitycone 0.0
         velocityscale 0.0
-        // Longer packets retain the two-fire Low profile's spare group capacity.
+        // Five staggered births feed each cadence; group capacity is unchanged.
         intervalseconds 0.5
         // Keep billowing variation without near-empty stretches in the plume.
         pulseamount 0.15

@@ -82,7 +82,7 @@ void SmokeTransientEvaluateExternal(SmokeTransientGroup group, float3 receiverPo
 	bool fullBuild, uint selectedIndices[NRI_SMOKE_TRANSIENT_MAX_SELECTED_POINTS],
 	uint selectedCount, uint anchorIndex, out float3 lobes[6],
 	out uint familyAttemptMask, out uint familySuccessMask, out uint emissiveKeyLo,
-	out uint emissiveKeyHi, out bool unshadowed)
+	out uint emissiveKeyHi, out bool unshadowed, out float directionalTransport)
 {
 	SmokeTransientEmptyLobes(lobes);
 	familyAttemptMask = 0u;
@@ -90,6 +90,7 @@ void SmokeTransientEvaluateExternal(SmokeTransientGroup group, float3 receiverPo
 	emissiveKeyLo = 0u;
 	emissiveKeyHi = 0u;
 	unshadowed = false;
+	directionalTransport = 0.0;
 	if ((gSmokeConstants.LightSourceFlags & NRI_SMOKE_LIGHT_SOURCE_INDIRECT) != 0u &&
 		gSmokeConstants.IndirectScale > 0.0)
 	{
@@ -126,11 +127,16 @@ void SmokeTransientEvaluateExternal(SmokeTransientGroup group, float3 receiverPo
 			(gSmokeConstants.LightSourceFlags & NRI_SMOKE_TRANSIENT_SELF_SHADOW) != 0u)
 		{
 			InterlockedAdd(gSmokeControl[0].TransientLightSelfTransmittanceTests, 1u);
-			selfTransmittance = exp(-min(SmokeTransientGroupOpticalDepth(group,
-				receiverPosition, direction, 100000.0), 20.0));
+			selfTransmittance = SmokeTransientSelfTransmittance(group,
+				SmokeTransientGroupOpticalDepth(group, receiverPosition, direction, 100000.0));
 		}
-		const float3 incident = SmokeDirectionalColor() * visibility * selfTransmittance;
-		SmokeTransientAccumulateIncident(incident, direction, lobes);
+		directionalTransport = visibility * selfTransmittance;
+		const float3 incident = SmokeDirectionalColor() * directionalTransport;
+		// Fire evaluates the current analytic directional color and direction during
+		// materialization. Cache only its ray-built transport so a rising packet does
+		// not carry stale sun radiance between bounded group refreshes.
+		if (group.TransientClass != NRI_SMOKE_TRANSIENT_CLASS_FIRE)
+			SmokeTransientAccumulateIncident(incident, direction, lobes);
 		if (any(incident > 0.0))
 			familySuccessMask |= NRI_SMOKE_TRANSIENT_LIGHT_DIRECTIONAL;
 	}
@@ -171,8 +177,8 @@ void SmokeTransientEvaluateExternal(SmokeTransientGroup group, float3 receiverPo
 				(gSmokeConstants.LightSourceFlags & NRI_SMOKE_TRANSIENT_SELF_SHADOW) != 0u)
 			{
 				InterlockedAdd(gSmokeControl[0].TransientLightSelfTransmittanceTests, 1u);
-				selfTransmittance = exp(-min(SmokeTransientGroupOpticalDepth(group,
-					receiverPosition, direction, distanceToLight), 20.0));
+				selfTransmittance = SmokeTransientSelfTransmittance(group,
+					SmokeTransientGroupOpticalDepth(group, receiverPosition, direction, distanceToLight));
 			}
 			const float3 incident = max(light.color, 0.0) * attenuation * visibility * selfTransmittance;
 			SmokeTransientAccumulateIncident(incident, direction, lobes);
@@ -190,9 +196,15 @@ void SmokeTransientEvaluateExternal(SmokeTransientGroup group, float3 receiverPo
 		for (uint sampleIndex = 0u; sampleIndex < sampleCount; ++sampleIndex)
 		{
 			InterlockedAdd(gSmokeControl[0].TransientLightEmissiveSamples, 1u);
-			uint randomState = SmokeTransientHash(group.Slot ^
-				SmokeTransientHash(group.Generation) ^ SmokeTransientHash(group.Epoch) ^
-				SmokeTransientHash(anchorIndex * 8u + sampleIndex) ^ 0x8f41b36du);
+			// Adjacent packets from one sustained fire share an emissive proposal
+			// pattern instead of exposing pool-slot/generation noise as colored bands.
+			// Other transient classes retain their established seed exactly.
+			uint randomState = group.TransientClass == NRI_SMOKE_TRANSIENT_CLASS_FIRE
+				? SmokeTransientHash(group.SourceId ^ SmokeTransientHash(group.Epoch) ^
+					SmokeTransientHash(anchorIndex * 8u + sampleIndex) ^ 0x8f41b36du)
+				: SmokeTransientHash(group.Slot ^ SmokeTransientHash(group.Generation) ^
+					SmokeTransientHash(group.Epoch) ^
+					SmokeTransientHash(anchorIndex * 8u + sampleIndex) ^ 0x8f41b36du);
 			const uint candidateIndex = SmokeSampleEmissivePrimitive(randomState);
 			if (candidateIndex == 0xffffffffu) continue;
 			const EmissivePrimitiveData candidate = gSmokeEmissivePrimitives[candidateIndex];
@@ -226,8 +238,8 @@ void SmokeTransientEvaluateExternal(SmokeTransientGroup group, float3 receiverPo
 				(gSmokeConstants.LightSourceFlags & NRI_SMOKE_TRANSIENT_SELF_SHADOW) != 0u)
 			{
 				InterlockedAdd(gSmokeControl[0].TransientLightSelfTransmittanceTests, 1u);
-				selfTransmittance = exp(-min(SmokeTransientGroupOpticalDepth(group,
-					receiverPosition, direction, distanceToLight), 20.0));
+				selfTransmittance = SmokeTransientSelfTransmittance(group,
+					SmokeTransientGroupOpticalDepth(group, receiverPosition, direction, distanceToLight));
 			}
 			const float3 estimator = incident * visibility * selfTransmittance /
 				max(candidate.selectionPdf * (float)sampleCount, 1e-6);
@@ -243,13 +255,22 @@ void SmokeTransientEvaluateExternal(SmokeTransientGroup group, float3 receiverPo
 }
 
 bool SmokeTransientStoreAnchor(bool bankB, SmokeTransientGroup group,
-	uint anchorIndex, float3 position, float3 lobes[6])
+	uint anchorIndex, float3 position, float3 lobes[6], float directionalTransport)
 {
 	SmokeTransientLightAnchor record = (SmokeTransientLightAnchor)0;
 	[unroll]
 	for (uint lobe = 0u; lobe < 6u; ++lobe)
 		SmokeTransientLightStoreLobe(record, lobe, lobes[lobe]);
 	record.Data2.yzw = asuint(position);
+	if (group.TransientClass == NRI_SMOKE_TRANSIENT_CLASS_FIRE)
+	{
+		// These words held a diagnostic-only stored position; materialization has
+		// always rebuilt current anchor positions from the current group bounds.
+		record.Data2.y = asuint(saturate(isfinite(directionalTransport) ?
+			directionalTransport : 0.0));
+		record.Data2.z = asuint(max(isfinite(group.AgeSeconds) ? group.AgeSeconds : 0.0, 0.0));
+		record.Data2.w = group.Reserved;
+	}
 	record.Data3 = uint4(group.Slot, group.Generation, group.Epoch,
 		NRI_SMOKE_TRANSIENT_ANCHOR_WRITTEN | anchorIndex);
 	const uint outputIndex = group.Slot * NRI_SMOKE_TRANSIENT_ANCHOR_COUNT + anchorIndex;
@@ -368,9 +389,11 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 		float3 fallbackLobes[6];
 		uint fallbackAttempt, fallbackSuccess, emissiveKeyLo, emissiveKeyHi;
 		bool fallbackUnshadowed;
+		float fallbackDirectionalTransport;
 		SmokeTransientEvaluateExternal(group, group.Center, false, selectedIndices,
 			selectedCount, 0u, fallbackLobes, fallbackAttempt, fallbackSuccess,
-			emissiveKeyLo, emissiveKeyHi, fallbackUnshadowed);
+			emissiveKeyLo, emissiveKeyHi, fallbackUnshadowed,
+			fallbackDirectionalTransport);
 		uint writtenMask = 0u;
 		[unroll]
 		for (uint anchorIndex = 0u; anchorIndex < NRI_SMOKE_TRANSIENT_ANCHOR_COUNT; ++anchorIndex)
@@ -379,7 +402,8 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 			const float3 anchorPosition = SmokeTransientAnchorPosition(anchorIndex,
 				group.BoundsMin, group.BoundsMax);
 			if (SmokeTransientStoreAnchor(fallbackBankB, group, anchorIndex,
-				anchorPosition, fallbackLobes)) writtenMask |= 1u << anchorIndex;
+				anchorPosition, fallbackLobes, fallbackDirectionalTransport))
+				writtenMask |= 1u << anchorIndex;
 		}
 		if (writtenMask != group.RequiredAnchorMask) return;
 		DeviceMemoryBarrier();
@@ -404,9 +428,11 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 		float3 anchorLobes[6];
 		uint attemptMask, successMask, emissiveKeyLo, emissiveKeyHi;
 		bool anchorUnshadowed;
+		float anchorDirectionalTransport;
 		SmokeTransientEvaluateExternal(group, anchorPosition, true, selectedIndices,
 			selectedCount, anchorIndex, anchorLobes, attemptMask, successMask,
-			emissiveKeyLo, emissiveKeyHi, anchorUnshadowed);
+			emissiveKeyLo, emissiveKeyHi, anchorUnshadowed,
+			anchorDirectionalTransport);
 		fullAttempt |= attemptMask;
 		fullSuccess |= successMask;
 		fullUnshadowed = fullUnshadowed || anchorUnshadowed;
@@ -416,7 +442,8 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 			finalEmissiveKeyHi = emissiveKeyHi;
 		}
 		if (SmokeTransientStoreAnchor(fullBankB, group, anchorIndex,
-			anchorPosition, anchorLobes)) fullWrittenMask |= 1u << anchorIndex;
+			anchorPosition, anchorLobes, anchorDirectionalTransport))
+			fullWrittenMask |= 1u << anchorIndex;
 	}
 	if (fullWrittenMask != group.RequiredAnchorMask) return;
 	DeviceMemoryBarrier();

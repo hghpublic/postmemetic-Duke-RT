@@ -106,6 +106,8 @@ struct NRISmokeTransientGroupShapeInput
 	float lobeRadiusMaxScale = 1.28f;
 	float riseVelocity = 0.0f;
 	float curlVelocity = 0.0f;
+	// Positive delay on FirePacket feeds compact births over requestedCount * step.
+	// Builder/reduction retain that cadence span and fit local fades before group end.
 	float lobeDelayStepSeconds = 0.0f;
 	float corePlateau = 0.58f;
 	float edgeErosion = 0.12f;

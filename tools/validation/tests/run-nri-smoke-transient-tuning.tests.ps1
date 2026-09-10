@@ -23,7 +23,7 @@ function Scalar([string]$Body, [string]$Field) {
 }
 
 $expectedOptics = [ordered]@{
-    duke_explosion_smoke = 0.075
+    duke_explosion_smoke = 0.05
     duke_trail_smoke = 0.125
     duke_impact_smoke = 0.25
     duke_muzzle_smoke = 0.25
@@ -31,15 +31,14 @@ $expectedOptics = [ordered]@{
 foreach ($entry in $expectedOptics.GetEnumerator()) {
     $body = Block 'smokestyle' $entry.Key
     Require ((Scalar $body 'opticalamountscale') -eq $entry.Value) `
-        "$($entry.Key) must retain the requested quarter transient optical scale $($entry.Value)."
+        "$($entry.Key) must retain its protected transient optical scale $($entry.Value)."
 }
 
 $fireStyle = Block 'smokestyle' 'duke_fire_smoke'
 $fireRule = Block 'smokeactorrule' 'duke_fire_sustained'
 $unchangedStyle = [ordered]@{
     density = 3.0; extinction = 0.008; radius = 7.0; expansionvelocity = 10.0; densityhalflife = 6.0
-    densityattackseconds = 0.08; radiusexponent = 0.90; intrinsicemission = 0.5
-    emissionhalflife = 0.18; curlvelocity = 4.0; coreplateau = 0.60
+    radiusexponent = 0.90; intrinsicemission = 0.5; curlvelocity = 4.0; coreplateau = 0.60
     edgeerosion = 0.16; noisescale = 0.035; noisestrength = 0.20
 }
 foreach ($entry in $unchangedStyle.GetEnumerator()) {
@@ -54,7 +53,8 @@ $radiusMax = [double]::Parse($radiusRandom.Groups[2].Value, [Globalization.Cultu
 foreach ($requiredRuleText in @(
     'representation\s+"transient-cloud"', 'effectclass\s+fire', 'lobecount\s+5',
     'style\s+"duke_fire_smoke"', 'count\s+9', 'spawnradius\s+4\.0',
-    'densityscale\s+3\.0', 'radiusscale\s+3\.0')) {
+    'densityscale\s+3\.0', 'radiusscale\s+3\.0', 'velocitycone\s+0\.0',
+    'velocityscale\s+0\.0', 'offset\s+0\.0\s+0\.0\s+-32\.0')) {
     Require ($fireRule -match $requiredRuleText) "Production fire rule lost $requiredRuleText."
 }
 Require ($fireRule -match '(?m)^\s*emitterforeground\s+off\s*$') `
@@ -68,16 +68,22 @@ $densityRelease = Scalar $fireStyle 'densityreleaseseconds'
 $spread = Scalar $fireStyle 'clusterspread'
 $cadence = Scalar $fireRule 'intervalseconds'
 $pulse = Scalar $fireRule 'pulseamount'
+$attack = Scalar $fireStyle 'densityattackseconds'
+$emissionHalfLife = Scalar $fireStyle 'emissionhalflife'
+$expansion = Scalar $fireStyle 'expansionvelocity'
 Require ($optical -eq 0.25) "Production fire optical scale must remain 0.25; found $optical."
 Require ($lifetime -eq 5.5) "Production fire lifetime must remain 5.5; found $lifetime."
 Require ($rise -eq 120.0) "Production fire rise must remain 120.0; found $rise."
 Require ($sustain -eq 1.5) "Production fire sustain must remain 1.5; found $sustain."
 Require ($densityRelease -eq 4.0) "Production fire release must remain 4.0; found $densityRelease."
-Require ($spread -eq 1.30) "Production fire spread must remain 1.30; found $spread."
+Require ($spread -eq 0.20) "Production fire spread must remain 0.20; found $spread."
 Require ($cadence -eq 0.5) "Production fire cadence must remain 0.5; found $cadence."
-Require ($radiusMin -eq 0.70 -and $radiusMax -eq 1.00) `
-    "Production fire lobe-radius range must remain 0.70..1.00; found $radiusMin..$radiusMax."
+Require ($radiusMin -eq 0.30 -and $radiusMax -eq 0.45) `
+    "Production fire lobe-radius range must remain 0.30..0.45; found $radiusMin..$radiusMax."
 Require ($pulse -eq 0.15) "Production fire pulse amount must remain 0.15; found $pulse."
+Require ($attack -eq 0.20) "Production fire attack must remain 0.20; found $attack."
+Require ($emissionHalfLife -eq 0.40) `
+    "Production fire emission half-life must remain 0.40; found $emissionHalfLife."
 Require ($fireRule -match '(?m)^\s*pulseperiodcadences\s+12\s*$' -and
     $fireRule -match '(?m)^\s*pulsephase\s+0\.7916667\s*$') `
     'Production fire pulse period/phase must remain 12 / 0.7916667.'
@@ -87,6 +93,10 @@ Require ($emitterSource -match 'shape\.deterministicSeed\s*=\s*HashAnalyticCarri
     'Production fire seed handoff drifted from the deterministic shape fixture.'
 Require ($emitterSource -match '(?s)uint32_t HashAnalyticCarrier\(uint64_t eventSerial, uint32_t carrierIndex\).*?0x9e3779b9u.*?0x7feb352du.*?0x846ca68bu') `
     'Production shape seed transform drifted from the native mirror.'
+Require ($emitterSource -match '(?s)shape\.transientClass\s*==\s*NRISmokeTransientClass::FirePacket.*?shape\.lobeDelayStepSeconds\s*=\s*transientEmissionSpanSeconds\s*/\s*static_cast<float>\(shape\.requestedLobeCount\)') `
+    'Production fire must divide the actor cadence across its requested lobe births.'
+Require ($emitterSource -match '(?s)rule\.trigger\s*==\s*LightOverlaySmokeTrigger::Interval\s*\?\s*rule\.intervalSeconds\s*:\s*0\.0f') `
+    'The interval-rule cadence must remain the transient fire emission span.'
 
 $outputDir = Join-Path $root 'build/smoke-transient-tuning-tests'
 $testExe = Join-Path $outputDir 'nri_smoke_transient_tuning.tests.exe'
@@ -108,8 +118,8 @@ $compile = 'call "' + $vsDevCmd + '" -arch=x64 -host_arch=x64 >nul && cl /nologo
 if ($LASTEXITCODE -ne 0) { throw "transient tuning test compilation failed with exit code $LASTEXITCODE" }
 
 $arguments = @($optical, $lifetime, $rise, $sustain, $densityRelease, $spread, $cadence,
-    $radiusMin, $radiusMax, $pulse) |
+    $radiusMin, $radiusMax, $pulse, $attack, $emissionHalfLife, $expansion) |
     ForEach-Object { $_.ToString('R', [Globalization.CultureInfo]::InvariantCulture) }
 & $testExe @arguments
 if ($LASTEXITCODE -ne 0) { throw "transient tuning tests failed with exit code $LASTEXITCODE" }
-Write-Host "Production fire fields exercised: optical=$optical life=$lifetime rise=$rise sustain=$sustain release=$densityRelease spread=$spread cadence=$cadence radii=$radiusMin..$radiusMax pulse=$pulse"
+Write-Host "Production fire fields exercised: optical=$optical life=$lifetime rise=$rise sustain=$sustain release=$densityRelease spread=$spread cadence=$cadence radii=$radiusMin..$radiusMax pulse=$pulse attack=$attack emission_half=$emissionHalfLife expansion=$expansion"

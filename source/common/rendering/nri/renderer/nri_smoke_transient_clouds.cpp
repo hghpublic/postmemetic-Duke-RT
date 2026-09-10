@@ -193,6 +193,15 @@ uint32_t NRIBuildSmokeTransientLobes(const NRISmokeTransientGroupShapeInput& inp
 	const uint32_t count = std::min({ input.requestedLobeCount, outputCapacity,
 		NRISmokeTransientClouds::FixedMaximumLobesPerGroup });
 	if (count == 0u) return 0u;
+	const bool continuousFire = input.transientClass == NRISmokeTransientClass::FirePacket &&
+		input.lobeDelayStepSeconds > 0.0f;
+	const float delayStep = continuousFire ? input.lobeDelayStepSeconds *
+		static_cast<float>(std::min(input.requestedLobeCount,
+			NRISmokeTransientClouds::FixedMaximumLobesPerGroup)) / static_cast<float>(count)
+		: input.lobeDelayStepSeconds;
+	if (continuousFire && (!std::isfinite(delayStep) ||
+		delayStep * static_cast<float>(count - 1u) + input.densityAttackSeconds >=
+			input.groupLifetimeSeconds)) return 0u;
 
 	const bool explicitTrail = input.transientClass == NRISmokeTransientClass::TrailChunk &&
 		input.trailSpan > 0.0f;
@@ -411,7 +420,7 @@ uint32_t NRIBuildSmokeTransientLobes(const NRISmokeTransientGroupShapeInput& inp
 				const float fireTangent = fireRight[axis] * -ringY +
 					fireForward[axis] * ringX;
 				offset[axis] = fireRadial * ringRadius + authoredUp[axis] *
-					input.initialRadius * input.clusterSpread * 1.6f * unit;
+					(continuousFire ? 0.0f : input.initialRadius * input.clusterSpread * 1.6f * unit);
 				velocityDelta[axis] = authoredUp[axis] * input.riseVelocity +
 					fireTangent * input.curlVelocity;
 			}
@@ -480,7 +489,15 @@ uint32_t NRIBuildSmokeTransientLobes(const NRISmokeTransientGroupShapeInput& inp
 		request.batchIndex = index;
 		request.batchCount = count;
 		request.groupLifetimeSeconds = input.groupLifetimeSeconds;
-		request.lobeDelaySeconds = input.lobeDelayStepSeconds * static_cast<float>(index);
+		request.lobeDelaySeconds = delayStep * static_cast<float>(index);
+		if (continuousFire)
+		{
+			// Delayed births share the existing packet lifetime/capacity budget.
+			// Shorten the local life, not the fade at group retirement. DensityEnvelope
+			// fits the authored release into this remaining local interval.
+			request.lifetimeSeconds = std::min(request.lifetimeSeconds,
+				std::max(input.groupLifetimeSeconds - request.lobeDelaySeconds, 0.001f));
+		}
 		request.densityAttackSeconds = input.densityAttackSeconds;
 		request.densitySustainSeconds = input.densitySustainSeconds;
 		request.densityReleaseSeconds = input.densityReleaseSeconds;
@@ -798,6 +815,26 @@ NRISmokeTransientAdmission NRISmokeTransientClouds::AdmitBatch(
 		admitCount < mProfile.minimumReducedLobes))
 		return Drop(NRISmokeTransientDropReason::LobeCapacity, count);
 
+	bool reduceContinuousFire = admitCount < count && count > 1u &&
+		requests[0].transientClass == NRISmokeTransientClass::FirePacket &&
+		requests[0].lobeDelaySeconds == 0.0f && requests[count - 1u].lobeDelaySeconds > 0.0f;
+	const float birthStep = count > 1u ? requests[count - 1u].lobeDelaySeconds /
+		static_cast<float>(count - 1u) : 0.0f;
+	double fireOpticalQuantity = 0.0;
+	double fireIntrinsicSource = 0.0;
+	for (uint32_t index = 0u; reduceContinuousFire && index < count; ++index)
+	{
+		const auto& request = requests[index];
+		// Only re-time the builder's uniform, common-end stream. Arbitrarily
+		// delayed diagnostic requests retain the generic selection behavior.
+		reduceContinuousFire = std::abs(request.lobeDelaySeconds -
+			birthStep * static_cast<float>(index)) < 1.0e-5f &&
+			std::abs(request.lobeDelaySeconds + request.lifetimeSeconds -
+				request.groupLifetimeSeconds) < 1.0e-5f;
+		const double optical = static_cast<double>(request.initialDensity) * request.opticalWeight;
+		fireOpticalQuantity += optical;
+		fireIntrinsicSource += optical * request.intrinsicEmission;
+	}
 	std::array<NRISmokeTransientLobeRequest, FixedMaximumLobesPerGroup> admitted = {};
 	for (uint32_t outputIndex = 0u; outputIndex < admitCount; ++outputIndex)
 	{
@@ -814,6 +851,18 @@ NRISmokeTransientAdmission NRISmokeTransientClouds::AdmitBatch(
 			requests[0].transientClass == NRISmokeTransientClass::Explosion
 			? begin : begin + (end - begin - 1u) / 2u;
 		admitted[outputIndex] = requests[representative];
+		if (reduceContinuousFire)
+		{
+			// Re-space continuous births after quality reduction: dropping the last
+			// birth would otherwise leave a conspicuous gap at each packet boundary.
+			const float span = birthStep * static_cast<float>(count);
+			const float localEnd = admitted[outputIndex].lobeDelaySeconds +
+				admitted[outputIndex].lifetimeSeconds;
+			admitted[outputIndex].lobeDelaySeconds = span *
+				static_cast<float>(outputIndex) / static_cast<float>(admitCount);
+			admitted[outputIndex].lifetimeSeconds = std::max(
+				localEnd - admitted[outputIndex].lobeDelaySeconds, 0.001f);
+		}
 		double opticalQuantity = 0.0;
 		double intrinsicSource = 0.0;
 		for (uint32_t inputIndex = begin; inputIndex < end; ++inputIndex)
@@ -823,6 +872,13 @@ NRISmokeTransientAdmission NRISmokeTransientClouds::AdmitBatch(
 			intrinsicSource += static_cast<double>(requests[inputIndex].initialDensity) *
 				static_cast<double>(requests[inputIndex].opticalWeight) *
 				static_cast<double>(requests[inputIndex].intrinsicEmission);
+		}
+		if (reduceContinuousFire)
+		{
+			// Equal temporal spacing also requires equal optical/source weight.
+			// Bucket merging alone made every fourth Low-profile birth twice as dense.
+			opticalQuantity = fireOpticalQuantity / static_cast<double>(admitCount);
+			intrinsicSource = fireIntrinsicSource / static_cast<double>(admitCount);
 		}
 		const double reducedWeight = opticalQuantity /
 			static_cast<double>(admitted[outputIndex].initialDensity);
@@ -1007,10 +1063,13 @@ void NRISmokeTransientClouds::RebuildLightSchedule()
 		if (!group.active) continue;
 		bool visible = false;
 		bool initialLightMature = false;
+		bool allFireMembersMature = true;
 		const double groupAge = mGameplayTimeSeconds - group.authoredGameplaySeconds;
 		for (uint32_t index = 0u; index < group.lobeCount; ++index)
 		{
 			const LobeSlot& lobe = mLobes[group.lobes[index]];
+			allFireMembersMature = allFireMembersMature &&
+				InitialLightMature(lobe.request, groupAge);
 			if (!Visible(lobe)) continue;
 			visible = true;
 			initialLightMature = initialLightMature ||
@@ -1020,7 +1079,10 @@ void NRISmokeTransientClouds::RebuildLightSchedule()
 		// Materialization can use the coherent fallback during density attack. Do
 		// not spend the bounded full-build budget or freeze a near-empty self-shadow
 		// result until at least one visible member reaches 90% of its attack curve.
-		if (group.needsInitialLight && initialLightMature)
+		// A continuous fire packet's initial field must cover its complete birth
+		// span, not freeze samples from only its first tiny member's bounds.
+		if (group.needsInitialLight && initialLightMature &&
+			(group.transientClass != NRISmokeTransientClass::FirePacket || allFireMembersMature))
 			fresh.push_back(groupIndex);
 		else if (!group.needsInitialLight && mProfile.allowSlowFireRefresh &&
 			group.lightRefresh == NRISmokeTransientLightRefresh::Slow &&

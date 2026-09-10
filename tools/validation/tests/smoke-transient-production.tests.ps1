@@ -25,7 +25,7 @@ $cutovers = @{
 # are normalized back to their baseline values before hashing.
 # Fire is denser than the quarter-strength effects to maintain a continuous plume.
 $expectedOpticalScale = @{
-    duke_explosion_smoke = 0.075
+    duke_explosion_smoke = 0.05
     duke_fire_smoke = 0.25
     duke_impact_smoke = 0.25
     duke_muzzle_smoke = 0.25
