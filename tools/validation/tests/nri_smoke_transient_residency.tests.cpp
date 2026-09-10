@@ -73,7 +73,7 @@ void PressureAndTransition()
 	{
 		const double time = frame * 0.5;
 		owner.BeginFrame(time, 7u, profile, View(), clouds);
-		const uint32_t fireCount = frame < 30u ? 2u : 4u;
+		const uint32_t fireCount = frame < 30u ? 2u : (frame < 32u ? 3u : 4u);
 		for (uint32_t source = 0u; source < fireCount; ++source)
 			Submit(owner, Build(source + 1u, time, true));
 		for (uint32_t index = 0u; index < 16u; ++index)
@@ -277,6 +277,71 @@ void LowProfileAndDownswitch()
 		switchOwner.GetSnapshot().overBudgetResidentLobes == 0u,
 		"grandfathered down-switch population returns to budget by natural expiry");
 }
+
+void WarmFrozenLighting()
+{
+	NRISmokeTransientClouds clouds;
+	const auto profile = clouds.ProfileForQuality(2u);
+	clouds.Reset(7u);
+	clouds.BeginFrame(0.6, 256u, profile);
+	const auto batch = Build(7u, 0.0, false);
+	const auto first = clouds.AdmitRetainedBatch(batch.data(), 5u, 5u);
+	Require(first.Accepted() && clouds.GetSnapshot().fullLightFreshScheduledThisFrame == 1u,
+		"initial mature Frozen field is scheduled once");
+	clouds.CommitLightDispatchSchedule();
+	clouds.SetInterest(first.handle, NRISmokeTransientInterest::Warm);
+	clouds.BeginFrame(0.7, 256u, profile);
+	clouds.SetInterest(first.handle, NRISmokeTransientInterest::Hot);
+	Require(clouds.GetSnapshot().fullLightFreshRequestedThisFrame == 0u &&
+		clouds.GetSnapshot().fullLightAllowedGroups == 0u,
+		"Warm-to-Hot Frozen cache reuse does not falsely schedule a GPU-disallowed rebuild");
+	const auto secondBatch = Build(8u, 0.0, false);
+	const auto second = clouds.AdmitRetainedBatch(secondBatch.data(), 5u, 5u);
+	clouds.SetInterest(second.handle, NRISmokeTransientInterest::Warm);
+	clouds.BeginFrame(0.8, 256u, profile);
+	Require(clouds.GetSnapshot().fullLightFreshRequestedThisFrame == 0u,
+		"never-built Warm Frozen group spends no first-use rays while hidden");
+	clouds.SetInterest(second.handle, NRISmokeTransientInterest::Hot);
+	Require(clouds.GetSnapshot().fullLightFreshScheduledThisFrame == 1u,
+		"never-built Warm Frozen group retains its pending first-use build on Hot entry");
+}
+
+void RotatingPairsRetainCapacity()
+{
+	NRISmokeTransientResidency owner;
+	NRISmokeTransientClouds clouds;
+	const auto profile = clouds.ProfileForQuality(2u);
+	auto sourceHistory = [&](uint32_t source, float x, float z)
+	{
+		for (uint32_t cohort = 0u; cohort < 12u; ++cohort)
+		{
+			auto batch = Build(source, cohort * 0.49, true, x);
+			for (auto& request : batch) request.position[2] = z;
+			Submit(owner, batch);
+		}
+	};
+	owner.BeginFrame(5.40, 7u, profile, View(), clouds);
+	sourceHistory(1u, 1000.0f, 1000.0f);
+	sourceHistory(2u, 1000.0f, -1000.0f);
+	owner.Resolve(clouds);
+	Require(owner.GetSnapshot().residentFireGroups == 24u && owner.GetSnapshot().residentFireLobes == 120u,
+		"adversarial pair retains maximum twelve five-lobe cohorts each");
+	auto rotated = View();
+	rotated.planes[0][0] = 0.0f;
+	rotated.planes[0][2] = -1.0f;
+	owner.BeginFrame(5.45, 7u, profile, rotated, clouds);
+	sourceHistory(3u, -1000.0f, -1000.0f);
+	owner.Resolve(clouds);
+	Require(owner.GetSnapshot().hotFireSources == 2u && owner.GetSnapshot().warmGroups == 12u &&
+		owner.GetSnapshot().residentFireLobes == 156u,
+		"old Warm full-detail source counts toward quality reservation for next Hot pair");
+	owner.BeginFrame(5.46, 7u, profile, {}, clouds); // camera cut: all bounds conservatively Hot
+	sourceHistory(4u, -1000.0f, 1000.0f);
+	owner.Resolve(clouds);
+	Require(owner.GetSnapshot().hotFireSources == 4u && owner.GetSnapshot().residentFireGroups == 48u &&
+		owner.GetSnapshot().residentFireLobes == 192u && owner.GetSnapshot().hotFireDeferredGroups == 0u,
+		"four-source return after rotating Hot pairs fits exact maximum reservation without cadence gaps");
+}
 }
 
 int main()
@@ -286,6 +351,8 @@ int main()
 	ConservativeVisibilityAndMixedExpiry();
 	BoundedHistoryAndSourceFairness();
 	LowProfileAndDownswitch();
+	WarmFrozenLighting();
+	RotatingPairsRetainCapacity();
 	std::cout << "Transient residency tests passed: " << Checks << " checks.\n";
 	return 0;
 }

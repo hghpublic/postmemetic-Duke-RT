@@ -74,22 +74,26 @@ void NRISmokeTransientResidency::BeginFrame(double gameplaySeconds, uint32_t epo
 	clouds.BeginFrame(gameplaySeconds, mProfile.maximumActiveLobes, mProfile);
 	if (!mPrepared) return;
 	if (mHistory.capacity() < MaximumHistoryGroups) mHistory.reserve(MaximumHistoryGroups);
-	for (auto it = mHistory.begin(); it != mHistory.end();)
+	for (Entry& entry : mHistory)
 	{
-		if (mTime - it->requests[0].authoredGameplaySeconds >=
-			it->requests[0].groupLifetimeSeconds)
+		if (mTime - entry.requests[0].authoredGameplaySeconds >=
+			entry.requests[0].groupLifetimeSeconds)
 		{
-			clouds.Release(it->handle);
-			it = mHistory.erase(it);
+			clouds.Release(entry.handle);
 			++mSnapshot.expiredGroups;
 		}
 		else
 		{
-			if (!clouds.IsLive(it->handle)) { it->handle = {}; it->residentLobes = 0u; }
-			Classify(*it);
-			++it;
+			if (!clouds.IsLive(entry.handle)) { entry.handle = {}; entry.residentLobes = 0u; }
+			Classify(entry);
 		}
 	}
+	// Compact a synchronized burst expiry once, not one multi-kilobyte vector
+	// shift per descriptor. History maintenance stays linear in the fixed bound.
+	mHistory.erase(std::remove_if(mHistory.begin(), mHistory.end(), [this](const Entry& entry)
+	{
+		return mTime - entry.requests[0].authoredGameplaySeconds >= entry.requests[0].groupLifetimeSeconds;
+	}), mHistory.end());
 }
 
 void NRISmokeTransientResidency::BuildBounds(Entry& entry) const
@@ -257,8 +261,14 @@ void NRISmokeTransientResidency::Resolve(NRISmokeTransientClouds& clouds)
 			item.second.hotCohorts > MaximumFireCohortsPerSource; }));
 	if (hotFireSources > mSnapshot.supportedFireSources || mSnapshot.unsupportedFireSources > 0u)
 		++mSnapshot.unsupportedLoadFrames;
+	// Count Warm residents as well: rotating between two Hot pairs must not
+	// accumulate three separate five-lobe source histories before all four
+	// become visible. Their retained detail still consumes the protected share.
+	const uint32_t detailedFireSources = static_cast<uint32_t>(std::count_if(sources.begin(), sources.end(),
+		[](const auto& item) { return (item.first >> 32u) != 0u &&
+			(item.second.hot || item.second.residentGroups > 0u); }));
 	const uint32_t fireDetail = mSnapshot.supportedFireSources == 2u ? 4u :
-		(hotFireSources <= 2u ? 5u : 3u);
+		(detailedFireSources <= 2u ? 5u : 3u);
 	// Each pass admits at most one head cohort from each source before that
 	// source's ordinal advances. Equal-time ties are stable source identities,
 	// never actor traversal order. Existing visible groups are never rewritten.

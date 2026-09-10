@@ -1025,7 +1025,12 @@ bool NRISmokeTransientClouds::SetInterest(const NRISmokeTransientHandle& handle,
 	if (group.interest == interest) return true;
 	// Existing coherent cache can still be used while first-visible preparation
 	// waits for its bounded slot. No camera-derived cache identity is introduced.
-	if (interest == NRISmokeTransientInterest::Hot) group.needsInitialLight = true;
+	// Frozen bursts deliberately reuse their valid camera-independent cache;
+	// the GPU build shader also early-outs for an already-full frozen field.
+	// Never-full groups keep their existing pending first-use state untouched.
+	if (interest == NRISmokeTransientInterest::Hot &&
+		group.lightRefresh == NRISmokeTransientLightRefresh::Slow)
+		group.needsInitialLight = true;
 	group.interest = interest;
 	Refresh();
 	return true;
