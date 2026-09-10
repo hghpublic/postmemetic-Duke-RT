@@ -141,6 +141,17 @@ CUSTOM_CVAR(Int, perf_fixedsimulationframes, 0, 0)
 	}
 }
 
+// Session-only optional timer epoch for fixed-simulation captures. It is read
+// only when this control acquires its own freeze; existing engine freezes and
+// real CPU/GPU timing clocks keep their original behavior.
+CUSTOM_CVAR(Int, perf_fixedsimulationtime_ms, -1, 0)
+{
+	if (self < -1)
+	{
+		self = -1;
+	}
+}
+
 // The fixed-presentation performance control owns this freeze only when it
 // started it. Wipes, movie playback, and other engine clients retain ownership
 // of any freeze that was already active.
@@ -1393,8 +1404,11 @@ void TryRunTics (void)
 	{
 		if (!perfFixedSimulationOwnsTimeFreeze && !I_IsTimeFrozen())
 		{
-			I_FreezeTime(true);
+			const int fixedTimeMs = perf_fixedsimulationtime_ms;
+			I_FreezeTime(true, fixedTimeMs >= 0 ? (uint64_t)fixedTimeMs * 1000000ull : UINT64_MAX);
 			perfFixedSimulationOwnsTimeFreeze = true;
+			Printf("PERF fixed simulation clock: requested_ms=%d elapsed_ns=%llu build_tics=%d owned=1\n",
+				fixedTimeMs, (unsigned long long)I_GetTimeNS(), I_GetTime(120));
 		}
 		perf_fixedsimulationframes = (int)perf_fixedsimulationframes - 1;
 		perfTryRunTicsTraceStats.fixedSimulationReturn = true;
