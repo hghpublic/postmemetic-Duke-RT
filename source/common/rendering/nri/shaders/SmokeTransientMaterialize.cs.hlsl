@@ -4,6 +4,7 @@
 #include "Include/SmokeLightParameters.hlsli"
 #include "Include/SmokeTransientData.hlsli"
 #include "Include/SmokeTransientLighting.hlsli"
+#include "Include/SmokeTransientCoverage.hlsli"
 
 bool SmokeTransientLoadCache(SmokeTransientGroup group,
 	out SmokeTransientLightHeader header,
@@ -198,6 +199,21 @@ void main(uint3 froxel : SV_DispatchThreadID)
 	const float3 ray = SmokeFroxelRay(froxel.xy);
 	const float3 viewRay = normalize(ray);
 	const float rayLength = length(ray);
+	const float centerSegmentLength = max((farDepth - nearDepth) * rayLength, 1e-6);
+	const bool coverageFilter = SmokeTransientCoverageEnabled();
+	const uint laneCount = coverageFilter ? 4u : 1u;
+	float3 laneRays[4];
+	float laneExtinction[4];
+	float3 laneScattering[4];
+	float3 laneSource[4];
+	[unroll]
+	for (uint lane = 0u; lane < 4u; ++lane)
+	{
+		laneRays[lane] = coverageFilter ? SmokeTransientCoverageRay(froxel.xy, lane) : ray;
+		laneExtinction[lane] = 0.0;
+		laneScattering[lane] = 0.0;
+		laneSource[lane] = 0.0;
+	}
 	const float3 directionalDirection = SmokeDirectionalDirection();
 	const float3 samplePosition = SmokeFroxelCenter(froxel, ray);
 	float extinction = 0.0;
@@ -227,8 +243,10 @@ void main(uint3 froxel : SV_DispatchThreadID)
 		if ((group.Flags & NRI_SMOKE_TRANSIENT_GROUP_ACTIVE) == 0u ||
 			group.Epoch != gSmokeConstants.SimulationEpoch || group.LobeCount == 0u)
 			continue;
-		if (!SmokeTransientRaySegmentIntersectsAabb(ray, nearDepth, farDepth,
-			group.BoundsMin, group.BoundsMax)) continue;
+		const bool intersects = coverageFilter
+			? SmokeTransientCoverageIntersectsAabb(ray, nearDepth, farDepth, group.BoundsMin, group.BoundsMax)
+			: SmokeTransientRaySegmentIntersectsAabb(ray, nearDepth, farDepth, group.BoundsMin, group.BoundsMax);
+		if (!intersects) continue;
 
 		SmokeTransientLightHeader lightHeader = (SmokeTransientLightHeader)0;
 		SmokeTransientLightAnchor lightAnchors[NRI_SMOKE_TRANSIENT_ANCHOR_COUNT];
@@ -238,11 +256,17 @@ void main(uint3 froxel : SV_DispatchThreadID)
 		float3 incidentLobes[6];
 		float directionalTransport = 0.0;
 		bool groupContributed = false;
-		float3 groupSource = 0.0;
+		float3 groupSource[4];
 		const bool localDirectional = group.TransientClass == NRI_SMOKE_TRANSIENT_CLASS_FIRE &&
 			gSmokeConstants.LightMode > 0u &&
 			(gSmokeConstants.LightSourceFlags & NRI_SMOKE_LIGHT_SOURCE_DIRECTIONAL) != 0u;
-		float3 groupDirectionalScattering = 0.0;
+		float3 groupDirectionalScattering[4];
+		[unroll]
+		for (uint lane = 0u; lane < 4u; ++lane)
+		{
+			groupSource[lane] = 0.0;
+			groupDirectionalScattering[lane] = 0.0;
+		}
 		float directionalReceiverWeight = 0.0;
 		float3 directionalReceiverPosition = samplePosition;
 		const uint endLobe = min(group.FirstLobe + min(group.LobeCount,
@@ -258,84 +282,133 @@ void main(uint3 froxel : SV_DispatchThreadID)
 				!isfinite(lobe.Radius) || lobe.Radius <= 0.0 ||
 				!isfinite(lobe.DensityScale) || lobe.DensityScale <= 0.0)
 				continue;
-			const float kernel = lobe.Shape == NRI_SMOKE_INJECTION_SHAPE_RECTANGLE
-				? SmokeTransientRectangleKernelAverage(lobe, ray, nearDepth, farDepth)
-				: SmokeTransientSphereKernelAverage(lobe, ray, nearDepth, farDepth);
-			if (kernel <= 0.0) continue;
 			const SmokeStyle style = gSmokeStyles[lobe.StyleIndex];
 			const float density = max(style.Density, 0.0) * lobe.DensityScale;
-			const float sigmaT = kernel * density * max(style.Extinction, 0.0) *
+			const float materialSigma = density * max(style.Extinction, 0.0) *
 				gSmokeConstants.DensityScale;
-			if (!(sigmaT > 1e-6) || !isfinite(sigmaT)) continue;
-			const float3 sigmaS = sigmaT * saturate(style.Albedo);
-			float3 externalSource = 0.0;
-			if (!cacheLoaded)
+			if (!(materialSigma > 0.0) || !isfinite(materialSigma)) continue;
+			SmokeTransientCoverageFootprint footprint = (SmokeTransientCoverageFootprint)0;
+			float narrowTau = 0.0;
+			if (coverageFilter && lobe.Shape != NRI_SMOKE_INJECTION_SHAPE_RECTANGLE)
 			{
-				cacheLoaded = true;
-				cacheValid = SmokeTransientLoadCache(group, lightHeader, lightAnchors);
-				if (cacheValid)
-				{
-					SmokeTransientResolveIncident(samplePosition, group, lightAnchors,
-						incidentLobes, directionalTransport);
-					float currentWeight;
-					if (SmokeTransientLoadPreviousFireCache(group, lightHeader, lightAnchors,
-						previousLightAnchors, currentWeight))
-					{
-						float3 previousIncidentLobes[6];
-						float previousDirectionalTransport;
-						SmokeTransientResolveIncident(samplePosition, group, previousLightAnchors,
-							previousIncidentLobes, previousDirectionalTransport);
-						[unroll]
-						for (uint incidentIndex = 0u; incidentIndex < 6u; ++incidentIndex)
-							incidentLobes[incidentIndex] = lerp(previousIncidentLobes[incidentIndex],
-								incidentLobes[incidentIndex], currentWeight);
-						directionalTransport = lerp(previousDirectionalTransport,
-							directionalTransport, currentWeight);
-					}
-				}
+				footprint = SmokeTransientMakeCoverageFootprint(lobe, ray);
+				narrowTau = SmokeTransientCoverageNarrowTau(lobe, footprint,
+					nearDepth, farDepth, materialSigma);
 			}
-			if (cacheValid)
+			const float lobeDepth = max(dot(lobe.Position - gSmokeConstants.CameraPosition,
+				gSmokeConstants.CameraForward), 0.0);
+			const float footprintSpan = length(SmokeTransientCoverageHalfX(lobeDepth)) +
+				length(SmokeTransientCoverageHalfY(lobeDepth));
+			bool lobeContributed = false;
+			[unroll]
+			for (uint lane = 0u; lane < 4u; ++lane)
 			{
-				[unroll]
-				for (uint incidentIndex = 0u; incidentIndex < 6u; ++incidentIndex)
-					externalSource += sigmaS * incidentLobes[incidentIndex] *
-						SmokePhaseResponse(dot(NRI_SMOKE_TRANSIENT_LIGHT_AXES[incidentIndex],
-							viewRay), style.Anisotropy);
-				if (localDirectional)
+				if (lane >= laneCount) continue;
+				const float3 laneRay = laneRays[lane];
+				const float laneRayLength = length(laneRay);
+				const float3 laneViewRay = laneRay / max(laneRayLength, 1e-6);
+				float sigmaT;
+				if (coverageFilter)
 				{
-					groupDirectionalScattering += sigmaS *
-						SmokePhaseResponse(dot(directionalDirection, viewRay), style.Anisotropy);
-					if ((gSmokeConstants.LightSourceFlags & NRI_SMOKE_TRANSIENT_SELF_SHADOW) != 0u &&
-						sigmaT > directionalReceiverWeight)
+					float exactTau = 0.0;
+					if (footprint.NarrowWeight < 1.0)
 					{
-						// One representative from the strongest contributing support avoids
-						// placing a weighted centroid in gaps between disconnected lobes.
-						// Production Fire is spherical; rectangle transport retains the
-						// conservative enclosing-sphere convention of group optical depth.
-						const float supportRadius = lobe.Shape == NRI_SMOKE_INJECTION_SHAPE_RECTANGLE
-							? lobe.Radius + length(lobe.HalfAxisU) + length(lobe.HalfAxisV) : lobe.Radius;
-						float3 receiverPosition;
-						if (SmokeTransientSphereSegmentReceiver(lobe.Position, supportRadius,
-							gSmokeConstants.CameraPosition, viewRay, nearDepth * rayLength,
-							farDepth * rayLength, receiverPosition))
+						exactTau = lobe.Shape == NRI_SMOKE_INJECTION_SHAPE_RECTANGLE
+							? SmokeTransientRectangleKernelAverage(lobe, laneRay, nearDepth, farDepth) *
+								(farDepth - nearDepth) * laneRayLength * materialSigma
+							: SmokeTransientFilteredSphereIntegral(lobe, laneRay, nearDepth, farDepth,
+								footprintSpan) * materialSigma;
+					}
+					const float tau = footprint.NarrowWeight > 0.0
+						? SmokeTransientCoverageBlendTau(exactTau, narrowTau, footprint.NarrowWeight) : exactTau;
+					sigmaT = tau / centerSegmentLength;
+				}
+				else
+				{
+					const float kernel = lobe.Shape == NRI_SMOKE_INJECTION_SHAPE_RECTANGLE
+						? SmokeTransientRectangleKernelAverage(lobe, ray, nearDepth, farDepth)
+						: SmokeTransientSphereKernelAverage(lobe, ray, nearDepth, farDepth);
+					sigmaT = kernel * materialSigma;
+				}
+				if (!(sigmaT > (coverageFilter ? 0.0 : 1e-6)) || !isfinite(sigmaT)) continue;
+				const float3 sigmaS = sigmaT * saturate(style.Albedo);
+				float3 externalSource = 0.0;
+				if (!cacheLoaded)
+				{
+					cacheLoaded = true;
+					cacheValid = SmokeTransientLoadCache(group, lightHeader, lightAnchors);
+					if (cacheValid)
+					{
+						SmokeTransientResolveIncident(samplePosition, group, lightAnchors,
+							incidentLobes, directionalTransport);
+						float currentWeight;
+						if (SmokeTransientLoadPreviousFireCache(group, lightHeader, lightAnchors,
+							previousLightAnchors, currentWeight))
 						{
-							directionalReceiverWeight = sigmaT;
-							directionalReceiverPosition = receiverPosition;
+							float3 previousIncidentLobes[6];
+							float previousDirectionalTransport;
+							SmokeTransientResolveIncident(samplePosition, group, previousLightAnchors,
+								previousIncidentLobes, previousDirectionalTransport);
+							[unroll]
+							for (uint incidentIndex = 0u; incidentIndex < 6u; ++incidentIndex)
+								incidentLobes[incidentIndex] = lerp(previousIncidentLobes[incidentIndex],
+									incidentLobes[incidentIndex], currentWeight);
+							directionalTransport = lerp(previousDirectionalTransport,
+								directionalTransport, currentWeight);
 						}
 					}
 				}
+				if (cacheValid)
+				{
+					[unroll]
+					for (uint incidentIndex = 0u; incidentIndex < 6u; ++incidentIndex)
+						externalSource += sigmaS * incidentLobes[incidentIndex] *
+							SmokePhaseResponse(dot(NRI_SMOKE_TRANSIENT_LIGHT_AXES[incidentIndex],
+								laneViewRay), style.Anisotropy);
+					if (localDirectional)
+					{
+						groupDirectionalScattering[lane] += sigmaS *
+							SmokePhaseResponse(dot(directionalDirection, laneViewRay), style.Anisotropy);
+						if ((gSmokeConstants.LightSourceFlags & NRI_SMOKE_TRANSIENT_SELF_SHADOW) != 0u &&
+							sigmaT > directionalReceiverWeight)
+						{
+							// One representative from the strongest contributing support avoids
+							// placing a weighted centroid in gaps between disconnected lobes.
+							// Production Fire is spherical; rectangle transport retains the
+							// conservative enclosing-sphere convention of group optical depth.
+							const float supportRadius = lobe.Shape == NRI_SMOKE_INJECTION_SHAPE_RECTANGLE
+								? lobe.Radius + length(lobe.HalfAxisU) + length(lobe.HalfAxisV) : lobe.Radius;
+							float3 receiverPosition;
+							bool receiverValid = SmokeTransientSphereSegmentReceiver(lobe.Position, supportRadius,
+								gSmokeConstants.CameraPosition, laneViewRay, nearDepth * laneRayLength,
+								farDepth * laneRayLength, receiverPosition);
+							if (!receiverValid && footprint.NarrowWeight > 0.0)
+								receiverValid = SmokeTransientCoverageReceiver(lobe, viewRay,
+									nearDepth * rayLength, farDepth * rayLength, receiverPosition);
+							if (receiverValid)
+							{
+								directionalReceiverWeight = sigmaT;
+								directionalReceiverPosition = receiverPosition;
+							}
+						}
+					}
+				}
+				const float3 intrinsicSource = sigmaT * max(lobe.EmissionScale, 0.0) *
+					SmokeTransientIntrinsicColor(lobe.TransientClass);
+				laneExtinction[lane] += sigmaT;
+				laneScattering[lane] += sigmaS;
+				groupSource[lane] += max(externalSource + intrinsicSource, 0.0);
+				const float weight = dot(sigmaS, float3(0.2126, 0.7152, 0.0722));
+				weightedAnisotropy += weight * clamp(style.Anisotropy, -0.95, 0.95) / (float)laneCount;
+				anisotropyWeight += weight / (float)laneCount;
+				lobeContributed = true;
+				groupContributed = true;
 			}
-			const float3 intrinsicSource = sigmaT * max(lobe.EmissionScale, 0.0) *
-				SmokeTransientIntrinsicColor(lobe.TransientClass);
-			extinction += sigmaT;
-			scattering += sigmaS;
-			groupSource += max(externalSource + intrinsicSource, 0.0);
-			const float weight = dot(sigmaS, float3(0.2126, 0.7152, 0.0722));
-			weightedAnisotropy += weight * clamp(style.Anisotropy, -0.95, 0.95);
-			anisotropyWeight += weight;
-			contributors++;
-			groupContributed = true;
-			lobeContributions++;
+			if (lobeContributed)
+			{
+				contributors++;
+				lobeContributions++;
+			}
 		}
 		if (groupContributed && cacheValid && localDirectional)
 		{
@@ -350,10 +423,14 @@ void main(uint3 froxel : SV_DispatchThreadID)
 					SmokeTransientGroupOpticalDepth(group, directionalReceiverPosition,
 						directionalDirection, 100000.0));
 			}
-			groupSource += groupDirectionalScattering * SmokeDirectionalColor() *
-				directionalTransport * localSelfTransmittance;
+			[unroll]
+			for (uint lane = 0u; lane < 4u; ++lane)
+				groupSource[lane] += groupDirectionalScattering[lane] * SmokeDirectionalColor() *
+					directionalTransport * localSelfTransmittance;
 		}
-		source += min(groupSource, 32.0) * max(gSmokeConstants.RadianceScale, 0.0);
+		[unroll]
+		for (uint lane = 0u; lane < 4u; ++lane)
+			laneSource[lane] += min(groupSource[lane], 32.0) * max(gSmokeConstants.RadianceScale, 0.0);
 		// Candidate iteration is not a group identity: lanes in the same wave can
 		// be visiting different bins and therefore different group slots here.
 		// Let every contributing lane exchange the per-group frame word. The first
@@ -369,7 +446,15 @@ void main(uint3 froxel : SV_DispatchThreadID)
 		InterlockedAdd(gSmokeControl[0].TransientMaterializeLobeContributions,
 			waveLobeContributions);
 	}
-	if (!(extinction > 1e-6)) return;
+	[unroll]
+	for (uint lane = 0u; lane < 4u; ++lane)
+	{
+		if (lane >= laneCount) continue;
+		extinction += laneExtinction[lane] / (float)laneCount;
+		scattering += laneScattering[lane] / (float)laneCount;
+		source += laneSource[lane] / (float)laneCount;
+	}
+	if (!(extinction > (coverageFilter ? 0.0 : 1e-6))) return;
 
 	const uint froxelIndex = SmokeFroxelIndex(froxel.x, froxel.y, froxel.z);
 	uint mediumCapacity, mediumStride, transientCapacity, transientStride;
@@ -384,7 +469,33 @@ void main(uint3 froxel : SV_DispatchThreadID)
 	const float4 previousPhase = gSmokeFroxelPhase[froxelIndex];
 	const float4 previousSource = gSmokeFroxelSource[froxelIndex];
 	const bool wasOccupied = previousMedium.w > 1e-6;
-	const float4 transientMedium = float4(scattering, extinction);
+	float4 transientMedium = float4(scattering, extinction);
+	float3 combinedSource = max(previousSource.rgb, 0.0) + source;
+	if (coverageFilter)
+	{
+		float meanOpacity = 0.0;
+		float3 meanRadiance = 0.0;
+		[unroll]
+		for (uint lane = 0u; lane < 4u; ++lane)
+		{
+			const float sigma = max(previousMedium.w, 0.0) + laneExtinction[lane];
+			meanOpacity += SmokeTransientCoverageOpacity(sigma * centerSegmentLength) * 0.25;
+			meanRadiance += (max(previousSource.rgb, 0.0) + laneSource[lane]) *
+				SmokeTransientCoverageScatterIntegral(sigma, centerSegmentLength) * 0.25;
+		}
+		// Grid/legacy lighting is finished before this pass. Convert the JOINT
+		// area-averaged transmittance and premultiplied radiance, not averaged tau.
+		// Keep a positive full source; a separate source delta could be negative.
+		const float effectiveSigma = max(max(previousMedium.w, 0.0),
+			SmokeTransientCoverageTau(meanOpacity) / centerSegmentLength);
+		const float transientSigma = max(effectiveSigma - max(previousMedium.w, 0.0), 0.0);
+		const float opticalScale = transientSigma / max(extinction, 1e-20);
+		transientMedium = float4(scattering * opticalScale, transientSigma);
+		weightedAnisotropy *= opticalScale;
+		anisotropyWeight *= opticalScale;
+		combinedSource = meanRadiance / max(SmokeTransientCoverageScatterIntegral(
+			effectiveSigma, centerSegmentLength), 1e-20);
+	}
 	gSmokeTransientFroxelMedium[froxelIndex] = transientMedium;
 	gSmokeFroxelMedium[froxelIndex] = previousMedium + transientMedium;
 	const float previousWeight = max(previousPhase.y, 0.0);
@@ -401,7 +512,7 @@ void main(uint3 froxel : SV_DispatchThreadID)
 		metadata = SmokeFroxelResolveRadiance(metadata, gSmokeConstants.SimulationEpoch,
 			NRI_SMOKE_FALLBACK_ANALYTIC, 0u);
 	}
-	gSmokeFroxelSource[froxelIndex] = float4(max(previousSource.rgb, 0.0) + source,
+	gSmokeFroxelSource[froxelIndex] = float4(combinedSource,
 		SmokeFroxelMetadataValue(metadata));
 	if (!wasOccupied)
 	{

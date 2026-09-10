@@ -90,20 +90,20 @@ void NRISmokeSystem::PrintTransientResidency() const
 	Printf("NRI PT smoke transient residency: epoch=%u history=%u hot=%u warm=%u dormant=%u "
 		"hot_fire_sources=%u supported_fire_sources=%u fire_groups=%u/%u fire_lobes=%u/%u "
 		"burst_groups=%u/%u burst_lobes=%u/%u deferred_hot_fire=%u deferred_hot_burst=%u "
-		"deferred_birth_span_ms=%u hidden_resident=%u first_visible=%u admitted=%llu "
+		"deferred_birth_span_ms=%u hidden_resident=%u fresh_light_groups=%u admitted=%llu "
 		"reentered=%llu released_offscreen=%llu reduced=%llu history_rejected=%llu history_evicted=%llu "
 		"unsupported_load_frames=%llu oversized_fire_sources=%u budget_overage_groups=%u "
-		"budget_overage_lobes=%u cpu_history_bytes=%llu policy=retained-age-frustum-hysteresis\n",
+		"budget_overage_lobes=%u cpu_history_bytes=%llu coverage_filter=%u policy=retained-age-frustum-hysteresis\n",
 		state.epoch, state.historyGroups, state.hotGroups, state.warmGroups, state.dormantGroups,
 		state.hotFireSources, state.supportedFireSources,
 		state.residentFireGroups, state.fireGroupBudget, state.residentFireLobes, state.fireLobeBudget,
 		state.residentBurstGroups, state.burstGroupBudget, state.residentBurstLobes, state.burstLobeBudget,
 		state.hotFireDeferredGroups, state.hotBurstDeferredGroups, state.largestDeferredBirthSpanMilliseconds,
-		state.hiddenResidentGroups, state.firstVisibleGroups,
+		state.hiddenResidentGroups, mTransientClouds.GetSnapshot().fullLightFreshRequestedThisFrame,
 		(unsigned long long)state.admittedGroups, (unsigned long long)state.reenteredGroups,
 		(unsigned long long)state.releasedGroups, (unsigned long long)state.reducedGroups,
 		(unsigned long long)state.historyRejectedGroups, (unsigned long long)state.historyEvictedGroups,
 		(unsigned long long)state.unsupportedLoadFrames, state.unsupportedFireSources,
 		state.overBudgetResidentGroups, state.overBudgetResidentLobes,
-		(unsigned long long)state.allocatedHistoryBytes);
+		(unsigned long long)state.allocatedHistoryBytes, mSettings.transientCoverage ? 1u : 0u);
 }

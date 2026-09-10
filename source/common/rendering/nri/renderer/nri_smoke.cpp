@@ -2390,6 +2390,8 @@ bool NRISmokeSystem::RecordVolume(NRIRenderer& renderer, const NRISmokeRouteDesc
 		constants.lightSourceFlags |= 0x10u;
 	if (mSettings.transientSelfShadow)
 		constants.lightSourceFlags |= 0x200u; // Transient analytic self-shadow is grid-independent.
+	if (mSettings.transientCoverage)
+		constants.lightSourceFlags |= 0x400u; // Shared with resolve; spatial filtering is not a light-cache key.
 	const bool filteredVisibilityEffective = constants.lightMode >= 2u && mSettings.filteredVisibility && filteredResourcesReady && shadowReady;
 	const uint32_t requestedEmissivePointCandidates = std::clamp(mSettings.emissivePointCandidates, 1u, 8u);
 	const uint32_t effectiveEmissivePointCandidates = mSettings.emissiveReference ? 1u : requestedEmissivePointCandidates;

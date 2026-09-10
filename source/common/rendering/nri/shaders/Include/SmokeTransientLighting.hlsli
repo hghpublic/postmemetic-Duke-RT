@@ -238,6 +238,43 @@ float SmokeTransientBoundaryErosionAmplitude(float edgeErosion, float noiseStren
 	return 1.0 - (1.0 - edge) * (1.0 - strength);
 }
 
+float SmokeTransientFilteredShellFactor(SmokeTransientLobe lobe, float3 position,
+	float footprintSpan, float occupiedLength)
+{
+	if (lobe.EdgeErosion <= 0.0 && lobe.NoiseStrength <= 0.0) return 1.0;
+	const float span = sqrt(footprintSpan * footprintSpan + occupiedLength * occupiedLength) *
+		max(lobe.NoiseScale, 0.0001);
+	const float resolvedWeight = 1.0 - smoothstep(0.5, 2.0, span);
+	const float noise = lerp(0.5, SmokeTransientBoundaryNoise(position,
+		lobe.NoiseScale, lobe.DeterministicSeed), resolvedWeight);
+	return lerp(1.0, 0.35 + 0.65 * noise,
+		SmokeTransientBoundaryErosionAmplitude(lobe.EdgeErosion, lobe.NoiseStrength));
+}
+
+float SmokeTransientFilteredSphereIntegral(SmokeTransientLobe lobe, float3 ray,
+	float nearDepth, float farDepth, float footprintSpan)
+{
+	const float rayLength = max(length(ray), 1e-6);
+	const float3 unitRay = ray / rayLength;
+	float coreIntegral, shellIntegral;
+	SmokeTransientSpherePlateauIntegral(lobe.Position, lobe.Radius, lobe.CorePlateau,
+		gSmokeConstants.CameraPosition, unitRay, nearDepth * rayLength, farDepth * rayLength,
+		coreIntegral, shellIntegral);
+	if (shellIntegral > 0.0)
+	{
+		const float3 toCenter = lobe.Position - gSmokeConstants.CameraPosition;
+		const float closest = dot(toCenter, unitRay);
+		const float3 perpendicular = toCenter - unitRay * closest;
+		const float halfChord = sqrt(max(lobe.Radius * lobe.Radius - dot(perpendicular, perpendicular), 0.0));
+		const float entry = max(nearDepth * rayLength, closest - halfChord);
+		const float exit = min(farDepth * rayLength, closest + halfChord);
+		const float3 position = gSmokeConstants.CameraPosition + unitRay * ((entry + exit) * 0.5);
+		shellIntegral *= SmokeTransientFilteredShellFactor(lobe, position,
+			footprintSpan, max(exit - entry, 0.0));
+	}
+	return max(coreIntegral + shellIntegral, 0.0);
+}
+
 bool SmokeTransientSphereSegmentReceiver(float3 center, float radius,
 	float3 rayOrigin, float3 unitRay, float segmentNear, float segmentFar,
 	out float3 receiverPosition)

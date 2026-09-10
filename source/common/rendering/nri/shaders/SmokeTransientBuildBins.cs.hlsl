@@ -25,6 +25,14 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 	if (!SmokeProjectSphereToFroxelBounds(center, projectionRadius,
 		minimumColumn, maximumColumn))
 		return;
+	if (SmokeTransientCoverageEnabled())
+	{
+		// The materializer considers area support, including cell-edge overlap.
+		// A guard column also covers conservative local-plane projection roundoff.
+		minimumColumn = max(minimumColumn - 1, int2(0, 0));
+		maximumColumn = min(maximumColumn + 1,
+			int2(gSmokeConstants.FroxelWidth - 1u, gSmokeConstants.FroxelHeight - 1u));
+	}
 
 	const float centerViewDepth = dot(center - gSmokeConstants.CameraPosition,
 		gSmokeConstants.CameraForward);

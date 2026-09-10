@@ -1543,6 +1543,7 @@ if (HAVE_NRI)
 	set(NRI_SHARED_SHADER_FILES ${NRI_SHADER_FILES})
 	list(FILTER NRI_SHARED_SHADER_FILES EXCLUDE REGEX "/SmokeTransient[^/]*[.]cs[.]hlsl$")
 	list(FILTER NRI_SHARED_SHADER_FILES EXCLUDE REGEX "/SmokeTransientLighting[.]hlsli$")
+	list(FILTER NRI_SHARED_SHADER_FILES EXCLUDE REGEX "/SmokeTransientCoverage[.]hlsli$")
 	if (DEFINED ENV{VULKAN_SDK} AND EXISTS "$ENV{VULKAN_SDK}/Bin/dxc.exe")
 		set(RAZE_DXC_EXECUTABLE "$ENV{VULKAN_SDK}/Bin/dxc.exe" CACHE FILEPATH "DXC executable used for NRI shader compilation." FORCE)
 	elseif (DEFINED ENV{VULKAN_SDK} AND EXISTS "$ENV{VULKAN_SDK}/Bin32/dxc.exe")
@@ -1576,6 +1577,7 @@ if (HAVE_NRI)
 				-T ${_transient_target} -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/SmokeTransient${_transient_pass}.cs.spirv" "${_transient_source}"
 			DEPENDS "${_transient_source}" ${NRI_SHARED_SHADER_FILES}
 				"${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/Include/SmokeTransientLighting.hlsli"
+				"${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/Include/SmokeTransientCoverage.hlsli"
 			VERBATIM)
 	endforeach()
 	add_custom_command(

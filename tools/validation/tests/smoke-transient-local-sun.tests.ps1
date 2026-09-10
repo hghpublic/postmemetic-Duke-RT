@@ -357,12 +357,12 @@ Require-Match $directionalBuild 'if\s*\(group\.TransientClass\s*!=\s*NRI_SMOKE_T
 $mainCode = (Get-CodeBlock $materializeCode 'void\s+main\s*\([^)]*\)').Text
 $lobeLoop = Get-CodeBlock $mainCode 'for\s*\(uint\s+lobeIndex\s*=\s*group\.FirstLobe;[^)]*\)'
 Require-NoMatch $lobeLoop.Text 'SmokeTransientGroupOpticalDepth\s*\(' 'Materialization evaluates a whole-group sun integral inside its contributing-lobe loop.'
-Require-Match $lobeLoop.Text 'groupDirectionalScattering\s*\+=\s*sigmaS\s*\*\s*SmokePhaseResponse\(dot\(directionalDirection,\s*viewRay\),\s*style\.Anisotropy\)' 'Hoisted sun application lost per-lobe scattering or anisotropy.'
+Require-Match $lobeLoop.Text 'groupDirectionalScattering\[lane\]\s*\+=\s*sigmaS\s*\*\s*SmokePhaseResponse\(dot\(directionalDirection,\s*laneViewRay\),\s*style\.Anisotropy\)' 'Hoisted sun application lost per-lobe scattering or anisotropy.'
 Require-Match $lobeLoop.Text 'sigmaT\s*>\s*directionalReceiverWeight' 'Receiver selection is not strictly strongest-contribution with deterministic ties.'
-Require-Match $lobeLoop.Text 'SmokeTransientSphereSegmentReceiver\(lobe\.Position,\s*supportRadius,\s*gSmokeConstants\.CameraPosition,\s*viewRay,\s*nearDepth\s*\*\s*rayLength,\s*farDepth\s*\*\s*rayLength,\s*receiverPosition\)' 'Receiver selection does not convert froxel view depths into world-space chord distances.'
+Require-Match $lobeLoop.Text 'SmokeTransientSphereSegmentReceiver\(lobe\.Position,\s*supportRadius,\s*gSmokeConstants\.CameraPosition,\s*laneViewRay,\s*nearDepth\s*\*\s*laneRayLength,\s*farDepth\s*\*\s*laneRayLength,\s*receiverPosition\)' 'Receiver selection does not convert froxel view depths into world-space chord distances.'
 Require-Match $lobeLoop.Text 'directionalReceiverWeight\s*=\s*sigmaT;\s*directionalReceiverPosition\s*=\s*receiverPosition' 'The supported strongest-lobe receiver and its weight are not updated coherently.'
 Require-Match $lobeLoop.Text 'SmokeTransientResolveIncident\(samplePosition,\s*group,\s*lightAnchors' 'The local sun receiver moved the shared cached analytic/emissive interpolation position.'
-Require-Match $lobeLoop.Text 'extinction\s*\+=\s*sigmaT;\s*scattering\s*\+=\s*sigmaS;' 'Local sunlight changed the accumulated medium extinction/scattering coefficients.'
+Require-Match $lobeLoop.Text 'laneExtinction\[lane\]\s*\+=\s*sigmaT;\s*laneScattering\[lane\]\s*\+=\s*sigmaS;' 'Local sunlight changed the accumulated medium extinction/scattering coefficients.'
 Require-NoMatch $lobeLoop.Text '(sigmaT|sigmaS)\s*[*+]\=\s*(directionalTransport|localSelfTransmittance)' 'Local sunlight was applied to medium coefficients rather than source radiance.'
 
 $localSun = Get-CodeBlock $mainCode 'if\s*\(groupContributed\s*&&\s*cacheValid\s*&&\s*localDirectional\)'
@@ -373,9 +373,9 @@ Require-Match $mainCode 'localDirectional\s*=\s*group\.TransientClass\s*==\s*NRI
 Require-Match $localSun.Text 'localSelfTransmittance\s*=\s*1\.0;' 'Disabled local self-shadowing does not start from identity transport.'
 Require-Match $localSun.Text 'LightSourceFlags\s*&\s*NRI_SMOKE_TRANSIENT_SELF_SHADOW\)\s*!=\s*0u\s*&&\s*directionalReceiverWeight\s*>\s*0\.0' 'Local self depth ignores the self-shadow toggle or support-validity condition.'
 Require-Match $localSun.Text 'localSelfTransmittance\s*=\s*SmokeTransientSelfTransmittance\(group,\s*SmokeTransientGroupOpticalDepth\(group,\s*directionalReceiverPosition,\s*directionalDirection,\s*100000\.0\)\)' 'Local sun does not integrate the current group from its smoke-supported receiver.'
-Require-Match $localSun.Text 'groupSource\s*\+=\s*groupDirectionalScattering\s*\*\s*SmokeDirectionalColor\(\)\s*\*\s*directionalTransport\s*\*\s*localSelfTransmittance' 'Local self attenuation and cached scene visibility are not separate multiplicative factors.'
+Require-Match $localSun.Text 'groupSource\[lane\]\s*\+=\s*groupDirectionalScattering\[lane\]\s*\*\s*SmokeDirectionalColor\(\)\s*\*\s*directionalTransport\s*\*\s*localSelfTransmittance' 'Local self attenuation and cached scene visibility are not separate multiplicative factors.'
 Require-NoMatch $localSun.Text 'PublishedState|NRI_SMOKE_TRANSIENT_LIGHT_FULL|NRI_SMOKE_TRANSIENT_LIGHT_FALLBACK|currentWeight|SmokeTransientFireLightBlend' 'The local self factor is gated or crossfaded differently for fallback and FULL cache banks.'
-$sourceClamp = $mainCode.IndexOf('source += min(groupSource, 32.0)')
+$sourceClamp = $mainCode.IndexOf('laneSource[lane] += min(groupSource[lane], 32.0)')
 if ($sourceClamp -le $localSun.Close) { throw 'Local sunlight bypasses or precedes the wrong group source-clamp boundary.' }
 
 # Point and emissive lights deliberately retain their cache-built self depth;

@@ -28,6 +28,16 @@ SmokeBilinearFootprint SmokeMakeBilinearFootprint(float2 stableUv)
 
 float SmokeBilinearIntegratedTau(SmokeBilinearFootprint footprint, uint z)
 {
+	if (SmokeTransientCoverageEnabled())
+	{
+		const float t00 = saturate(gSmokeFroxelIntegrated[SmokeFroxelIndex(footprint.p00.x, footprint.p00.y, z)].a);
+		const float t10 = saturate(gSmokeFroxelIntegrated[SmokeFroxelIndex(footprint.p10.x, footprint.p10.y, z)].a);
+		const float t01 = saturate(gSmokeFroxelIntegrated[SmokeFroxelIndex(footprint.p01.x, footprint.p01.y, z)].a);
+		const float t11 = saturate(gSmokeFroxelIntegrated[SmokeFroxelIndex(footprint.p11.x, footprint.p11.y, z)].a);
+		const float transmittance = lerp(lerp(t00, t10, footprint.blend.x),
+			lerp(t01, t11, footprint.blend.x), footprint.blend.y);
+		return min(-log(max(transmittance, 1e-7)), 16.0);
+	}
 	const float tau00 = min(-log(max(gSmokeFroxelIntegrated[SmokeFroxelIndex(footprint.p00.x, footprint.p00.y, z)].a, 1e-7)), 16.0);
 	const float tau10 = min(-log(max(gSmokeFroxelIntegrated[SmokeFroxelIndex(footprint.p10.x, footprint.p10.y, z)].a, 1e-7)), 16.0);
 	const float tau01 = min(-log(max(gSmokeFroxelIntegrated[SmokeFroxelIndex(footprint.p01.x, footprint.p01.y, z)].a, 1e-7)), 16.0);
@@ -53,7 +63,10 @@ float4 SmokeResolveColumn(uint2 column, uint depthSlice, float viewDepth)
 	const float scatterIntegral = extinction > 0.000001 ? (1.0 - segmentTransmittance) / extinction : partialLength;
 	const float3 radiance = prefix.rgb + saturate(prefix.a) * max(localSource, 0.0) * scatterIntegral;
 	const float transmittance = saturate(prefix.a) * segmentTransmittance;
-	return float4(max(radiance, 0.0), min(-log(max(transmittance, 1e-7)), 16.0));
+	// Keep transmittance linear through the positive spatial reconstruction.
+	// Converting to tau before interpolation would make partial coverage denser.
+	return float4(max(radiance, 0.0), SmokeTransientCoverageEnabled() ? saturate(transmittance) :
+		min(-log(max(transmittance, 1e-7)), 16.0));
 }
 
 float SmokeRepresentativeDepth(SmokeBilinearFootprint footprint, uint terminalSlice, float terminalDepth, float terminalTau)
@@ -148,6 +161,8 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 	const float4 row0 = lerp(v00, v10, footprint.blend.x);
 	const float4 row1 = lerp(v01, v11, footprint.blend.x);
 	float4 volume = lerp(row0, row1, footprint.blend.y);
+	if (SmokeTransientCoverageEnabled())
+		volume.a = -log(max(volume.a, 1e-7));
 	volume.a = clamp(volume.a, 0.0, 16.0);
 	if (!all(isfinite(volume)) || volume.a <= 1e-6)
 		volume = 0.0;
