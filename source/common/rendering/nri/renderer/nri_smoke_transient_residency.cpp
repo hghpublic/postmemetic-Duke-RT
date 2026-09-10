@@ -107,16 +107,19 @@ void NRISmokeTransientResidency::BuildBounds(Entry& entry) const
 	{
 		const auto& request = entry.requests[index];
 		// Radius is monotonic for positive radiusExponent; endpoints bound either
-		// growth or contraction. The lifetime sweep includes rising hidden flames.
+		// growth or contraction. A reduced continuous cohort may re-time this
+		// representative earlier and extend its local lifetime to the group end.
+		// Bound that possible representation as well as the original request.
+		const float span = std::max(request.lifetimeSeconds, request.groupLifetimeSeconds);
 		const float radius = std::max({ request.initialRadius,
-			request.initialRadius + request.expansionVelocity * request.lifetimeSeconds,
+			request.initialRadius + request.expansionVelocity * span,
 			0.001f });
 		const float extent = radius + (request.shape == 1u ?
 			Length3(request.halfAxisU) + Length3(request.halfAxisV) : 0.0f);
 		for (uint32_t axis = 0u; axis < 3u; ++axis)
 		{
 			const float start = request.position[axis];
-			const float end = start + request.velocity[axis] * request.lifetimeSeconds;
+			const float end = start + request.velocity[axis] * span;
 			entry.boundsMin[axis] = std::min(entry.boundsMin[axis], std::min(start, end) - extent);
 			entry.boundsMax[axis] = std::max(entry.boundsMax[axis], std::max(start, end) + extent);
 		}

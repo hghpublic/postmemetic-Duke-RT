@@ -342,6 +342,53 @@ void RotatingPairsRetainCapacity()
 		owner.GetSnapshot().residentFireLobes == 192u && owner.GetSnapshot().hotFireDeferredGroups == 0u,
 		"four-source return after rotating Hot pairs fits exact maximum reservation without cadence gaps");
 }
+
+void RetimedRepresentativeBounds()
+{
+	NRISmokeTransientResidency owner;
+	NRISmokeTransientClouds clouds;
+	auto profile = clouds.ProfileForQuality(2u);
+	profile.maximumLobesPerGroup = 2u;
+	auto view = View();
+	view.position[0] = 10000.0f;
+	view.hotPadding = view.warmPadding = view.nearDistance = 0.0f;
+	auto batch = Build(19u, 0.0, true);
+	for (uint32_t index = 0u; index < 5u; ++index)
+	{
+		auto& request = batch[index];
+		request.position[0] = -2115.0f;
+		request.position[1] = request.position[2] = 0.0f;
+		request.velocity[0] = request.velocity[1] = request.velocity[2] = 0.0f;
+		request.initialRadius = 1.0f;
+		request.expansionVelocity = 0.0f;
+		request.radiusExponent = 1.0f;
+	}
+	// 5->2 reduction selects original member three for the second bucket,
+	// moving its birth from .3 to .25 and extending local life from5.2to5.25.
+	batch[3].velocity[0] = 400.0f;
+	batch[3].expansionVelocity = 5.0f;
+	const float originalEnd = batch[3].position[0] +
+		(batch[3].velocity[0] + batch[3].expansionVelocity) * batch[3].lifetimeSeconds +
+		batch[3].initialRadius;
+	Require(originalEnd < 0.0f, "original-member lifetime bound lies wholly outside the Hot plane");
+	owner.BeginFrame(0.0, 7u, profile, view, clouds);
+	Submit(owner, batch); owner.Resolve(clouds);
+	Require(owner.GetSnapshot().hotGroups == 1u && owner.GetSnapshot().residentFireLobes == 2u,
+		"whole-group lifetime bound retains a reduced representative whose extended future enters view");
+	auto away = view;
+	away.planes[0][0] = 1.0f;
+	away.planes[0][3] = -20000.0f;
+	owner.BeginFrame(1.0, 7u, profile, away, clouds); owner.Resolve(clouds);
+	Require(owner.GetSnapshot().dormantGroups == 1u && clouds.GetSnapshot().activeGroups == 0u,
+		"the bound fixture really demotes when its complete future is elsewhere");
+	owner.BeginFrame(5.48, 7u, profile, view, clouds); owner.Resolve(clouds);
+	Require(owner.GetSnapshot().reenteredGroups == 1u && owner.GetSnapshot().hotGroups == 1u,
+		"retained two-lobe reentry preserves conservative bounds without near-camera or margin masking");
+	bool reachesView = false;
+	for (const auto& lobe : clouds.GetGpuLobes())
+		reachesView = reachesView || lobe.position[0] + lobe.radius > 0.0f;
+	Require(reachesView, "the re-timed high-velocity/high-growth representative really reaches the visible side");
+}
 }
 
 int main()
@@ -353,6 +400,7 @@ int main()
 	LowProfileAndDownswitch();
 	WarmFrozenLighting();
 	RotatingPairsRetainCapacity();
+	RetimedRepresentativeBounds();
 	std::cout << "Transient residency tests passed: " << Checks << " checks.\n";
 	return 0;
 }
