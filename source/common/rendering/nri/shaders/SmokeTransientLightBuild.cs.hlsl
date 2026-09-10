@@ -124,17 +124,19 @@ void SmokeTransientEvaluateExternal(SmokeTransientGroup group, float3 receiverPo
 		}
 		float selfTransmittance = 1.0;
 		if (fullBuild &&
+			group.TransientClass != NRI_SMOKE_TRANSIENT_CLASS_FIRE &&
 			(gSmokeConstants.LightSourceFlags & NRI_SMOKE_TRANSIENT_SELF_SHADOW) != 0u)
 		{
 			InterlockedAdd(gSmokeControl[0].TransientLightSelfTransmittanceTests, 1u);
 			selfTransmittance = SmokeTransientSelfTransmittance(group,
 				SmokeTransientGroupOpticalDepth(group, receiverPosition, direction, 100000.0));
 		}
-		directionalTransport = visibility * selfTransmittance;
+		directionalTransport = group.TransientClass == NRI_SMOKE_TRANSIENT_CLASS_FIRE
+			? visibility : visibility * selfTransmittance;
 		const float3 incident = SmokeDirectionalColor() * directionalTransport;
-		// Fire evaluates the current analytic directional color and direction during
-		// materialization. Cache only its ray-built transport so a rising packet does
-		// not carry stale sun radiance between bounded group refreshes.
+		// Fire caches geometry visibility alone. Its current local self-attenuation,
+		// directional color and phase are evaluated during materialization, so exposed
+		// shoulders do not inherit the dense interior anchors' smoke attenuation.
 		if (group.TransientClass != NRI_SMOKE_TRANSIENT_CLASS_FIRE)
 			SmokeTransientAccumulateIncident(incident, direction, lobes);
 		if (any(incident > 0.0))

@@ -197,6 +197,8 @@ void main(uint3 froxel : SV_DispatchThreadID)
 	const float farDepth = SmokeSliceFarDepth(froxel.z);
 	const float3 ray = SmokeFroxelRay(froxel.xy);
 	const float3 viewRay = normalize(ray);
+	const float rayLength = length(ray);
+	const float3 directionalDirection = SmokeDirectionalDirection();
 	const float3 samplePosition = SmokeFroxelCenter(froxel, ray);
 	float extinction = 0.0;
 	float3 scattering = 0.0;
@@ -237,6 +239,12 @@ void main(uint3 froxel : SV_DispatchThreadID)
 		float directionalTransport = 0.0;
 		bool groupContributed = false;
 		float3 groupSource = 0.0;
+		const bool localDirectional = group.TransientClass == NRI_SMOKE_TRANSIENT_CLASS_FIRE &&
+			gSmokeConstants.LightMode > 0u &&
+			(gSmokeConstants.LightSourceFlags & NRI_SMOKE_LIGHT_SOURCE_DIRECTIONAL) != 0u;
+		float3 groupDirectionalScattering = 0.0;
+		float directionalReceiverWeight = 0.0;
+		float3 directionalReceiverPosition = samplePosition;
 		const uint endLobe = min(group.FirstLobe + min(group.LobeCount,
 			NRI_SMOKE_TRANSIENT_MAX_LOBES_PER_GROUP), activeLobeCount);
 		[loop]
@@ -293,15 +301,28 @@ void main(uint3 froxel : SV_DispatchThreadID)
 					externalSource += sigmaS * incidentLobes[incidentIndex] *
 						SmokePhaseResponse(dot(NRI_SMOKE_TRANSIENT_LIGHT_AXES[incidentIndex],
 							viewRay), style.Anisotropy);
-				if (group.TransientClass == NRI_SMOKE_TRANSIENT_CLASS_FIRE &&
-					gSmokeConstants.LightMode > 0u &&
-					(gSmokeConstants.LightSourceFlags & NRI_SMOKE_LIGHT_SOURCE_DIRECTIONAL) != 0u)
+				if (localDirectional)
 				{
-					// Directional scene/self visibility remains a bounded group-cache result,
-					// while current sun color/direction is cheap analytic work with no rays.
-					const float3 direction = SmokeDirectionalDirection();
-					externalSource += sigmaS * SmokeDirectionalColor() * directionalTransport *
-						SmokePhaseResponse(dot(direction, viewRay), style.Anisotropy);
+					groupDirectionalScattering += sigmaS *
+						SmokePhaseResponse(dot(directionalDirection, viewRay), style.Anisotropy);
+					if ((gSmokeConstants.LightSourceFlags & NRI_SMOKE_TRANSIENT_SELF_SHADOW) != 0u &&
+						sigmaT > directionalReceiverWeight)
+					{
+						// One representative from the strongest contributing support avoids
+						// placing a weighted centroid in gaps between disconnected lobes.
+						// Production Fire is spherical; rectangle transport retains the
+						// conservative enclosing-sphere convention of group optical depth.
+						const float supportRadius = lobe.Shape == NRI_SMOKE_INJECTION_SHAPE_RECTANGLE
+							? lobe.Radius + length(lobe.HalfAxisU) + length(lobe.HalfAxisV) : lobe.Radius;
+						float3 receiverPosition;
+						if (SmokeTransientSphereSegmentReceiver(lobe.Position, supportRadius,
+							gSmokeConstants.CameraPosition, viewRay, nearDepth * rayLength,
+							farDepth * rayLength, receiverPosition))
+						{
+							directionalReceiverWeight = sigmaT;
+							directionalReceiverPosition = receiverPosition;
+						}
+					}
 				}
 			}
 			const float3 intrinsicSource = sigmaT * max(lobe.EmissionScale, 0.0) *
@@ -315,6 +336,22 @@ void main(uint3 froxel : SV_DispatchThreadID)
 			contributors++;
 			groupContributed = true;
 			lobeContributions++;
+		}
+		if (groupContributed && cacheValid && localDirectional)
+		{
+			float localSelfTransmittance = 1.0;
+			if ((gSmokeConstants.LightSourceFlags & NRI_SMOKE_TRANSIENT_SELF_SHADOW) != 0u &&
+				directionalReceiverWeight > 0.0)
+			{
+				// Once per group/froxel, never a whole-group integral per lobe.
+				// Current geometry supplies this same factor for fallback and FULL;
+				// only cached scene visibility participates in the bank crossfade.
+				localSelfTransmittance = SmokeTransientSelfTransmittance(group,
+					SmokeTransientGroupOpticalDepth(group, directionalReceiverPosition,
+						directionalDirection, 100000.0));
+			}
+			groupSource += groupDirectionalScattering * SmokeDirectionalColor() *
+				directionalTransport * localSelfTransmittance;
 		}
 		source += min(groupSource, 32.0) * max(gSmokeConstants.RadianceScale, 0.0);
 		// Candidate iteration is not a group identity: lanes in the same wave can

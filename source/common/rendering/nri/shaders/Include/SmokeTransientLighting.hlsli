@@ -64,6 +64,8 @@ float3 SmokeTransientLightAnchorPosition(SmokeTransientLightAnchor record)
 
 float SmokeTransientFireDirectionalTransport(SmokeTransientLightAnchor record)
 {
+	// Fire stores only scene visibility. Current local smoke attenuation is
+	// evaluated once per contributing group/froxel, including fallback lighting.
 	const float transport = asfloat(record.Data2.y);
 	return isfinite(transport) ? saturate(transport) : 0.0;
 }
@@ -236,6 +238,28 @@ float SmokeTransientBoundaryErosionAmplitude(float edgeErosion, float noiseStren
 	return 1.0 - (1.0 - edge) * (1.0 - strength);
 }
 
+bool SmokeTransientSphereSegmentReceiver(float3 center, float radius,
+	float3 rayOrigin, float3 unitRay, float segmentNear, float segmentFar,
+	out float3 receiverPosition)
+{
+	receiverPosition = center;
+	if (!isfinite(radius) || radius <= 0.0 || segmentFar <= segmentNear)
+		return false;
+	const float3 originToCenter = center - rayOrigin;
+	const float closest = dot(originToCenter, unitRay);
+	const float3 perpendicular = rayOrigin + unitRay * closest - center;
+	const float chordSquared = radius * radius - dot(perpendicular, perpendicular);
+	if (!(chordSquared > 0.0)) return false;
+	const float halfChord = sqrt(chordSquared);
+	const float entry = max(segmentNear, closest - halfChord);
+	const float exit = min(segmentFar, closest + halfChord);
+	if (exit <= entry) return false;
+	// Exact extinction can be nonzero when the froxel midpoint is outside its
+	// contributing lobe. Shade inside the occupied chord, not that empty midpoint.
+	receiverPosition = rayOrigin + unitRay * ((entry + exit) * 0.5);
+	return all(isfinite(receiverPosition));
+}
+
 float SmokeTransientSphereKernelAverage(SmokeTransientLobe lobe, float3 ray,
 	float nearDepth, float farDepth)
 {
@@ -338,10 +362,9 @@ float SmokeTransientGroupOpticalDepth(SmokeTransientGroup group, float3 origin,
 float SmokeTransientSelfTransmittance(SmokeTransientGroup group, float opticalDepth)
 {
 	const float physical = exp(-min(max(opticalDepth, 0.0), 20.0));
-	// Fire's four lighting anchors sit inside a dense compound packet. A physical
-	// center-to-light integral can therefore black out the cached value that is
-	// later interpolated over the entire outer billow. Keep scene visibility exact,
-	// but retain a bounded artistic fraction of externally visible light for Fire.
+	// Preserve Fire's established art-directed dark-body response. Directional
+	// light now evaluates this at a local receiver; point/emissive caches retain
+	// their interior-anchor evaluation. The floor never lifts scene visibility.
 	return group.TransientClass == NRI_SMOKE_TRANSIENT_CLASS_FIRE
 		? 0.18 + 0.82 * physical : physical;
 }

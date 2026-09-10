@@ -126,10 +126,10 @@ Require-Match $lighting 'SmokeTransientFireAnchorRevisionMatches[\s\S]*record\.D
 Require-Match $lighting 'SmokeTransientFireLightBlend[\s\S]*min\(0\.2,\s*finiteInterval\)\s*:\s*0\.2[\s\S]*saturate' 'Fire cache transition is not bounded by 0.2 seconds and the positive refresh interval.'
 Require-Match $lighting 'SmokeTransientSelfTransmittance[\s\S]*NRI_SMOKE_TRANSIENT_CLASS_FIRE[\s\S]*0\.18\s*\+\s*0\.82\s*\*\s*physical\s*:\s*physical' 'The bounded artistic self-transport floor is not Fire-only.'
 
-# Full-cache construction stores ray-built directional transport separately for
+# Full-cache construction stores directional scene visibility separately for
 # Fire, leaves non-Fire directional lobe accumulation in place, and stabilizes
 # only Fire emissive proposals across pool slot/generation changes.
-Require-Match $build 'directionalTransport\s*=\s*visibility\s*\*\s*selfTransmittance' 'Directional scene/self transport is not cached as one exact product.'
+Require-Match $build 'directionalTransport\s*=\s*group\.TransientClass\s*==\s*NRI_SMOKE_TRANSIENT_CLASS_FIRE\s*\?\s*visibility\s*:\s*visibility\s*\*\s*selfTransmittance' 'Fire must cache scene visibility alone while other classes retain cached self attenuation.'
 Require-Match $build 'if\s*\(group\.TransientClass\s*!=\s*NRI_SMOKE_TRANSIENT_CLASS_FIRE\)\s*SmokeTransientAccumulateIncident\(incident,\s*direction,\s*lobes\)' 'Fire directional RGB was not split from non-Fire cached lobes.'
 Require-Match $build 'group\.TransientClass\s*==\s*NRI_SMOKE_TRANSIENT_CLASS_FIRE[\s\S]*SmokeTransientHash\(group\.SourceId\s*\^[\s\S]*SmokeTransientHash\(group\.Slot\s*\^\s*SmokeTransientHash\(group\.Generation\)' 'Fire emissive seeds are not source-stable while non-Fire seeds retain slot/generation identity.'
 Require-Match $build 'record\.Data2\.y\s*=\s*asuint\(saturate\(isfinite\(directionalTransport\)' 'Fire anchor does not store bounded directional transport.'
@@ -145,7 +145,8 @@ Assert-True ($settledIndex -ge 0 -and $dimensionsIndex -gt $settledIndex) 'Settl
 Require-Match $materialize 'SmokeTransientAnchorIdentityMatches\(previousAnchors\[anchorIndex\],\s*group,\s*anchorIndex\)' 'Previous-bank anchors are not identity-validated before blending.'
 Require-Match $materialize 'SmokeTransientFireAnchorRevisionMatches\(previousAnchors\[anchorIndex\],\s*group\)' 'A previous Fire bank with stale shape/lighting revision can be blended.'
 Require-Match $materialize 'lerp\(previousIncidentLobes\[incidentIndex\],[\s\S]*currentWeight\)[\s\S]*directionalTransport\s*=\s*lerp\(previousDirectionalTransport,[\s\S]*currentWeight\)' 'The complete prior/current Fire lighting banks are not blended with one coherent weight.'
-Require-Match $materialize 'NRI_SMOKE_LIGHT_SOURCE_DIRECTIONAL[\s\S]*SmokeDirectionalDirection\(\)[\s\S]*SmokeDirectionalColor\(\)\s*\*\s*directionalTransport' 'Fire does not evaluate current analytic directional lighting during materialization.'
+Require-Match $materialize 'directionalDirection\s*=\s*SmokeDirectionalDirection\(\)' 'Fire does not use current directional direction during materialization.'
+Require-Match $materialize 'NRI_SMOKE_LIGHT_SOURCE_DIRECTIONAL[\s\S]*SmokeDirectionalColor\(\)\s*\*\s*directionalTransport\s*\*\s*localSelfTransmittance' 'Fire does not combine current directional lighting with separate scene and local smoke attenuation.'
 Require-Match $materialize '#include\s+"Include/SmokeLightParameters\.hlsli"' 'Materialization does not import the shared ray-free directional-light contract.'
 Require-Match $lightParameters 'NRI_SMOKE_LIGHT_SOURCE_DIRECTIONAL' 'The shared light-parameter include is missing the directional source flag.'
 Require-Match $lightParameters 'float3\s+SmokeDirectionalDirection\(\)' 'The shared light-parameter include is missing current directional direction.'

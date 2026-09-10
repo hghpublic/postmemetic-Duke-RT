@@ -67,9 +67,11 @@ Require-Match $build 'uint\s+selectedCount\s*=\s*0u;[\s\S]*LightMode\s*>\s*0u[\s
 Require-Match $build 'environment\s*=\s*all\(isfinite\(sampled\)\)\s*\?\s*max\(sampled,\s*0\.0\)\s*:\s*0\.0[\s\S]*cubemapQuadratureWeight\s*=\s*2\.094395' 'Optional sky lighting must use zero-preserving six-axis solid-angle quadrature.'
 Require-NoMatch $build 'max\(sampled,\s*0\.02|:\s*0\.02\.xxx' 'A black sky must not acquire an artificial transient ambient floor.'
 Require-NoMatch $build 'gSmokeRuntimeLightTileHeaders|gSmokeRuntimeLightTileIndices' 'Transient cache selection acquired camera-tile identity.'
-if ([regex]::Matches($build, 'fullBuild\s*&&\s*\(gSmokeConstants\.LightSourceFlags\s*&\s*NRI_SMOKE_TRANSIENT_SELF_SHADOW\)').Count -ne 3) {
+if ([regex]::Matches($build, 'fullBuild\s*&&\s*(?:group\.TransientClass\s*!=\s*NRI_SMOKE_TRANSIENT_CLASS_FIRE\s*&&\s*)?\(gSmokeConstants\.LightSourceFlags\s*&\s*NRI_SMOKE_TRANSIENT_SELF_SHADOW\)').Count -ne 3) {
     throw 'All three full-cache self-transmittance paths must honor nri_ptsmoketransientselfshadow through LightSourceFlags.'
 }
+Require-Match $build 'fullBuild\s*&&\s*group\.TransientClass\s*!=\s*NRI_SMOKE_TRANSIENT_CLASS_FIRE\s*&&\s*\(gSmokeConstants\.LightSourceFlags\s*&\s*NRI_SMOKE_TRANSIENT_SELF_SHADOW\)' 'Fire directional self attenuation must move out of the anchor build; other classes retain it.'
+Require-Match $materialize 'LightSourceFlags\s*&\s*NRI_SMOKE_TRANSIENT_SELF_SHADOW[\s\S]*localSelfTransmittance\s*=\s*SmokeTransientSelfTransmittance' 'Local Fire self attenuation must honor the same independent self-shadow control.'
 
 Require-Match $materialize 'SmokeTransientRaySegmentIntersectsAabb[\s\S]*cacheLoaded' 'Cache taps are not deferred until after conservative group rejection.'
 Require-Match $materialize 'if\s*\(!cacheLoaded\)[\s\S]*SmokeTransientLoadCache' 'Anchor records are loaded before any positive lobe contribution.'

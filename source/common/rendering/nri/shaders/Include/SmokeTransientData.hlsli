@@ -97,7 +97,8 @@ struct SmokeTransientBinHeader
 
 // Six packed FP16 RGB incident-radiance lobes and identity. Non-fire records
 // retain the original anchor position in Data2.yzw. Fire records reuse the
-// otherwise-unconsumed Data2.yzw words for directional transport, the group
+// otherwise-unconsumed Data2.yzw words for directional scene visibility ONLY
+// (local smoke self-transmittance is applied during materialization), the group
 // age at which this complete bank was built, and its packed shape/lighting
 // revision; the buffer remains 64 bytes.
 struct SmokeTransientLightAnchor
