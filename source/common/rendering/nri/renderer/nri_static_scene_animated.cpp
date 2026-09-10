@@ -141,18 +141,20 @@ bool nri_static_scene::RefreshStaticMapAnimatedMaterials(
 	};
 	const auto mismatch = [&](const char* reason)
 	{
+		const bool firstFailure = !state.quarantined;
 		++stats.mismatches;
 		state.quarantined = true;
 		state.canonicalLayoutValid = false;
 		optimized = false;
-		Printf("NRI PT static material validation: mismatch=1 reason=%s quarantine=1 build=%llu\n",
-			reason, (unsigned long long)staticScene.contentBuildSerial);
+		if (firstFailure)
+			Printf("NRI PT static material validation: mismatch=1 reason=%s quarantine=1 build=%llu\n",
+				reason, (unsigned long long)staticScene.contentBuildSerial);
 	};
 	const auto trace = [&]()
 	{
 		// Compact capture alone never enables synchronous diagnostic output.
 		if ((input.traceStats || input.validateMaterialPatches || stats.mismatches != 0) &&
-			(state.traceRows < 4096 || stats.mismatches != 0))
+			state.traceRows < 4096)
 		{
 			++state.traceRows;
 			Printf("PERF pt static material cache NRI: candidates=%u visited=%u eligible=%u signatures=%u unchanged=%u clones=%u patched_chunks=%u patched_rows=%u full_rebuilds=%u candidate_checks=%u binding_checks=%u bridge_checks=%u mismatches=%u quarantined=%u\n",
