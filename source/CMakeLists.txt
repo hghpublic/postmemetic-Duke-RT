@@ -630,7 +630,7 @@ file( GLOB HEADER_FILES
 	core/vmstubs.cpp
 )
 
-file(GLOB NRI_SHADER_FILES
+file(GLOB NRI_SHADER_FILES CONFIGURE_DEPENDS
 	common/rendering/nri/shaders/*.cfg
 	common/rendering/nri/shaders/*.hlsl
 	common/rendering/nri/shaders/*.hlsli

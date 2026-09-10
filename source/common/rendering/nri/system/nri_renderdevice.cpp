@@ -8194,9 +8194,9 @@ void NRIRenderDevice::PrintSwapChainStatus() const
 		GetNriResultName(mSwapChainDisplayDescResult),
 		mSwapChainOutputResolveReason.IsEmpty() ? "unknown" : mSwapChainOutputResolveReason.GetChars());
 	Printf("NRI PT ui output: present_contract=%s gamma=%.3f hdr_scale=%.3f active_target=%s framegen_ui_target=%s\n",
-		hdrUiContractActive ? "hdr-paperwhite" : "sdr-direct",
+		hdrUiContractActive ? "hdr-ui-white" : "sdr-direct",
 		hdrUiContractActive ? 2.2f : 1.0f,
-		hdrUiContractActive ? hdrPaperWhiteScale : 1.0f,
+		hdrUiContractActive ? GetNRIPTHdrUiWhiteScale(outputPolicy) : 1.0f,
 		mActiveTarget == mCurrentPresentTarget ? "present" :
 			(mActiveTarget == &mSceneTarget ? "scene" : (mActiveTarget == &mSaveTarget ? "save" : "other")),
 		mFrameGenerationUiTargetActive ? "yes" : "no");

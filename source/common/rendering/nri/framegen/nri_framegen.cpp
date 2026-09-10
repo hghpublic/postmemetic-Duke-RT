@@ -794,7 +794,7 @@ NRIFrameGenerationPresentContract NRIFrameGenerationContext::BuildPresentContrac
 	contract.createdSwapChainFormat = frameBuffer.mCreatedSwapChainFormat;
 	contract.resolvedTextureFormat = frameBuffer.mResolvedSwapChainTextureFormat;
 	contract.usesHdrSwapChain = outputPolicy.hdrSwapChainActive;
-	contract.hdrPaperWhiteScale = GetNRIPTHdrPaperWhiteScale(outputPolicy);
+	contract.hdrPaperWhiteScale = GetNRIPTHdrUiWhiteScale(outputPolicy);
 	const float safeSdrNits = GetNRIPTOutputSafeDisplaySdrLuminance(outputPolicy.displaySdrLuminance);
 	const float safeMaxNits = GetNRIPTOutputSafeDisplayMaxLuminance(outputPolicy.displaySdrLuminance, outputPolicy.displayMaxLuminance);
 	contract.minLuminanceNits =

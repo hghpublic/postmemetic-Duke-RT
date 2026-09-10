@@ -900,7 +900,7 @@ void NRIRenderState::FillShaderConstants(NRIShaderConstants& constants) const
 		if ((isPresentTarget || isFrameGenerationUiTarget) && outputPolicy.hdrSwapChainActive)
 		{
 			constants.Flags |= NRI2D_OutputHdrLinear;
-			constants.OutputInfo[0] = GetNRIPTHdrPaperWhiteScale(outputPolicy);
+			constants.OutputInfo[0] = GetNRIPTHdrUiWhiteScale(outputPolicy);
 			constants.OutputInfo[1] = 2.2f;
 		}
 	}
