@@ -22,9 +22,14 @@ namespace
 		return std::chrono::duration_cast<std::chrono::duration<double, std::milli>>(end - start).count();
 	}
 
+	static bool ShouldTraceSceneDataTiming()
+	{
+		return (int)nri_pttraceframes > 0 || (int)perf_looptraceframes > 0 || (bool)nri_ptslowdowntrace;
+	}
+
 	static bool ShouldCollectSceneDataTiming()
 	{
-		return (int)nri_pttraceframes > 0 || (int)perf_looptraceframes > 0 || (bool)nri_ptslowdowntrace || PerfCompactCaptureTimingActive();
+		return ShouldTraceSceneDataTiming() || PerfCompactCaptureTimingActive();
 	}
 
 	class ScopedPtPerfTimer
@@ -492,7 +497,7 @@ bool NRIRenderer::UpdateEmissiveSamplingBuffers(
 		frameSlot->emissivePrimitiveDebugRecords = mBoundEmissivePrimitiveRecords;
 	}
 
-	if (ShouldCollectSceneDataTiming())
+	if (ShouldTraceSceneDataTiming())
 	{
 		const uint32_t growCount =
 			emissivePrimitiveHeaderStats.growEventsLastFrame +
