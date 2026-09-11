@@ -84,6 +84,7 @@ struct NRISmokeTransientLobeRequest
 	uint32_t deterministicSeed = 0u;
 	NRISmokeTransientClass transientClass = NRISmokeTransientClass::Diagnostic;
 	NRISmokeTransientLightRefresh lightRefresh = NRISmokeTransientLightRefresh::Frozen;
+	bool burstBorrow = false;
 };
 
 // Semantic emitter input. One input is one group; optical amount and requested
@@ -134,6 +135,7 @@ struct NRISmokeTransientGroupShapeInput
 	uint32_t deterministicSeed = 0u;
 	NRISmokeTransientClass transientClass = NRISmokeTransientClass::Diagnostic;
 	NRISmokeTransientLightRefresh lightRefresh = NRISmokeTransientLightRefresh::Frozen;
+	bool burstBorrow = false;
 };
 
 // Returns initialized records, or zero for invalid input. A smaller output

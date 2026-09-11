@@ -510,6 +510,7 @@ LIGHTOVR
         representation "transient-cloud"
         effectclass explosion
         lobecount 12
+        burstborrow on
         queuepolicy retry
         analyticcarriers 1
         emitterforeground off

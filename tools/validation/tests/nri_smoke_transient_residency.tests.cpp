@@ -18,7 +18,7 @@ void Require(bool condition, const char* message)
 
 using Batch = std::array<NRISmokeTransientLobeRequest, 16u>;
 Batch Build(uint32_t source, double time, bool fire, float x = 1000.0f,
-	float lifetime = 5.5f, uint32_t count = 5u)
+	float lifetime = 5.5f, uint32_t count = 5u, bool borrow = false)
 {
 	NRISmokeTransientGroupShapeInput input = {};
 	input.position[0] = x;
@@ -44,6 +44,7 @@ Batch Build(uint32_t source, double time, bool fire, float x = 1000.0f,
 	input.deterministicSeed = source * 173u + static_cast<uint32_t>(input.sourceEventSerial);
 	input.transientClass = fire ? NRISmokeTransientClass::FirePacket : NRISmokeTransientClass::Explosion;
 	input.lightRefresh = fire ? NRISmokeTransientLightRefresh::Slow : NRISmokeTransientLightRefresh::Frozen;
+	input.burstBorrow = borrow;
 	Batch batch = {};
 	Require(NRIBuildSmokeTransientLobes(input, batch.data(), 16u) == count, "fixture builds complete batch");
 	return batch;
@@ -389,6 +390,210 @@ void RetimedRepresentativeBounds()
 		reachesView = reachesView || lobe.position[0] + lobe.radius > 0.0f;
 	Require(reachesView, "the re-timed high-velocity/high-growth representative really reaches the visible side");
 }
+
+void AircarBorrowedBirthCoverage(bool lateFires)
+{
+	NRISmokeTransientResidency owner;
+	NRISmokeTransientClouds clouds;
+	const auto profile = clouds.ProfileForQuality(2u);
+	std::set<uint32_t> presented;
+	std::map<uint32_t, NRISmokeTransientGroupGpu> previous;
+	uint32_t peakExplosions = 0u, peakExplosionLobes = 0u;
+	uint32_t births = 0u;
+	for (uint32_t tick = 0u; tick <= 370u; ++tick)
+	{
+		const double time = static_cast<double>(tick) / 30.0;
+		owner.BeginFrame(time, 7u, profile, View(), clouds);
+		if (tick == 0u)
+			for (uint32_t source = 80u; source < 82u; ++source)
+			{
+				auto normal = Build(source, time, false, 1000.0f, 12.0f, 4u);
+				for (auto& lobe : normal) lobe.transientClass = NRISmokeTransientClass::TrailChunk;
+				Submit(owner, normal);
+			}
+		if (tick % 15u == 0u && tick < 210u && (!lateFires || tick >= 60u))
+			for (uint32_t source = 1u; source <= 2u; ++source) Submit(owner, Build(source, time, true));
+		if (tick >= 4u && tick <= 208u && tick % 4u == 0u)
+		{
+			auto explosion = Build(1000u + births, time, false, 1000.0f, 5.0f, 12u);
+			for (auto& lobe : explosion) lobe.burstBorrow = true;
+			Submit(owner, explosion);
+			++births;
+		}
+		owner.Resolve(clouds);
+		const auto& status = owner.GetSnapshot();
+		Require(status.deferredBorrowExplosionGroups == 0u,
+			"every one of the actual aircar's rapid explosion births admits on time");
+		Require(status.hotFireDeferredGroups == 0u,
+			"explosion loans preserve two established or subsequently arriving Fire streams");
+		Require(clouds.GetSnapshot().activeGroups <= 64u && clouds.GetSnapshot().activeLobes <= 256u,
+			"loaning never expands the fixed physical GPU limits");
+		Require(status.historyRejectedGroups == 0u && status.historyEvictedGroups == 0u,
+			"aircar coverage does not conceal rejection in retained CPU history");
+		peakExplosions = std::max(peakExplosions, status.residentBorrowExplosionGroups);
+		peakExplosionLobes = std::max(peakExplosionLobes, status.residentBorrowExplosionLobes);
+		for (const auto& group : clouds.GetGpuGroups())
+		{
+			if (group.flags == 0u || group.sourceId < 1000u || group.lobeCount == 0u) continue;
+			if (presented.insert(group.sourceId).second)
+			{
+				Require(group.ageSeconds <= 1.0f / 30.0f + 1.0e-5f,
+					"first nonzero-density presentation is within one actor tick, not an old deferred tail");
+				Require(group.lobeCount == (group.sourceId == 1000u ? 12u : 3u),
+					"episode first explosion keeps authored detail; rapid followers carry three optical-preserving lobes");
+			}
+		}
+		for (const auto& item : previous)
+		{
+			if (item.second.ageSeconds + 1.0f / 30.0f + 1.0e-5f >= item.second.groupLifetimeSeconds) continue;
+			const auto& current = clouds.GetGpuGroups()[item.first];
+			Require(current.flags != 0u && current.generation == item.second.generation,
+				"explosion borrowing never evicts any already-visible unexpired group");
+		}
+		previous.clear();
+		for (const auto& group : clouds.GetGpuGroups())
+			if (group.flags != 0u) previous[group.slot] = group;
+		clouds.CommitLightDispatchSchedule();
+	}
+	Require(births == 52u && presented.size() == 52u && owner.GetSnapshot().firstPresentedExplosionEvents == 52u,
+		"all 52 authored aircar births, not merely the first poolful, were visibly represented");
+	Require(peakExplosions == 38u && peakExplosionLobes == 123u,
+		"actual 30Hz/4-tick/five-second episode reaches its expected 38-group/123-lobe bound");
+	Require(owner.GetSnapshot().maximumExplosionFirstAgeMilliseconds <= 34u,
+		"first-presentation telemetry matches the timely-birth acceptance gate");
+	Require(owner.GetSnapshot().compactExplosionEvents == 51u && owner.GetSnapshot().historyGroups == 0u,
+		"all followers compact once and every original event eventually expires naturally");
+}
+
+void BorrowOptInAndEpisodeIdentity()
+{
+	NRISmokeTransientResidency owner;
+	NRISmokeTransientClouds clouds;
+	const auto profile = clouds.ProfileForQuality(2u);
+	owner.BeginFrame(0.2, 7u, profile, View(), clouds);
+	auto later = Build(91u, 0.133333333, false, 1000.0f, 5.0f, 12u);
+	auto first = Build(92u, 0.0, false, 1000.0f, 5.0f, 12u);
+	for (auto* batch : { &later, &first }) for (auto& lobe : *batch) lobe.burstBorrow = true;
+	Submit(owner, later); Submit(owner, first); // deliberately reversed actor traversal
+	owner.Resolve(clouds);
+	for (const auto& group : clouds.GetGpuGroups())
+		if (group.flags != 0u)
+			Require(group.lobeCount == (group.sourceId == 92u ? 12u : 3u),
+				"same-frame episode stamping uses authored time, not submission traversal");
+	owner.BeginFrame(1.0, 7u, profile, View(-1.0f), clouds); owner.Resolve(clouds);
+	owner.BeginFrame(1.1, 7u, profile, View(), clouds); owner.Resolve(clouds);
+	for (const auto& group : clouds.GetGpuGroups())
+		if (group.flags != 0u)
+			Require(group.lobeCount == (group.sourceId == 92u ? 12u : 3u),
+				"true-age reentry cannot restamp compact followers as isolated full-detail explosions");
+	auto isolated = Build(93u, 1.1, false, 1000.0f, 5.0f, 12u);
+	for (auto& lobe : isolated) lobe.burstBorrow = true;
+	Submit(owner, isolated); owner.Resolve(clouds);
+	owner.BeginFrame(1.3, 7u, profile, View(), clouds); owner.Resolve(clouds);
+	for (const auto& group : clouds.GetGpuGroups())
+		if (group.sourceId == 93u) Require(group.lobeCount == 12u, "a quiet-gap isolated explosion retains authored art");
+	NRISmokeTransientClouds reduction;
+	reduction.Reset(7u); reduction.BeginFrame(0.5, 256u, profile);
+	const auto reduced = reduction.AdmitRetainedBatch(first.data(), 12u, 3u);
+	Require(reduced.Accepted(), "compact explosion uses the existing deterministic reducer");
+	double authoredOptical = 0.0, reducedOptical = 0.0;
+	for (uint32_t index = 0u; index < 12u; ++index)
+		authoredOptical += first[index].initialDensity * first[index].opticalWeight;
+	for (const auto& lobe : reduction.GetGpuLobes()) reducedOptical += lobe.densityScale;
+	Require(std::abs(authoredOptical - reducedOptical) < 1.0e-5,
+		"three-lobe explosion representation preserves authored optical quantity at full envelope");
+	NRISmokeTransientResidency unflagged;
+	NRISmokeTransientClouds unflaggedClouds;
+	unflagged.BeginFrame(0.2, 7u, profile, View(), unflaggedClouds);
+	for (uint32_t source = 1u; source <= 8u; ++source)
+		Submit(unflagged, Build(source, 0.0, false, 1000.0f, 5.0f, 12u));
+	unflagged.Resolve(unflaggedClouds);
+	Require(unflagged.GetSnapshot().residentBurstLobes == 64u &&
+		unflagged.GetSnapshot().residentBorrowExplosionGroups == 0u && unflagged.GetSnapshot().hotBurstDeferredGroups > 0u,
+		"unflagged explosions cannot take the opted-in loan policy");
+	const auto builderFlag = Build(99u, 0.0, false, 1000.0f, 5.0f, 12u, true);
+	for (uint32_t index = 0u; index < 12u; ++index)
+		Require(builderFlag[index].burstBorrow, "semantic shape input propagates opt-in to every immutable lobe request");
+	auto mismatched = builderFlag;
+	mismatched[4].burstBorrow = false;
+	Require(!NRISmokeTransientClouds::ValidateBatch(mismatched.data(), 12u),
+		"one group cannot contain contradictory borrowing policies");
+}
+
+void LateFireCannotSpendPromisedCadences()
+{
+	NRISmokeTransientResidency owner;
+	NRISmokeTransientClouds clouds;
+	const auto profile = clouds.ProfileForQuality(2u);
+	owner.BeginFrame(5.0, 7u, profile, View(), clouds);
+	for (uint32_t source = 1u; source <= 2u; ++source)
+		for (uint32_t cohort = 0u; cohort < 12u; ++cohort) Submit(owner, Build(source, cohort * 0.45, true));
+	for (uint32_t index = 0u; index < 38u; ++index)
+		Submit(owner, Build(1000u + index, 5.0 - static_cast<double>(37u - index) * 4.0 / 30.0,
+			false, 1000.0f, 5.0f, 12u, true));
+	for (uint32_t source = 80u; source < 82u; ++source)
+	{
+		auto normal = Build(source, 5.0, false, 1000.0f, 12.0f, 4u);
+		for (auto& lobe : normal) lobe.transientClass = NRISmokeTransientClass::TrailChunk;
+		Submit(owner, normal);
+	}
+	owner.Resolve(clouds);
+	Require(clouds.GetSnapshot().activeGroups == 64u && clouds.GetSnapshot().activeLobes == 251u,
+		"full promised-window fixture exactly fills the 64-group/251-lobe guarantee");
+	owner.BeginFrame(5.01, 7u, profile, View(), clouds);
+	Submit(owner, Build(3u, 5.01, true)); owner.Resolve(clouds);
+	Require(owner.GetSnapshot().hotFireDeferredGroups == 1u && owner.GetSnapshot().residentFireGroups == 24u,
+		"late third Fire waits rather than stealing existing pair's promised future capacity");
+	bool thirdEventuallyAdmitted = false;
+	for (uint32_t step = 1u; step <= 50u; ++step)
+	{
+		const double time = 5.0 + step * 0.05;
+		owner.BeginFrame(time, 7u, profile, View(), clouds);
+		if (step % 10u == 0u)
+			for (uint32_t source = 1u; source <= 2u; ++source) Submit(owner, Build(source, time, true));
+		owner.Resolve(clouds);
+		if (step % 10u == 0u)
+			for (uint32_t source = 1u; source <= 2u; ++source)
+			{
+				bool cadencePresent = false;
+				for (const auto& group : clouds.GetGpuGroups())
+					cadencePresent = cadencePresent || (group.flags != 0u && group.sourceId == source && group.ageSeconds < 1.0e-4f);
+				Require(cadencePresent, "established Fire still admits every cadence while an extra source waits for loan repayment");
+			}
+		for (const auto& group : clouds.GetGpuGroups())
+			thirdEventuallyAdmitted = thirdEventuallyAdmitted || (group.flags != 0u && group.sourceId == 3u);
+	}
+	Require(thirdEventuallyAdmitted, "extra source can enter at actual age after natural loan repayment opens its complete window");
+}
+
+void EstablishedFireWindowsPrecedeLoans()
+{
+	NRISmokeTransientResidency owner;
+	NRISmokeTransientClouds clouds;
+	const auto profile = clouds.ProfileForQuality(2u);
+	owner.BeginFrame(5.4, 7u, profile, View(), clouds);
+	for (uint32_t source = 1u; source <= 4u; ++source)
+		for (uint32_t cohort = 0u; cohort < 12u; ++cohort) Submit(owner, Build(source, cohort * 0.49, true));
+	for (uint32_t source = 80u; source < 82u; ++source)
+	{
+		auto normal = Build(source, 5.0, false, 1000.0f, 12.0f, 4u, true);
+		for (auto& lobe : normal) lobe.transientClass = NRISmokeTransientClass::TrailChunk;
+		Submit(owner, normal); // even a wrongly opted-in Trail must remain ordinary
+	}
+	for (uint32_t index = 0u; index < 38u; ++index)
+		Submit(owner, Build(1000u + index, 5.4 - static_cast<double>(37u - index) * 4.0 / 30.0,
+			false, 1000.0f, 5.0f, 12u, true));
+	owner.Resolve(clouds);
+	const auto& state = owner.GetSnapshot();
+	Require(state.residentFireGroups == 48u && state.hotFireDeferredGroups == 0u &&
+		state.protectedFireGroups == 48u && state.protectedFireLobes == 192u,
+		"four existing Fire windows remain protected before new explosions receive borrowing rights");
+	Require(state.borrowExplosionGroupBudget == 14u && state.residentBorrowExplosionGroups == 14u &&
+		state.deferredBorrowExplosionGroups == 24u && state.residentBurstGroups == 16u,
+		"heavier established load truthfully reports unserved burst events instead of promising incompatible capacity");
+	Require(clouds.GetSnapshot().activeGroups == 64u && state.residentBorrowExplosionLobes <= 56u,
+		"wrongly flagged non-explosion effects stay ordinary and cannot enlarge loans");
+}
 }
 
 int main()
@@ -401,6 +606,11 @@ int main()
 	WarmFrozenLighting();
 	RotatingPairsRetainCapacity();
 	RetimedRepresentativeBounds();
+	AircarBorrowedBirthCoverage(false);
+	AircarBorrowedBirthCoverage(true);
+	BorrowOptInAndEpisodeIdentity();
+	LateFireCannotSpendPromisedCadences();
+	EstablishedFireWindowsPrecedeLoans();
 	std::cout << "Transient residency tests passed: " << Checks << " checks.\n";
 	return 0;
 }

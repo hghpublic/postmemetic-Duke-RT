@@ -1043,6 +1043,12 @@ namespace
 						sc.ScriptMessage("Invalid smoke emitter foreground value '%s'; expected on or off", sc.String);
 					}
 				}
+				else if (sc.Compare("burstborrow"))
+				{
+					sc.MustGetString();
+					if (!ParseOnOffToken(sc.String, rule.burstBorrow))
+						sc.ScriptMessage("Invalid smoke burst borrowing value '%s'; expected on or off", sc.String);
+				}
 				else if (sc.Compare("style")) { sc.MustGetString(); rule.styleId = sc.String; }
 				else if (sc.Compare("count")) { sc.MustGetNumber(); rule.count = (uint32_t)std::clamp(sc.Number, 1, 256); }
 				else if (sc.Compare("offset")) MustParseVector3(rule.offset);
@@ -1110,6 +1116,12 @@ namespace
 				}
 				else if (sc.Compare("analyticcarriers")) { sc.MustGetNumber(); rule.analyticCarrierCount = (uint32_t)std::clamp(sc.Number, 1, 8); }
 				else if (sc.Compare("lobecount")) { sc.MustGetNumber(); rule.transientLobeCount = (uint32_t)std::clamp(sc.Number, 1, 16); }
+				else if (sc.Compare("burstborrow"))
+				{
+					sc.MustGetString();
+					if (!ParseOnOffToken(sc.String, rule.burstBorrow))
+						sc.ScriptMessage("Invalid smoke burst borrowing value '%s'; expected on or off", sc.String);
+				}
 				else if (sc.Compare("effectclass") || sc.Compare("transientclass"))
 				{
 					sc.MustGetString();
@@ -2087,6 +2099,7 @@ namespace
 		AppendLine(text, 2, FStringf("lobecount %u", rule.transientLobeCount));
 		AppendLine(text, 2, FStringf("effectclass %s", SmokeTransientClassName(rule.transientClass)));
 		AppendLine(text, 2, FStringf("emitterforeground %s", rule.emitterForeground ? "on" : "off"));
+		AppendLine(text, 2, FStringf("burstborrow %s", rule.burstBorrow ? "on" : "off"));
 		AppendLine(text, 2, FStringf("style %s", QuoteLightOverlayString(rule.styleId).GetChars()));
 		AppendLine(text, 2, FStringf("count %u", rule.count));
 		AppendVector3Field(text, 2, "offset", rule.offset);
@@ -2117,6 +2130,7 @@ namespace
 		AppendLine(text, 2, FStringf("analyticcarriers %u", rule.analyticCarrierCount));
 		AppendLine(text, 2, FStringf("lobecount %u", rule.transientLobeCount));
 		AppendLine(text, 2, FStringf("effectclass %s", SmokeTransientClassName(rule.transientClass)));
+		AppendLine(text, 2, FStringf("burstborrow %s", rule.burstBorrow ? "on" : "off"));
 		AppendLine(text, 2, FStringf("count %u", rule.count));
 		AppendVector3Field(text, 2, "offset", rule.offset);
 		AppendVector3Field(text, 2, "offsetrandom", rule.offsetRandom);
@@ -2576,7 +2590,7 @@ namespace
 		}
 		for (const auto* rule : SortRulesByOrder(database.smokeActorRules))
 		{
-			Printf("LIGHTOVR smokeactorrule %s: actorclass=%s ownerclass=%s excludeownerclass=%s trigger=%s activation=%s representation=%s queuepolicy=%s maxlatency=%s analyticcarriers=%u lobecount=%u effectclass=%s emitterforeground=%s style=%s "
+			Printf("LIGHTOVR smokeactorrule %s: actorclass=%s ownerclass=%s excludeownerclass=%s trigger=%s activation=%s representation=%s queuepolicy=%s maxlatency=%s analyticcarriers=%u lobecount=%u effectclass=%s emitterforeground=%s burstborrow=%s style=%s "
 				"count=%u offset=(%.3f,%.3f,%.3f) spawnradius=%.3f densityscale=%.3f radiusscale=%.3f "
 				"velocitycone=%.3f velocityscale=%.3f intervalseconds=%.3f pulseamount=%.3f pulseperiodcadences=%u pulsephase=%.3f starttime=%.3f startdistance=%.3f spacing=%.3f maxsegmentsperframe=%u source=%s\n",
 				rule->id.GetChars(), rule->actorClassName.GetChars(),
@@ -2585,7 +2599,7 @@ namespace
 				SmokeTriggerName(rule->trigger), ActorActivationPolicyName(rule->activationPolicy), SmokeRepresentationName(rule->representation), SmokeQueuePolicyName(rule->queuePolicy),
 				rule->hasMaxLatencySeconds ? FormatLightOverlayFloat(rule->maxLatencySeconds).GetChars() : "none", rule->analyticCarrierCount,
 				rule->transientLobeCount, SmokeTransientClassName(rule->transientClass),
-				rule->emitterForeground ? "on" : "off", rule->styleId.GetChars(), rule->count,
+				rule->emitterForeground ? "on" : "off", rule->burstBorrow ? "on" : "off", rule->styleId.GetChars(), rule->count,
 				rule->offset[0], rule->offset[1], rule->offset[2], rule->spawnRadius, rule->densityScale,
 				rule->radiusScale, rule->velocityCone, rule->velocityScale, rule->intervalSeconds,
 				rule->pulseAmount, rule->pulsePeriodCadences, rule->pulsePhase,
@@ -2594,11 +2608,11 @@ namespace
 		}
 		for (const auto* rule : SortRulesByOrder(database.smokeEventRules))
 		{
-			Printf("LIGHTOVR smokeeventrule %s: style=%s representation=%s queuepolicy=%s maxlatency=%s analyticcarriers=%u lobecount=%u effectclass=%s count=%u offsetrandom=(%.3f,%.3f,%.3f) spawnradius=%.3f velocityscale=%.3f "
+			Printf("LIGHTOVR smokeeventrule %s: style=%s representation=%s queuepolicy=%s maxlatency=%s analyticcarriers=%u lobecount=%u effectclass=%s burstborrow=%s count=%u offsetrandom=(%.3f,%.3f,%.3f) spawnradius=%.3f velocityscale=%.3f "
 				"normaloffset=%.3f direction=%s source=%s\n",
 				rule->id.GetChars(), rule->styleId.GetChars(), SmokeRepresentationName(rule->representation), SmokeQueuePolicyName(rule->queuePolicy),
 				rule->hasMaxLatencySeconds ? FormatLightOverlayFloat(rule->maxLatencySeconds).GetChars() : "none", rule->analyticCarrierCount,
-				rule->transientLobeCount, SmokeTransientClassName(rule->transientClass), rule->count,
+				rule->transientLobeCount, SmokeTransientClassName(rule->transientClass), rule->burstBorrow ? "on" : "off", rule->count,
 				rule->offsetRandom[0], rule->offsetRandom[1], rule->offsetRandom[2], rule->spawnRadius, rule->velocityScale,
 				rule->normalOffset, SmokeDirectionPolicyName(rule->directionPolicy),
 				SourceLocationText(rule->source).GetChars());
@@ -2775,21 +2789,21 @@ namespace
 				rule.excludeOwnerClassName.IsEmpty() ? "n/a" : (rule.excludeOwnerClassResolved ? "yes" : "no"),
 				SmokeTriggerName(rule.trigger), ActorActivationPolicyName(rule.activationPolicy), rule.emitterForeground ? "on" : "off", rule.startTime, rule.styleId.GetChars(), rule.styleResolved ? "yes" : "no", rule.styleIndex,
 				SourceLocationText(rule.source).GetChars());
-			Printf("  smoke_policy representation=%s queuepolicy=%s maxlatency=%s analyticcarriers=%u lobecount=%u effectclass=%s pulseamount=%.3f pulseperiodcadences=%u pulsephase=%.3f\n",
+			Printf("  smoke_policy representation=%s queuepolicy=%s maxlatency=%s analyticcarriers=%u lobecount=%u effectclass=%s burstborrow=%s pulseamount=%.3f pulseperiodcadences=%u pulsephase=%.3f\n",
 				SmokeRepresentationName(rule.representation), SmokeQueuePolicyName(rule.queuePolicy),
 				rule.hasMaxLatencySeconds ? FormatLightOverlayFloat(rule.maxLatencySeconds).GetChars() : "none", rule.analyticCarrierCount,
 				rule.transientLobeCount, SmokeTransientClassName(rule.transientClass),
-				rule.pulseAmount, rule.pulsePeriodCadences, rule.pulsePhase);
+				rule.burstBorrow ? "on" : "off", rule.pulseAmount, rule.pulsePeriodCadences, rule.pulsePhase);
 		}
 		for (const auto& rule : resolved.smokeEventRules)
 		{
-			Printf("LIGHTOVR resolved smokeeventrule %s: style=%s style_resolved=%s style_index=%u representation=%s queuepolicy=%s maxlatency=%s analyticcarriers=%u lobecount=%u effectclass=%s "
+			Printf("LIGHTOVR resolved smokeeventrule %s: style=%s style_resolved=%s style_index=%u representation=%s queuepolicy=%s maxlatency=%s analyticcarriers=%u lobecount=%u effectclass=%s burstborrow=%s "
 				"offsetrandom=(%.3f,%.3f,%.3f) velocityscale=%.3f normaloffset=%.3f direction=%s source=%s\n",
 				rule.id.GetChars(), rule.styleId.GetChars(), rule.styleResolved ? "yes" : "no", rule.styleIndex,
 				SmokeRepresentationName(rule.representation), SmokeQueuePolicyName(rule.queuePolicy),
 				rule.hasMaxLatencySeconds ? FormatLightOverlayFloat(rule.maxLatencySeconds).GetChars() : "none", rule.analyticCarrierCount,
 				rule.transientLobeCount, SmokeTransientClassName(rule.transientClass),
-				rule.offsetRandom[0], rule.offsetRandom[1], rule.offsetRandom[2], rule.velocityScale, rule.normalOffset, SmokeDirectionPolicyName(rule.directionPolicy),
+				rule.burstBorrow ? "on" : "off", rule.offsetRandom[0], rule.offsetRandom[1], rule.offsetRandom[2], rule.velocityScale, rule.normalOffset, SmokeDirectionPolicyName(rule.directionPolicy),
 				SourceLocationText(rule.source).GetChars());
 		}
 		for (const auto& rule : resolved.mapSmokeEmitterRules)

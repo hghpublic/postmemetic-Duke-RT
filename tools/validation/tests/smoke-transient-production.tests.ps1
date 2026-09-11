@@ -76,6 +76,15 @@ foreach ($block in $blocks) {
         }
         $body = [regex]::Replace($body, 'representation\s+"?transient-cloud"?', 'representation ' + $cutover.Legacy)
         $body = [regex]::Replace($body, '(?m)^\s*(effectclass|lobecount)\s+[^\r\n]+', '')
+        if ($name -eq 'duke_explosion_cloud') {
+            if ([regex]::Matches($body, '(?m)^\s*burstborrow\s+on\s*$').Count -ne 1) {
+                throw 'Only the authored explosion cloud must explicitly opt into bounded burst borrowing.'
+            }
+            $body = [regex]::Replace($body, '(?m)^\s*burstborrow\s+on\s*$', '')
+        }
+        elseif ($body -match '(?m)^\s*burstborrow\b') {
+            throw "Production $name must not silently acquire the explosion-only borrowing policy."
+        }
         if ($name -eq 'duke_fire_sustained') {
             # Deliberate common placement correction and the longer plume's
             # bounded packet cadence and steadier pulse. These also affect Grid rollback.

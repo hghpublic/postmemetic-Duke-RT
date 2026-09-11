@@ -12,6 +12,11 @@ bool IsFire(const NRISmokeTransientLobeRequest& request)
 	return request.transientClass == NRISmokeTransientClass::FirePacket;
 }
 
+bool IsBorrowExplosion(const NRISmokeTransientLobeRequest& request)
+{
+	return request.burstBorrow && request.transientClass == NRISmokeTransientClass::Explosion;
+}
+
 float Length3(const float value[3])
 {
 	return std::sqrt(value[0] * value[0] + value[1] * value[1] + value[2] * value[2]);
@@ -27,6 +32,7 @@ void NRISmokeTransientResidency::Reset(uint32_t epoch)
 	mAdmissionOrdinal = 0u;
 	mPrepared = false;
 	mTime = 0.0;
+	mLastExplosionAuthoredSeconds = -1.0e30;
 }
 
 void NRISmokeTransientResidency::BeginFrame(double gameplaySeconds, uint32_t epoch,
@@ -222,9 +228,39 @@ bool NRISmokeTransientResidency::SubmitBatch(
 	return true;
 }
 
+void NRISmokeTransientResidency::StampExplosionEpisodes()
+{
+	std::vector<size_t> pending;
+	for (size_t index = 0u; index < mHistory.size(); ++index)
+		if (IsBorrowExplosion(mHistory[index].requests[0]) && mHistory[index].borrowDetail == 0u)
+			pending.push_back(index);
+	std::sort(pending.begin(), pending.end(), [this](size_t a, size_t b)
+	{
+		const auto& ra = mHistory[a].requests[0];
+		const auto& rb = mHistory[b].requests[0];
+		if (ra.authoredGameplaySeconds != rb.authoredGameplaySeconds)
+			return ra.authoredGameplaySeconds < rb.authoredGameplaySeconds;
+		if (ra.sourceId != rb.sourceId) return ra.sourceId < rb.sourceId;
+		return ra.sourceEventSerial < rb.sourceEventSerial;
+	});
+	for (size_t index : pending)
+	{
+		Entry& entry = mHistory[index];
+		const double authored = entry.requests[0].authoredGameplaySeconds;
+		// Authored time, never render cadence or view state, defines an episode.
+		// Its first explosion keeps the original art; rapid followers trade
+		// decorative lobes for timely event coverage, preserving optical amount.
+		const bool follower = authored - mLastExplosionAuthoredSeconds <= 0.35;
+		entry.borrowDetail = follower ? std::min(entry.count, 3u) : entry.count;
+		if (entry.borrowDetail < entry.count) ++mSnapshot.compactExplosionEvents;
+		mLastExplosionAuthoredSeconds = std::max(mLastExplosionAuthoredSeconds, authored);
+	}
+}
+
 void NRISmokeTransientResidency::Resolve(NRISmokeTransientClouds& clouds)
 {
 	if (!mPrepared) return;
+	StampExplosionEpisodes();
 	struct Source
 	{
 		uint64_t lastAdmission = 0u;
@@ -238,7 +274,13 @@ void NRISmokeTransientResidency::Resolve(NRISmokeTransientClouds& clouds)
 		return (static_cast<uint64_t>(IsFire(entry.requests[0])) << 32u) |
 			entry.requests[0].sourceId;
 	};
-	uint32_t fireGroups = 0u, fireLobes = 0u, burstGroups = 0u, burstLobes = 0u;
+	struct Occupancy { uint32_t groups = 0u; uint32_t lobes = 0u; };
+	Occupancy fireUse, ordinaryUse, explosionUse;
+	auto usage = [&](const Entry& entry) -> Occupancy&
+	{
+		return IsFire(entry.requests[0]) ? fireUse :
+			(IsBorrowExplosion(entry.requests[0]) ? explosionUse : ordinaryUse);
+	};
 	for (Entry& entry : mHistory)
 	{
 		if (entry.interest == NRISmokeTransientInterest::Dormant || !mProfile.enabled)
@@ -254,8 +296,8 @@ void NRISmokeTransientResidency::Resolve(NRISmokeTransientClouds& clouds)
 		if (!clouds.IsLive(entry.handle)) continue;
 		clouds.SetInterest(entry.handle, entry.interest);
 		++source.residentGroups;
-		if (IsFire(entry.requests[0])) { ++fireGroups; fireLobes += entry.residentLobes; }
-		else { ++burstGroups; burstLobes += entry.residentLobes; }
+		auto& occupied = usage(entry);
+		++occupied.groups; occupied.lobes += entry.residentLobes;
 	}
 	const uint32_t hotFireSources = static_cast<uint32_t>(std::count_if(sources.begin(), sources.end(),
 		[](const auto& item) { return (item.first >> 32u) != 0u && item.second.hot; }));
@@ -272,6 +314,48 @@ void NRISmokeTransientResidency::Resolve(NRISmokeTransientClouds& clouds)
 			(item.second.hot || item.second.residentGroups > 0u); }));
 	const uint32_t fireDetail = mSnapshot.supportedFireSources == 2u ? 4u :
 		(detailedFireSources <= 2u ? 5u : 3u);
+	const bool allowLoans = mProfile.maximumActiveGroups >= 64u &&
+		mProfile.maximumActiveLobes >= 256u;
+	const uint32_t protectedSources = std::clamp(detailedFireSources, 2u, 4u);
+	mSnapshot.protectedFireGroups = allowLoans ?
+		std::max(fireUse.groups, protectedSources * MaximumFireCohortsPerSource) : mSnapshot.fireGroupBudget;
+	mSnapshot.protectedFireLobes = allowLoans ? std::max(fireUse.lobes,
+		120u + (protectedSources - 2u) * 36u) : mSnapshot.fireLobeBudget;
+	auto remaining = [](uint32_t capacity, uint32_t used) { return capacity > used ? capacity - used : 0u; };
+	auto budget = [&](const Entry& entry) -> Occupancy
+	{
+		if (IsFire(entry.requests[0])) return { mSnapshot.fireGroupBudget, mSnapshot.fireLobeBudget };
+		if (IsBorrowExplosion(entry.requests[0]) && allowLoans)
+			return { std::min(38u, remaining(mProfile.maximumActiveGroups,
+				mSnapshot.protectedFireGroups + std::max(ordinaryUse.groups, 2u))),
+				std::min(128u, remaining(mProfile.maximumActiveLobes,
+				mSnapshot.protectedFireLobes + std::max(ordinaryUse.lobes, 8u))) };
+		// Non-opted effects never borrow. A current loan cannot be silently
+		// double-promised to future Fire or to another ordinary burst either.
+		if (allowLoans && explosionUse.groups > 0u)
+			return { std::min(mSnapshot.burstGroupBudget, remaining(mProfile.maximumActiveGroups,
+				mSnapshot.protectedFireGroups + explosionUse.groups)),
+				std::min(mSnapshot.burstLobeBudget, remaining(mProfile.maximumActiveLobes,
+				mSnapshot.protectedFireLobes + explosionUse.lobes)) };
+		const Occupancy& other = IsBorrowExplosion(entry.requests[0]) ? ordinaryUse : explosionUse;
+		return { remaining(mSnapshot.burstGroupBudget, other.groups),
+			remaining(mSnapshot.burstLobeBudget, other.lobes) };
+	};
+	auto newFireWindowBlocked = [&](const Entry& entry)
+	{
+		if (!allowLoans || explosionUse.groups == 0u || !IsFire(entry.requests[0]) ||
+			sources[sourceKey(entry)].residentGroups > 0u) return false;
+		const uint32_t nextSources = 1u + static_cast<uint32_t>(std::count_if(sources.begin(), sources.end(),
+			[](const auto& item) { return (item.first >> 32u) != 0u && item.second.residentGroups > 0u; }));
+		const uint32_t futureLobes = nextSources <= 2u ? nextSources * 60u :
+			120u + (nextSources - 2u) * 36u;
+		// A late extra source cannot occupy a few apparently-free slots that are
+		// already promised to established Fire's next cadence. Admit its first
+		// cohort only once its entire supported age window also fits naturally.
+		return nextSources > 4u || nextSources * MaximumFireCohortsPerSource >
+			remaining(mProfile.maximumActiveGroups, explosionUse.groups + ordinaryUse.groups) ||
+			futureLobes > remaining(mProfile.maximumActiveLobes, explosionUse.lobes + ordinaryUse.lobes);
+	};
 	// Each pass admits at most one head cohort from each source before that
 	// source's ordinal advances. Equal-time ties are stable source identities,
 	// never actor traversal order. Existing visible groups are never rewritten.
@@ -288,18 +372,18 @@ void NRISmokeTransientResidency::Resolve(NRISmokeTransientClouds& clouds)
 				for (const Entry& entry : mHistory)
 					if (entry.interest == NRISmokeTransientInterest::Warm && clouds.IsLive(entry.handle))
 						(IsFire(entry.requests[0]) ? warmFire : warmBurst) = true;
-			const bool fireFull = (fireGroups >= mSnapshot.fireGroupBudget ||
-				fireLobes >= mSnapshot.fireLobeBudget) && !warmFire;
-			const bool burstFull = (burstGroups >= mSnapshot.burstGroupBudget ||
-				burstLobes >= mSnapshot.burstLobeBudget) && !warmBurst;
 			// A full family or source is pruned in one bounded walk, rather than
 			// repeatedly finding/removing individual heads of a thousand-entry
 			// deferred queue. The remaining arbitration is bounded by pool slots.
 			candidates.erase(std::remove_if(candidates.begin(), candidates.end(), [&](size_t index)
 			{
 				const Entry& entry = mHistory[index];
-				return IsFire(entry.requests[0]) ? fireFull ||
-					sources[sourceKey(entry)].residentGroups >= MaximumFireCohortsPerSource : burstFull;
+				const auto occupied = usage(entry);
+				const auto available = budget(entry);
+				const bool full = occupied.groups >= available.groups || occupied.lobes >= available.lobes;
+				return IsFire(entry.requests[0]) ? (full && !warmFire) ||
+					sources[sourceKey(entry)].residentGroups >= MaximumFireCohortsPerSource ||
+					newFireWindowBlocked(entry) : full && !warmBurst;
 			}), candidates.end());
 			if (candidates.empty()) break;
 			auto best = std::min_element(candidates.begin(), candidates.end(), [&](size_t a, size_t b)
@@ -316,32 +400,33 @@ void NRISmokeTransientResidency::Resolve(NRISmokeTransientClouds& clouds)
 			Entry& entry = mHistory[*best];
 			candidates.erase(best);
 			const bool fire = IsFire(entry.requests[0]);
-			uint32_t& groups = fire ? fireGroups : burstGroups;
-			uint32_t& lobes = fire ? fireLobes : burstLobes;
-			const uint32_t groupBudget = fire ? mSnapshot.fireGroupBudget : mSnapshot.burstGroupBudget;
-			const uint32_t lobeBudget = fire ? mSnapshot.fireLobeBudget : mSnapshot.burstLobeBudget;
+			auto& occupied = usage(entry);
+			auto available = budget(entry);
 			auto& source = sources[sourceKey(entry)];
 			if (fire && source.residentGroups >= MaximumFireCohortsPerSource) continue;
 			const uint32_t desired = std::min(entry.count, tier == 1u ? 2u :
-				(fire ? fireDetail : mProfile.maximumLobesPerGroup));
-			if (tier == 0u && (groups >= groupBudget || lobes + desired > lobeBudget))
+				(fire ? fireDetail : (IsBorrowExplosion(entry.requests[0]) ?
+					entry.borrowDetail : mProfile.maximumLobesPerGroup)));
+			if (tier == 0u && (occupied.groups >= available.groups || occupied.lobes + desired > available.lobes))
 			{
 				// Known-outside padded view may yield its detail to an actual Hot
 				// cohort. History is retained, so this cannot freeze/replay the source.
 				for (Entry& warm : mHistory)
 				{
-					if (groups < groupBudget && lobes + desired <= lobeBudget) break;
+					if (occupied.groups < available.groups && occupied.lobes + desired <= available.lobes) break;
 					if (IsFire(warm.requests[0]) != fire || warm.interest !=
 						NRISmokeTransientInterest::Warm || !clouds.IsLive(warm.handle)) continue;
 					clouds.Release(warm.handle);
 					++mSnapshot.releasedGroups;
-					--groups; lobes -= warm.residentLobes;
+					auto& warmUse = usage(warm);
+					--warmUse.groups; warmUse.lobes -= warm.residentLobes;
 					--sources[sourceKey(warm)].residentGroups;
 					warm.handle = {}; warm.residentLobes = 0u;
+					available = budget(entry);
 				}
 			}
-			if (groups >= groupBudget || lobes >= lobeBudget) continue;
-			const uint32_t detail = std::min(desired, lobeBudget - lobes);
+			if (occupied.groups >= available.groups || occupied.lobes >= available.lobes) continue;
+			const uint32_t detail = std::min(desired, available.lobes - occupied.lobes);
 			const auto admission = clouds.AdmitRetainedBatch(entry.requests.data(), entry.count, detail);
 			if (!admission.Accepted()) continue;
 			if (entry.admissionOrdinal != 0u) ++mSnapshot.reenteredGroups;
@@ -350,12 +435,18 @@ void NRISmokeTransientResidency::Resolve(NRISmokeTransientClouds& clouds)
 			entry.admissionOrdinal = ++mAdmissionOrdinal;
 			source.lastAdmission = entry.admissionOrdinal;
 			++source.residentGroups;
-			++groups; lobes += entry.residentLobes;
+			++occupied.groups; occupied.lobes += entry.residentLobes;
 			++mSnapshot.admittedGroups;
 			if (entry.residentLobes < entry.count) ++mSnapshot.reducedGroups;
 			clouds.SetInterest(entry.handle, entry.interest);
 		}
 	}
+	Entry explosionBudgetProbe;
+	explosionBudgetProbe.requests[0].transientClass = NRISmokeTransientClass::Explosion;
+	explosionBudgetProbe.requests[0].burstBorrow = true;
+	const auto explosionBudget = budget(explosionBudgetProbe);
+	mSnapshot.borrowExplosionGroupBudget = explosionBudget.groups;
+	mSnapshot.borrowExplosionLobeBudget = explosionBudget.lobes;
 	RefreshSnapshot(clouds);
 }
 
@@ -367,10 +458,12 @@ void NRISmokeTransientResidency::RefreshSnapshot(const NRISmokeTransientClouds& 
 	mSnapshot.residentFireGroups = mSnapshot.residentFireLobes = 0u;
 	mSnapshot.residentBurstGroups = mSnapshot.residentBurstLobes = 0u;
 	mSnapshot.hotFireDeferredGroups = mSnapshot.hotBurstDeferredGroups = 0u;
+	mSnapshot.residentBorrowExplosionGroups = mSnapshot.residentBorrowExplosionLobes = 0u;
+	mSnapshot.deferredBorrowExplosionGroups = 0u;
 	mSnapshot.hiddenResidentGroups = mSnapshot.firstVisibleGroups = 0u;
 	mSnapshot.largestDeferredBirthSpanMilliseconds = 0u;
 	std::map<uint32_t, bool> hotFireSources;
-	for (const Entry& entry : mHistory)
+	for (Entry& entry : mHistory)
 	{
 		const bool fire = IsFire(entry.requests[0]);
 		if (entry.interest == NRISmokeTransientInterest::Hot)
@@ -384,6 +477,21 @@ void NRISmokeTransientResidency::RefreshSnapshot(const NRISmokeTransientClouds& 
 		{
 			if (fire) { ++mSnapshot.residentFireGroups; mSnapshot.residentFireLobes += entry.residentLobes; }
 			else { ++mSnapshot.residentBurstGroups; mSnapshot.residentBurstLobes += entry.residentLobes; }
+			if (IsBorrowExplosion(entry.requests[0]))
+			{
+				++mSnapshot.residentBorrowExplosionGroups;
+				mSnapshot.residentBorrowExplosionLobes += entry.residentLobes;
+				if (!entry.firstPresented && entry.interest == NRISmokeTransientInterest::Hot &&
+					clouds.GetGpuGroups()[entry.handle.slot].lobeCount > 0u)
+				{
+					entry.firstPresented = true;
+					++mSnapshot.firstPresentedExplosionEvents;
+					mSnapshot.maximumExplosionFirstAgeMilliseconds = std::max(
+						mSnapshot.maximumExplosionFirstAgeMilliseconds, static_cast<uint32_t>(std::clamp(
+						(mTime - entry.requests[0].authoredGameplaySeconds) * 1000.0, 0.0,
+						static_cast<double>(UINT32_MAX))));
+				}
+			}
 			if (entry.interest != NRISmokeTransientInterest::Hot) ++mSnapshot.hiddenResidentGroups;
 		}
 		else if (entry.interest == NRISmokeTransientInterest::Hot)
@@ -397,7 +505,11 @@ void NRISmokeTransientResidency::RefreshSnapshot(const NRISmokeTransientClouds& 
 					mSnapshot.largestDeferredBirthSpanMilliseconds,
 					static_cast<uint32_t>(std::min(span * 1000.0, static_cast<double>(UINT32_MAX))));
 			}
-			else ++mSnapshot.hotBurstDeferredGroups;
+			else
+			{
+				++mSnapshot.hotBurstDeferredGroups;
+				if (IsBorrowExplosion(entry.requests[0])) ++mSnapshot.deferredBorrowExplosionGroups;
+			}
 		}
 	}
 	mSnapshot.hotFireSources = static_cast<uint32_t>(hotFireSources.size());
@@ -405,10 +517,12 @@ void NRISmokeTransientResidency::RefreshSnapshot(const NRISmokeTransientClouds& 
 	// report its temporary grandfathered overage until natural expiry, rather
 	// than silently claiming the new smaller budget is already enforced.
 	auto excess = [](uint32_t active, uint32_t budget) { return active > budget ? active - budget : 0u; };
-	mSnapshot.overBudgetResidentGroups = excess(mSnapshot.residentFireGroups, mSnapshot.fireGroupBudget) +
-		excess(mSnapshot.residentBurstGroups, mSnapshot.burstGroupBudget);
-	mSnapshot.overBudgetResidentLobes = excess(mSnapshot.residentFireLobes, mSnapshot.fireLobeBudget) +
-		excess(mSnapshot.residentBurstLobes, mSnapshot.burstLobeBudget);
+	mSnapshot.loanedBurstGroups = excess(mSnapshot.residentBurstGroups, mSnapshot.burstGroupBudget);
+	mSnapshot.loanedBurstLobes = excess(mSnapshot.residentBurstLobes, mSnapshot.burstLobeBudget);
+	mSnapshot.overBudgetResidentGroups = std::max(excess(mSnapshot.residentFireGroups, mSnapshot.fireGroupBudget),
+		excess(mSnapshot.residentFireGroups + mSnapshot.residentBurstGroups, mProfile.maximumActiveGroups));
+	mSnapshot.overBudgetResidentLobes = std::max(excess(mSnapshot.residentFireLobes, mSnapshot.fireLobeBudget),
+		excess(mSnapshot.residentFireLobes + mSnapshot.residentBurstLobes, mProfile.maximumActiveLobes));
 	mSnapshot.firstVisibleGroups = clouds.GetSnapshot().fullLightFreshRequestedThisFrame;
 }
 

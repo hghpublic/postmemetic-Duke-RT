@@ -403,6 +403,7 @@ void NRISmokeEmitterSystem::Gather(uint32_t epoch, double gameplayTimeSeconds, c
 		bool hasMaximumLatency, float maximumLatencySeconds, double authoredGameplaySeconds,
 		uint64_t sourceEventSerial, uint32_t analyticCarrierCount,
 		uint32_t transientLobeCount, LightOverlaySmokeTransientClass transientClass,
+		bool burstBorrow,
 		bool transitory, uint32_t sourceQuantity,
 		const float* transientTrailAxis = nullptr,
 		float transientTrailSpan = 0.0f,
@@ -487,6 +488,8 @@ void NRISmokeEmitterSystem::Gather(uint32_t epoch, double gameplayTimeSeconds, c
 			shape.sourceEventSerial = sourceEventSerial;
 			shape.deterministicSeed = HashAnalyticCarrier(sourceEventSerial, 0u);
 			shape.transientClass = TransientClass(transientClass);
+			shape.burstBorrow = burstBorrow &&
+				transientClass == LightOverlaySmokeTransientClass::Explosion;
 			// A continuous fire source feeds this packet across one cadence instead
 			// of creating an entire vertically stacked cloud on the same update.
 			if (shape.transientClass == NRISmokeTransientClass::FirePacket)
@@ -886,6 +889,7 @@ void NRISmokeEmitterSystem::Gather(uint32_t epoch, double gameplayTimeSeconds, c
 					rule.hasMaxLatencySeconds, rule.maxLatencySeconds, emission.gameplaySeconds,
 					(uint64_t)(uint32_t)actor->GetIndex() << 32u | command.serial,
 					rule.analyticCarrierCount, rule.transientLobeCount, rule.transientClass,
+					rule.burstBorrow,
 					sourceLifetime == NRISmokeActorSourceLifetime::Transitory,
 					(uint32_t)std::min<uint64_t>(UINT32_MAX,
 						(uint64_t)command.count * (emission.lastCadenceOrdinal -
@@ -1315,7 +1319,7 @@ void NRISmokeEmitterSystem::Gather(uint32_t epoch, double gameplayTimeSeconds, c
 			const bool routed = routeCommand(command, rule.representation, rule.queuePolicy,
 				rule.hasMaxLatencySeconds, rule.maxLatencySeconds, event.absoluteTimeSeconds,
 				event.serial, rule.analyticCarrierCount, rule.transientLobeCount,
-				rule.transientClass, true, command.count, nullptr, 0.0f, 0u, 0u);
+				rule.transientClass, rule.burstBorrow, true, command.count, nullptr, 0.0f, 0u, 0u);
 			if (!routed)
 			{
 				if (traceMode != 0)

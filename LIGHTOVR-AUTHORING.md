@@ -246,6 +246,7 @@ Actor and event rules also own representation and responsiveness policy:
 | `analyticcarriers <count>` | `1`; `1` through `8` | Fixed carrier quantity for each analytic emission. Authored particle mass is divided exactly across the carriers; the quantity does not vary with frame time or available GPU headroom. Use multiple carriers to avoid collapsing a broad impact into one opaque kernel. |
 | `effectclass <class>` | `diagnostic`; `explosion`, `trail`, `fire`, `muzzle`, `impact`, or `diagnostic` | Selects deterministic transient-cloud placement and lifecycle behavior. This is independent of representation. `transientclass` is accepted as a compatibility input alias; normalized output writes `effectclass`. |
 | `lobecount <count>` | `8`; `1` through `16` | Spatial complexity of one transient-cloud group. It is deliberately independent of `count`: changing lobe count redistributes the same authored optical quantity instead of changing smoke mass. |
+| `burstborrow <on\|off>` | `off` | Explosion-only opt-in for bounded burst capacity borrowing and rapid-chain detail reduction. Honored only with `representation "transient-cloud"` and `effectclass explosion`; other routes/classes ignore it. Available on actor and event rules; see the policy below. |
 
 Representation is source policy rather than style policy. A style can therefore be reused by all three routes. Grid smoke receives deposition, neighbor transport, thermal buoyancy, and grid turbulence. Legacy analytic smoke uses closed-form carrier expansion and fading. Transient clouds use event-owned, deterministic lobe groups with independent radius, density, and intrinsic-emission envelopes; they do not deposit into the grid.
 
@@ -258,6 +259,42 @@ For isolated captures, `nri_ptsmokesourceclassmask` uses the same class bits but
 Transient point, directional, and emissive lighting is sampled into a bounded per-group incident-light cache. New visible smoke has a complete coarse fallback while a full build is deferred; the initial full self-shadow build waits for the density attack to mature. Explosions and trail chunks then freeze this cache. Fire permits a low-rate replacement while retaining the last complete record. This avoids sparse first-frame lighting and apply-stage scene rays, but moving lights and small shadow boundaries will not relight short-lived clouds exactly.
 
 For an interval actor source with `effectclass fire` and `representation "transient-cloud"`, `lobecount` births are now spread across `intervalseconds`. Each lobe starts at a compact central ring, grows with `expansionvelocity`/`radiusexponent`, and cools with `intrinsicemission`/`emissionhalflife`; `temperature` and `coolinghalflife` remain grid controls, not transient color controls. Use a small `clusterspread` and `loberadiusrandom` for a narrow flame-heart origin. Delayed lobes fit their local release into the unchanged group lifetime; the final birth does not get cut off with a live tail. Low-quality reduction redistributes both birth times and optical weight evenly. This does not increase group or lobe budgets. Event-only fire fixtures retain their simultaneous-birth behavior.
+
+`burstborrow on` keeps the first explosion of a quiet episode at its authored
+`lobecount` (subject to the selected profile and available capacity). Subsequent
+opted-in explosions whose authored births are no more than 0.35 seconds apart
+use at most three lobes. This is a global opted-in explosion episode, not a
+per-actor chain: the aircar creates a different explosion actor at each birth.
+The policy is stamped once in authored-time order, including multiple events
+collected in one render frame, and survives view changes/reentry. A quiet gap
+starts another full-detail episode. Reduction retains the primary connected
+binder, optical quantity, original time, seed, and natural lifetime; it changes
+spatial detail rather than increasing density authoring or shortening smoke life.
+
+On Medium, High, and Reference, opted-in explosions may occupy up to 38 groups
+and 128 lobes when unused Fire capacity permits. Before lending, the scheduler
+protects at least 24 groups / 120 lobes for two Fire sources, plus the complete
+bounded cadence windows of already Hot or resident-Warm Fire sources (up to the
+normal four-source limit). It also leaves at least two groups / eight lobes for
+ordinary effects. These are overlapping allocation rights inside the unchanged
+64-group / 256-lobe physical pool, not additional memory or lighting-ray budgets.
+Ordinary effects cannot borrow; heavier ordinary traffic reduces loan headroom.
+
+The guaranteed opening-aircar load is 52 births every four 30 Hz actor ticks,
+with five-second lifetime, up to two Fire sources with at most 12 live cohorts
+each, and two ordinary four-lobe groups. At peak, the 38 explosion groups use
+`12 + 37*3 = 123` lobes; together with the protected Fire and ordinary shares,
+this fits 64 groups / 251 lobes. Existing visible smoke is never evicted to
+repay a loan. Consequently, activating more than the protected Fire source set
+while loans are outstanding can defer the extra sources until old smoke expires;
+the ordinary immediate four-Fire guarantee does not apply during those loans.
+Four already-established Fire sources are protected before new loans are granted,
+so the full aircar burst is not guaranteed simultaneously with those four fires.
+Low retains its smaller fixed pool and does not offer expanded borrowing.
+
+The production `duke_explosion_cloud` rule opts in. Leave this field off when
+maintaining independent full-detail explosion art matters more than rapid-chain
+coverage, or when a rule is not an explosion.
 
 Fire lighting waits for every member's density attack before its first full build, and crossfades complete cache replacements over 0.2 gameplay seconds. Adjacent packets from the same fire share an emissive sampling pattern. Fire evaluates current directional-light color and direction while reusing cached directional transport; scene visibility still updates only at the profile's cache cadence (or freezes on Low). A fire-only artistic self-transmittance floor of 0.18 prevents deep interior samples from blacking out the whole outer puff. It does not lift scene occlusion, create ambient light, or alter view opacity. Other classes retain their existing frozen lighting/self-shadow policy. These changes add no scene rays during materialization; the previous bank is read only during the short crossfade.
 

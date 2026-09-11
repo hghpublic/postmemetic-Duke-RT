@@ -30,6 +30,9 @@ struct NRISmokeTransientResidencySnapshot
 	uint64_t reducedGroups = 0u;
 	uint64_t unsupportedLoadFrames = 0u;
 	uint64_t allocatedHistoryBytes = 0u;
+	uint64_t compactExplosionEvents = 0u;
+	uint64_t firstPresentedExplosionEvents = 0u;
+	uint32_t maximumExplosionFirstAgeMilliseconds = 0u;
 	uint32_t epoch = 0u;
 	uint32_t historyGroups = 0u;
 	uint32_t hotGroups = 0u;
@@ -53,6 +56,15 @@ struct NRISmokeTransientResidencySnapshot
 	uint32_t fireLobeBudget = 0u;
 	uint32_t burstGroupBudget = 0u;
 	uint32_t burstLobeBudget = 0u;
+	uint32_t residentBorrowExplosionGroups = 0u;
+	uint32_t residentBorrowExplosionLobes = 0u;
+	uint32_t deferredBorrowExplosionGroups = 0u;
+	uint32_t borrowExplosionGroupBudget = 0u;
+	uint32_t borrowExplosionLobeBudget = 0u;
+	uint32_t protectedFireGroups = 0u;
+	uint32_t protectedFireLobes = 0u;
+	uint32_t loanedBurstGroups = 0u;
+	uint32_t loanedBurstLobes = 0u;
 };
 
 // Bounded analytic event history is independent of the smaller detailed pool.
@@ -86,6 +98,8 @@ private:
 		uint64_t admissionOrdinal = 0u;
 		uint32_t count = 0u;
 		uint32_t residentLobes = 0u;
+		uint32_t borrowDetail = 0u;
+		bool firstPresented = false;
 		NRISmokeTransientInterest interest = NRISmokeTransientInterest::Dormant;
 	};
 
@@ -93,11 +107,13 @@ private:
 	void BuildBounds(Entry& entry) const;
 	bool Intersects(const Entry& entry, float padding) const;
 	void RefreshSnapshot(const NRISmokeTransientClouds& clouds);
+	void StampExplosionEpisodes();
 	std::vector<Entry> mHistory;
 	NRISmokeTransientResidencySnapshot mSnapshot = {};
 	NRISmokeTransientProfile mProfile = {};
 	NRISmokeTransientView mView = {};
 	double mTime = 0.0;
+	double mLastExplosionAuthoredSeconds = -1.0e30;
 	uint64_t mAdmissionOrdinal = 0u;
 	bool mPrepared = false;
 };

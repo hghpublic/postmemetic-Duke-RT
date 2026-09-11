@@ -484,6 +484,7 @@ uint32_t NRIBuildSmokeTransientLobes(const NRISmokeTransientGroupShapeInput& inp
 		request.epoch = input.epoch;
 		request.authoredGameplaySeconds = input.authoredGameplaySeconds;
 		request.maximumLatencySeconds = input.maximumLatencySeconds;
+		request.burstBorrow = input.burstBorrow;
 		request.sourceEventSerial = input.sourceEventSerial;
 		request.replacementKey = input.replacementKey;
 		request.batchIndex = index;
@@ -631,6 +632,8 @@ bool NRISmokeTransientClouds::ValidBatchIdentity(
 			request.groupLifetimeSeconds != first.groupLifetimeSeconds ||
 			request.transientClass != first.transientClass ||
 			request.lightRefresh != first.lightRefresh)
+			return false;
+		if (request.burstBorrow != first.burstBorrow)
 			return false;
 	}
 	return true;

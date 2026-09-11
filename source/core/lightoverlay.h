@@ -369,6 +369,7 @@ struct ParsedLightOverlaySmokeActorRule
 	uint32_t analyticCarrierCount = 1;
 	uint32_t transientLobeCount = 8;
 	LightOverlaySmokeTransientClass transientClass = LightOverlaySmokeTransientClass::Diagnostic;
+	bool burstBorrow = false;
 	bool emitterForeground = false;
 	FString styleId;
 	uint32_t count = 1;
@@ -400,6 +401,7 @@ struct ParsedLightOverlaySmokeEventRule
 	uint32_t analyticCarrierCount = 1;
 	uint32_t transientLobeCount = 8;
 	LightOverlaySmokeTransientClass transientClass = LightOverlaySmokeTransientClass::Diagnostic;
+	bool burstBorrow = false;
 	uint32_t count = 1;
 	float offset[3] = { 0.0f, 0.0f, 0.0f };
 	float offsetRandom[3] = { 0.0f, 0.0f, 0.0f };
