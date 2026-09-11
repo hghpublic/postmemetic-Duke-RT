@@ -66,7 +66,7 @@ Assert-Match $evaluate 'fieldDebugMode\s*!=\s*0u[\s\S]*source\s*=\s*integratedFi
 Assert-Match $evaluate 'massSupport\s*=\s*fieldDebugMode\s*==\s*NRI_SMOKE_FIELD_DEBUG_MASS[\s\S]*NRI_SMOKE_FIELD_DEBUG_THERMAL[\s\S]*SmokeVisualTone\(max\(sampleScalar\.x,\s*0\.0\)\)\s*/\s*cellSize[\s\S]*fieldDebugExtinction' 'Mass and thermal diagnostics must remain visible when mass exists without optical extinction.'
 Assert-Match $compact '#define\s+NRI_SMOKE_EVALUATE_GRID_LIBRARY[\s\S]*#include\s+"SmokeEvaluateGrid.cs.hlsl"[\s\S]*SmokeEvaluateGridFroxel' 'Compact materialization must call the shared diagnostic and shaping implementation.'
 Assert-Match $composite 'SmokeDebugMode\(gSmokeConstants\.DebugMode\)\s*>=\s*12u[\s\S]*color\s*=\s*max\(volume\.rgb,\s*0\.0\)' 'Field diagnostics must present volume color without the beauty scene.'
-Assert-Match $smoke 'fieldDiagnostics\s*=\s*mSettings\.debugMode\s*>=\s*12u[\s\S]*volumeHistoryAllowed\s*=\s*mSettings\.volumeHistory\s*&&\s*!fieldDiagnostics' 'Field diagnostics must force final volume history off.'
+Assert-Match $smoke 'fieldDiagnostics\s*=\s*mSettings\.debugMode\s*>=\s*12u[\s\S]*volumeHistoryAllowed\s*=\s*\(mSettings\.volumeHistory\s*\|\|\s*transientHistoryAllowed\)\s*&&\s*!fieldDiagnostics' 'Field diagnostics must force both final volume history modes off.'
 Assert-Match $smoke 'if\s*\(!fieldDiagnostics\)[\s\S]*NRIGpuTimingScope::SmokeViewPoint[\s\S]*if\s*\(!fieldDiagnostics\)[\s\S]*NRIGpuTimingScope::SmokeViewDirectional' 'Field diagnostics must skip later point and directional light additions.'
 
 # Optical shaping happens once at the shared publication seam. Source receives

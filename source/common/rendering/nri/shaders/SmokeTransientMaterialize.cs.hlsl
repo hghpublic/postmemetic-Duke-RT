@@ -5,6 +5,7 @@
 #include "Include/SmokeTransientData.hlsli"
 #include "Include/SmokeTransientLighting.hlsli"
 #include "Include/SmokeTransientCoverage.hlsli"
+#include "Include/SmokeTransientHistory.hlsli"
 
 bool SmokeTransientLoadCache(SmokeTransientGroup group,
 	out SmokeTransientLightHeader header,
@@ -221,6 +222,11 @@ void main(uint3 froxel : SV_DispatchThreadID)
 	float3 source = 0.0;
 	float weightedAnisotropy = 0.0;
 	float anisotropyWeight = 0.0;
+	float3 motionDisplacement = 0.0;
+	float motionDepth = 0.0;
+	float motionWeight = 0.0;
+	float motionMoment = 0.0;
+	float motionRadius = 0.0;
 	uint contributors = 0u;
 	uint lobeTests = 0u;
 	uint lobeContributions = 0u;
@@ -300,6 +306,7 @@ void main(uint3 froxel : SV_DispatchThreadID)
 			const float footprintSpan = length(SmokeTransientCoverageHalfX(lobeDepth)) +
 				length(SmokeTransientCoverageHalfY(lobeDepth));
 			bool lobeContributed = false;
+			float lobeMotionWeight = 0.0;
 			[unroll]
 			for (uint lane = 0u; lane < 4u; ++lane)
 			{
@@ -397,6 +404,7 @@ void main(uint3 froxel : SV_DispatchThreadID)
 					SmokeTransientIntrinsicColor(lobe.TransientClass);
 				laneExtinction[lane] += sigmaT;
 				laneScattering[lane] += sigmaS;
+				lobeMotionWeight += sigmaT / (float)laneCount;
 				groupSource[lane] += max(externalSource + intrinsicSource, 0.0);
 				const float weight = dot(sigmaS, float3(0.2126, 0.7152, 0.0722));
 				weightedAnisotropy += weight * clamp(style.Anisotropy, -0.95, 0.95) / (float)laneCount;
@@ -408,6 +416,17 @@ void main(uint3 froxel : SV_DispatchThreadID)
 			{
 				contributors++;
 				lobeContributions++;
+				if (SmokeTransientHistoryEnabled())
+				{
+					const SmokeTransientHistoryMotion motion = SmokeTransientLobeHistoryMotion(lobe,
+						group, lobeIndex, viewRay, nearDepth * rayLength, farDepth * rayLength);
+					const float weight = lobeMotionWeight * motion.Confidence;
+					motionDisplacement += motion.Displacement * weight;
+					motionDepth += motion.Depth * weight;
+					motionMoment += dot(motion.Displacement, motion.Displacement) * weight;
+					motionRadius += lobe.Radius * weight;
+					motionWeight += weight;
+				}
 			}
 		}
 		if (groupContributed && cacheValid && localDirectional)
@@ -469,6 +488,23 @@ void main(uint3 froxel : SV_DispatchThreadID)
 	const float4 previousPhase = gSmokeFroxelPhase[froxelIndex];
 	const float4 previousSource = gSmokeFroxelSource[froxelIndex];
 	const bool wasOccupied = previousMedium.w > 1e-6;
+	if (SmokeTransientHistoryEnabled() && motionWeight > 1e-12)
+	{
+		uint motionCount, motionStride;
+		gSmokeTransientFroxelMotion.GetDimensions(motionCount, motionStride);
+		if (froxelIndex < motionCount)
+		{
+			const float3 displacement = motionDisplacement / motionWeight;
+			const float variance = max(motionMoment / motionWeight - dot(displacement, displacement), 0.0);
+			const float radius = max(motionRadius / motionWeight * 0.25, 0.25);
+			// Unknown/new lobes and stationary grid matter reduce confidence rather
+			// than borrowing the motion of whichever mature lobe happens to exist.
+			const float validFraction = saturate(motionWeight / max(extinction + max(previousMedium.w, 0.0), 1e-12));
+			const float confidence = smoothstep(0.60, 0.95, validFraction) * exp(-variance / (radius * radius));
+			gSmokeTransientFroxelMotion[froxelIndex] = float4(displacement,
+				SmokeTransientPackMotionGuide(motionDepth / motionWeight, confidence));
+		}
+	}
 	float4 transientMedium = float4(scattering, extinction);
 	float3 combinedSource = max(previousSource.rgb, 0.0) + source;
 	if (coverageFilter)

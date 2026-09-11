@@ -993,6 +993,7 @@ set (NRI_SOURCES
 	common/rendering/nri/renderer/nri_smoke_analytic_carriers.cpp
 	common/rendering/nri/renderer/nri_smoke_transient_clouds.cpp
 	common/rendering/nri/renderer/nri_smoke_transient_residency.cpp
+	common/rendering/nri/renderer/nri_smoke_transient_motion.cpp
 	common/rendering/nri/renderer/nri_smoke_transient_renderer.cpp
 	common/rendering/nri/renderer/nri_smoke_transient_resources.cpp
 	common/rendering/nri/renderer/nri_smoke_transient_diagnostics.cpp
@@ -1544,6 +1545,8 @@ if (HAVE_NRI)
 	list(FILTER NRI_SHARED_SHADER_FILES EXCLUDE REGEX "/SmokeTransient[^/]*[.]cs[.]hlsl$")
 	list(FILTER NRI_SHARED_SHADER_FILES EXCLUDE REGEX "/SmokeTransientLighting[.]hlsli$")
 	list(FILTER NRI_SHARED_SHADER_FILES EXCLUDE REGEX "/SmokeTransientCoverage[.]hlsli$")
+	list(FILTER NRI_SHARED_SHADER_FILES EXCLUDE REGEX "/SmokeTransientHistory[.]hlsli$")
+	list(FILTER NRI_SHARED_SHADER_FILES EXCLUDE REGEX "/Smoke(ResolveVolume|TemporalVolume|Composite)[.]cs[.]hlsl$")
 	if (DEFINED ENV{VULKAN_SDK} AND EXISTS "$ENV{VULKAN_SDK}/Bin/dxc.exe")
 		set(RAZE_DXC_EXECUTABLE "$ENV{VULKAN_SDK}/Bin/dxc.exe" CACHE FILEPATH "DXC executable used for NRI shader compilation." FORCE)
 	elseif (DEFINED ENV{VULKAN_SDK} AND EXISTS "$ENV{VULKAN_SDK}/Bin32/dxc.exe")
@@ -1578,6 +1581,24 @@ if (HAVE_NRI)
 			DEPENDS "${_transient_source}" ${NRI_SHARED_SHADER_FILES}
 				"${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/Include/SmokeTransientLighting.hlsli"
 				"${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/Include/SmokeTransientCoverage.hlsli"
+				"${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/Include/SmokeTransientHistory.hlsli"
+			VERBATIM)
+	endforeach()
+	# Reconstruction is independently tunable, just like transient materialization.
+	# A history/clamp change must not recompile every world-tracing permutation.
+	foreach(_smoke_reconstruction_pass ResolveVolume TemporalVolume Composite)
+		set(_smoke_reconstruction_source "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/Smoke${_smoke_reconstruction_pass}.cs.hlsl")
+		add_custom_command(
+			OUTPUT "${RAZE_NRI_SHADER_OUTPUT_DIR}/Smoke${_smoke_reconstruction_pass}.cs.dxil"
+				"${RAZE_NRI_SHADER_OUTPUT_DIR}/Smoke${_smoke_reconstruction_pass}.cs.spirv"
+			COMMAND ${CMAKE_COMMAND} -E make_directory "${RAZE_NRI_SHADER_OUTPUT_DIR}"
+			COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -T cs_6_0 -E main
+				-Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/Smoke${_smoke_reconstruction_pass}.cs.dxil" "${_smoke_reconstruction_source}"
+			COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -spirv -fspv-target-env=vulkan1.2
+				-fvk-use-dx-layout -T cs_6_0 -E main
+				-Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/Smoke${_smoke_reconstruction_pass}.cs.spirv" "${_smoke_reconstruction_source}"
+			DEPENDS "${_smoke_reconstruction_source}" ${NRI_SHARED_SHADER_FILES}
+				"${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/Include/SmokeTransientHistory.hlsli"
 			VERBATIM)
 	endforeach()
 	add_custom_command(
@@ -1724,12 +1745,6 @@ if (HAVE_NRI)
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/SmokeLightIndirectSpatial.cs.spirv"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/SmokeIntegrate.cs.dxil"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/SmokeIntegrate.cs.spirv"
-			"${RAZE_NRI_SHADER_OUTPUT_DIR}/SmokeResolveVolume.cs.dxil"
-			"${RAZE_NRI_SHADER_OUTPUT_DIR}/SmokeResolveVolume.cs.spirv"
-			"${RAZE_NRI_SHADER_OUTPUT_DIR}/SmokeTemporalVolume.cs.dxil"
-			"${RAZE_NRI_SHADER_OUTPUT_DIR}/SmokeTemporalVolume.cs.spirv"
-			"${RAZE_NRI_SHADER_OUTPUT_DIR}/SmokeComposite.cs.dxil"
-			"${RAZE_NRI_SHADER_OUTPUT_DIR}/SmokeComposite.cs.spirv"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/Taa.cs.dxil"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/Taa.cs.spirv"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/TemporalReactiveCombine.cs.dxil"
@@ -1915,12 +1930,6 @@ if (HAVE_NRI)
 		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -spirv -fspv-target-env=vulkan1.2 -fvk-use-dx-layout -T cs_6_0 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/SmokeLightIndirectSpatial.cs.spirv" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/SmokeLightIndirectSpatial.cs.hlsl"
 		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -T cs_6_0 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/SmokeIntegrate.cs.dxil" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/SmokeIntegrate.cs.hlsl"
 		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -spirv -fspv-target-env=vulkan1.2 -fvk-use-dx-layout -T cs_6_0 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/SmokeIntegrate.cs.spirv" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/SmokeIntegrate.cs.hlsl"
-		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -T cs_6_0 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/SmokeResolveVolume.cs.dxil" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/SmokeResolveVolume.cs.hlsl"
-		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -spirv -fspv-target-env=vulkan1.2 -fvk-use-dx-layout -T cs_6_0 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/SmokeResolveVolume.cs.spirv" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/SmokeResolveVolume.cs.hlsl"
-		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -T cs_6_0 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/SmokeTemporalVolume.cs.dxil" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/SmokeTemporalVolume.cs.hlsl"
-		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -spirv -fspv-target-env=vulkan1.2 -fvk-use-dx-layout -T cs_6_0 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/SmokeTemporalVolume.cs.spirv" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/SmokeTemporalVolume.cs.hlsl"
-		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -T cs_6_0 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/SmokeComposite.cs.dxil" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/SmokeComposite.cs.hlsl"
-		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -spirv -fspv-target-env=vulkan1.2 -fvk-use-dx-layout -T cs_6_0 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/SmokeComposite.cs.spirv" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/SmokeComposite.cs.hlsl"
 		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -T cs_6_0 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/Taa.cs.dxil" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/Taa.cs.hlsl"
 		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -spirv -fspv-target-env=vulkan1.2 -fvk-use-dx-layout -T cs_6_0 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/Taa.cs.spirv" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/Taa.cs.hlsl"
 		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -T cs_6_0 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/TemporalReactiveCombine.cs.dxil" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/TemporalReactiveCombine.cs.hlsl"
@@ -2050,9 +2059,6 @@ if (HAVE_NRI)
 			"${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/Include/SmokeFroxel.hlsli"
 			"${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/Include/SmokeLighting.hlsli"
 			"${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/SmokeIntegrate.cs.hlsl"
-			"${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/SmokeResolveVolume.cs.hlsl"
-			"${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/SmokeTemporalVolume.cs.hlsl"
-			"${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/SmokeComposite.cs.hlsl"
 			"${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/Taa.cs.hlsl"
 			"${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/TemporalReactiveCombine.cs.hlsl"
 			"${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/RawPresent.cs.hlsl"

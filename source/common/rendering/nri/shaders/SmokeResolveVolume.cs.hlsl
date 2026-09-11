@@ -1,5 +1,6 @@
 #include "Include/SmokeResources.hlsli"
 #include "Include/SmokeFroxel.hlsli"
+#include "Include/SmokeTransientHistory.hlsli"
 
 struct SmokeBilinearFootprint
 {
@@ -173,9 +174,20 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 		volume.rgb = SmokeCarrierDebugColor(carrierMetadata, debugMode) * (1.0 - exp(-volume.a));
 	}
 	const float reactive = 1.0 - exp(-volume.a);
-	const float representativeDepth = SmokeRepresentativeDepth(footprint, depthSlice, viewDepth, volume.a);
+	float representativeDepth = SmokeRepresentativeDepth(footprint, depthSlice, viewDepth, volume.a);
+	float historyConfidence = SmokeTransientHistoryEnabled() ? 0.0 : 1.0;
+	if (SmokeTransientHistoryEnabled() && volume.a > 0.0 && representativeDepth > 0.0)
+	{
+		const SmokeTransientHistoryMotion motion = SmokeTransientResolveHistoryMotion(primarySampleUv,
+			SmokeDepthSlice(representativeDepth));
+		if (motion.Confidence > 0.0)
+		{
+			representativeDepth = min(motion.Depth, viewDepth);
+			historyConfidence = motion.Confidence;
+		}
+	}
 	gSmokeVolumeCurrentOutput[pixel] = volume;
 	gSmokeVolumeCurrentMetaOutput[pixel] = volume.a > 0.0 ? float4(
 		saturate(reactive), representativeDepth / max(gSmokeConstants.FroxelMaxDistance, 0.001),
-		viewDepth / max(gSmokeConstants.FroxelMaxDistance, 0.001), 1.0) : 0.0;
+		viewDepth / max(gSmokeConstants.FroxelMaxDistance, 0.001), historyConfidence) : 0.0;
 }

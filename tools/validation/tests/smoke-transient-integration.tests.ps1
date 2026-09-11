@@ -42,7 +42,7 @@ Require (($renderer | Select-String -Pattern 'descriptorSetMaxNum\s*<\s*NRISmoke
 # consume another 16. Reserve every lazily allocated smoke SRV, including the
 # grid input sets, instead of accounting for only the two newest t3/t4 inputs.
 foreach ($contract in @(
-    @('InputCount', '5u'), @('LightCount', '3u'),
+    @('InputCount', '6u'), @('LightCount', '3u'),
     @('FilteredSceneCount', '8u'), @('ExtendedSceneCount', '10u'),
     @('GridInputCount', '2u'))) {
     Require ($descriptorBudget -match (('{0}\s*=\s*{1}' -f $contract[0], $contract[1]))) "Smoke descriptor budget must publish $($contract[0])=$($contract[1])."
@@ -50,6 +50,9 @@ foreach ($contract in @(
 Require ($descriptorBudget -match 'StructuredPerQueuedFrame\s*=\s*InputCount\s*\+\s*LightCount\s*\+[\s\S]{0,120}FilteredSceneCount\s*\+\s*ExtendedSceneCount\s*\+\s*GridInputCount') 'Smoke descriptor budget must include every structured-buffer range.'
 Require ($descriptorBudget -match 'return\s+512u\s*\+\s*StructuredPerQueuedFrame\s*\*\s*queuedFrames') 'The established shared reserve must remain in addition to the complete smoke reservation.'
 Require ($renderDevice -match 'structuredBufferMaxNum\s*=\s*nri_smoke_descriptors::SharedStructuredPoolCapacity\(QueuedFrameCount\)') 'The device pool must consume the shared smoke descriptor budget.'
+Require ($descriptorBudget -match 'TransientStorageCount\s*=\s*7u') 'The motion guide adds a seventh transient UAV.'
+Require ($transientResourcesHeader -match 'StorageDescriptorCount\s*=\s*nri_smoke_descriptors::TransientStorageCount') 'Transient storage layout and device-pool reserve must share their count.'
+Require ($renderDevice -match 'storageStructuredBufferMaxNum\s*=\s*nri_smoke_descriptors::SharedStoragePoolCapacity\(QueuedFrameCount\)') 'The device pool must reserve the motion UAV per queued frame.'
 Require ($smoke -match 'input\.descriptorNum\s*=\s*nri_smoke_descriptors::InputCount') 'The main smoke input range must consume the shared input count.'
 Require ($smoke -match 'lights\.descriptorNum\s*=\s*nri_smoke_descriptors::LightCount') 'The main smoke light range must consume the shared light count.'
 Require ($smoke -match 'kSmokeFilteredSceneBufferCount\s*=\s*nri_smoke_descriptors::FilteredSceneCount') 'The filtered-scene layout must consume the shared filtered count.'
@@ -64,13 +67,14 @@ Require ($pipelineState -match 'inputRange\.descriptorNum\s*=\s*NRI_VOXEL_COMPUT
 Require ($pipelineState -match 'faceRange\.descriptorNum\s*=\s*NRI_VOXEL_COMPUTE_FACE_DESCRIPTOR_NUM') 'Voxel-compute face layout must consume its published descriptor count.'
 $queuedFrames = 3
 $liveBeforeSmoke = ($queuedFrames + [Math]::Max(8, $queuedFrames * 4)) * 28 + 4 * (2 + 2)
-$liveWithSmoke = $liveBeforeSmoke + $queuedFrames * (5 + 3 + 8 + 10 + 2)
+$historicalLiveWithSmoke = $liveBeforeSmoke + $queuedFrames * (5 + 3 + 8 + 10 + 2)
+$liveWithSmoke = $liveBeforeSmoke + $queuedFrames * (6 + 3 + 8 + 10 + 2)
 $oldDeltaCapacity = 512 + 2 * $queuedFrames
-$reservedCapacity = 512 + 28 * $queuedFrames
+$reservedCapacity = 512 + 29 * $queuedFrames
 Require ($liveBeforeSmoke -eq 436) 'Unexpected pre-smoke structured descriptor total for three queued frames.'
-Require ($liveWithSmoke -eq 520) 'Unexpected live structured descriptor peak for three queued frames.'
-Require ($oldDeltaCapacity -eq 518 -and $liveWithSmoke -gt $oldDeltaCapacity) 'The regression proof must preserve the observed 520-over-518 failure.'
-Require ($reservedCapacity -eq 596 -and $reservedCapacity -ge $liveWithSmoke) 'The complete smoke reservation must provide 596 structured descriptors for three queued frames.'
+Require ($historicalLiveWithSmoke -eq 520 -and $liveWithSmoke -eq 523) 'Previous-lobe tracking adds one structured descriptor per queued frame.'
+Require ($oldDeltaCapacity -eq 518 -and $historicalLiveWithSmoke -gt $oldDeltaCapacity) 'The regression proof must preserve the observed 520-over-518 failure.'
+Require ($reservedCapacity -eq 599 -and $reservedCapacity -ge $liveWithSmoke) 'The complete smoke reservation must provide 599 structured descriptors for three queued frames.'
 foreach ($name in @('TransientGroupCount', 'TransientLobeCount', 'TransientFullBuildBudget', 'TransientPointBudget')) {
     Require (-not $constants.Contains($name)) "Transient-only root field $name widened the shared ABI."
 }

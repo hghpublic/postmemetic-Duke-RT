@@ -1,5 +1,6 @@
 #include "Include/SmokeResources.hlsli"
 #include "Include/SmokeTransientData.hlsli"
+#include "Include/SmokeTransientHistory.hlsli"
 
 [numthreads(64, 1, 1)]
 void main(uint3 dispatchThreadId : SV_DispatchThreadID)
@@ -15,6 +16,12 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 		gSmokeTransientBinHeaders[index] = (SmokeTransientBinHeader)0;
 	if (index < mediumCount)
 		gSmokeTransientFroxelMedium[index] = 0.0;
+	if (SmokeTransientHistoryEnabled())
+	{
+		uint motionCount, motionStride;
+		gSmokeTransientFroxelMotion.GetDimensions(motionCount, motionStride);
+		if (index < motionCount) gSmokeTransientFroxelMotion[index] = 0.0;
+	}
 	if ((gSmokeConstants.Flags & 1u) != 0u && index < headerCount)
 	{
 		SmokeTransientLightHeader header = (SmokeTransientLightHeader)0;

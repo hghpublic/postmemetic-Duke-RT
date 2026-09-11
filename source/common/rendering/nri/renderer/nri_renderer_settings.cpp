@@ -335,6 +335,7 @@ NRISmokeSettings BuildNRISmokeSettingsFromCVars()
 	settings.sourceClassMask = (uint32_t)std::clamp((int)nri_ptsmokesourceclassmask, 0, 63);
 	settings.transientSelfShadow = nri_ptsmoketransientselfshadow;
 	settings.transientCoverage = nri_ptsmoketransientcoverage;
+	settings.transientHistory = nri_ptsmoketransienthistory;
 	settings.actorEmitters = nri_ptsmokeactoremitters;
 	settings.mapEmitters = nri_ptsmokemapemitters;
 	settings.gridBrickCapacity = (uint32_t)std::clamp((int)nri_ptsmokegridbricks, 64, 4096);

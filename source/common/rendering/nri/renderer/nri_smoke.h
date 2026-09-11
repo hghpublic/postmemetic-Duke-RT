@@ -136,6 +136,8 @@ struct NRISmokeStatusSnapshot
 	bool volumeHistoryRequested = false;
 	bool volumeHistoryEffective = false;
 	bool volumeHistoryValid = false;
+	bool transientHistoryRequested = false;
+	bool transientHistoryEffective = false;
 	uint32_t volumeResolvedSlot = UINT32_MAX;
 	uint32_t volumeMetaSlot = UINT32_MAX;
 	uint32_t volumeHistoryAge = 0;

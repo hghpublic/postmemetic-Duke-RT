@@ -374,6 +374,8 @@ bool SmokeFroxelHasDormantCarrier(float4 phase) { return (SmokeFroxelCarrierOwne
 StructuredBuffer<SmokeStyle> gSmokeStyles : register(t0, space0);
 StructuredBuffer<SmokeInjectionCommand> gSmokeCommands : register(t1, space0);
 StructuredBuffer<SmokeAnalyticCarrier> gSmokeAnalyticCarriers : register(t2, space0);
+// Current-lobe indexed previous pose; radius zero rejects birth/reentry/identity gaps.
+StructuredBuffer<float4> gSmokeTransientPreviousLobes : register(t5, space0);
 
 RWStructuredBuffer<SmokeParticle> gSmokeParticles : register(u0, space1);
 RWStructuredBuffer<SmokeControl> gSmokeControl : register(u1, space1);
@@ -436,6 +438,7 @@ RWStructuredBuffer<float4> gSmokeDormantScalar : register(u57, space1);
 RWStructuredBuffer<float4> gSmokeDormantVelocity : register(u58, space1);
 RWStructuredBuffer<float4> gSmokeDormantOptical : register(u59, space1);
 RWStructuredBuffer<float4> gSmokeDormantDynamics : register(u60, space1);
+RWStructuredBuffer<float4> gSmokeTransientFroxelMotion : register(u67, space1);
 
 Texture2D<float4> gSmokeSceneInput : register(t0, space2);
 Texture2D<float4> gSmokeViewZInput : register(t1, space2);

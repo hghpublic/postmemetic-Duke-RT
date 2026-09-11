@@ -9941,7 +9941,7 @@ bool NRIRenderDevice::CreateRenderResources()
 	// SRV layouts; counting only the transient delta left the Q=3 peak at 520/518.
 	poolDesc.structuredBufferMaxNum = nri_smoke_descriptors::SharedStructuredPoolCapacity(QueuedFrameCount);
 	// Six additional transient UAVs per queued smoke set.
-	poolDesc.storageStructuredBufferMaxNum = 512 + 6 * QueuedFrameCount;
+	poolDesc.storageStructuredBufferMaxNum = nri_smoke_descriptors::SharedStoragePoolCapacity(QueuedFrameCount);
 	poolDesc.accelerationStructureMaxNum = 16;
 
 	if (mCore.CreateDescriptorPool(*mDevice, poolDesc, mDescriptorPool) != nri::Result::SUCCESS)

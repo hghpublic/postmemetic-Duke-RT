@@ -937,6 +937,8 @@ CVAR(Int, nri_ptsmokesourceclassmask, 63, 0)
 CVAR(Bool, nri_ptsmoketransientselfshadow, true, 0)
 // Session-only A/B for spatial footprint coverage; never changes cached lighting identity.
 CVAR(Bool, nri_ptsmoketransientcoverage, true, 0)
+// Session A/B control; independent of the older radiance-only volume history.
+CVAR(Bool, nri_ptsmoketransienthistory, true, 0)
 // Session-only validation isolation. Production actor smoke remains enabled by default.
 CVAR(Bool, nri_ptsmokeactoremitters, true, 0)
 // Session-only validation isolation. Production map smoke remains enabled by default.

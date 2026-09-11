@@ -1887,7 +1887,7 @@ bool NRISmokeSystem::RecordSimulation(NRIRenderer& renderer)
 
 	const auto transientInputs = mTransientResources.Inputs(BuildGridServices(renderer).queuedFrameIndex);
 	const nri::Descriptor* inputs[] = { mStyleBuffer.shaderView, slot.device.shaderView, slot.analyticDevice.shaderView,
-		transientInputs[0], transientInputs[1] };
+		transientInputs[0], transientInputs[1], transientInputs[2] };
 	const nri::Descriptor* particleView = mParticles.storageView != nullptr ? mParticles.storageView : mCompatibilityParticleView;
 	const nri::Descriptor* cellView = mFineCells.storageView != nullptr ? mFineCells.storageView : mCompatibilityCellView;
 	const nri::Descriptor* wideCellView = mWideCells.storageView != nullptr ? mWideCells.storageView : mCompatibilityCellView;
@@ -1931,7 +1931,7 @@ bool NRISmokeSystem::RecordSimulation(NRIRenderer& renderer)
 	nri::UpdateDescriptorRangeDesc updates[2] = {};
 	const auto transientStorage = mTransientResources.Storage();
 	std::copy(transientStorage.begin(), transientStorage.end(), outputs.begin() + kSmokeTransientStorageBase);
-	updates[0].descriptorSet = slot.inputSet; updates[0].rangeIndex = 0; updates[0].descriptors = inputs; updates[0].descriptorNum = 5;
+	updates[0].descriptorSet = slot.inputSet; updates[0].rangeIndex = 0; updates[0].descriptors = inputs; updates[0].descriptorNum = nri_smoke_descriptors::InputCount;
 	updates[1].descriptorSet = slot.bufferSet; updates[1].rangeIndex = 0; updates[1].descriptors = outputs.data(); updates[1].descriptorNum = kSmokeStorageDescriptorCount;
 	renderer.mFrameBuffer->mCore.UpdateDescriptorRanges(updates, 2);
 
@@ -2183,7 +2183,11 @@ bool NRISmokeSystem::RecordVolume(NRIRenderer& renderer, const NRISmokeRouteDesc
 	NRITextureResource& volumeMetaRead = renderer.GetFrameTexture(writePing ? NRIRenderer::FrameTextureSlot::SmokeVolumeMetaPong : NRIRenderer::FrameTextureSlot::SmokeVolumeMetaPing);
 	NRITextureResource& volumeMetaWrite = renderer.GetFrameTexture(writePing ? NRIRenderer::FrameTextureSlot::SmokeVolumeMetaPing : NRIRenderer::FrameTextureSlot::SmokeVolumeMetaPong);
 	const bool fieldDiagnostics = mSettings.debugMode >= 12u;
-	const bool volumeHistoryAllowed = mSettings.volumeHistory && !fieldDiagnostics;
+	// Empty transient frames never read the retained motion field. Its allocation
+	// is stable, but it is only cleared/materialized for a nonempty transient view.
+	const bool transientHistoryAllowed = mSettings.transientHistory && !fieldDiagnostics &&
+		!mTransientClouds.GetGpuLobes().empty();
+	const bool volumeHistoryAllowed = (mSettings.volumeHistory || transientHistoryAllowed) && !fieldDiagnostics;
 	const bool bypassVolumeTemporal = !volumeHistoryAllowed && mSettings.debugMode != 6u;
 	if (input.shaderView == nullptr || depth.shaderView == nullptr || output.storageView == nullptr ||
 		volumeCurrent.shaderView == nullptr || volumeCurrent.storageView == nullptr ||
@@ -2392,6 +2396,8 @@ bool NRISmokeSystem::RecordVolume(NRIRenderer& renderer, const NRISmokeRouteDesc
 		constants.lightSourceFlags |= 0x200u; // Transient analytic self-shadow is grid-independent.
 	if (mSettings.transientCoverage)
 		constants.lightSourceFlags |= 0x400u; // Shared with resolve; spatial filtering is not a light-cache key.
+	if (transientHistoryAllowed)
+		constants.lightSourceFlags |= 0x800u; // Smoke-aware motion/opacity history, not legacy radiance reuse.
 	const bool filteredVisibilityEffective = constants.lightMode >= 2u && mSettings.filteredVisibility && filteredResourcesReady && shadowReady;
 	const uint32_t requestedEmissivePointCandidates = std::clamp(mSettings.emissivePointCandidates, 1u, 8u);
 	const uint32_t effectiveEmissivePointCandidates = mSettings.emissiveReference ? 1u : requestedEmissivePointCandidates;
@@ -2534,16 +2540,29 @@ bool NRISmokeSystem::RecordVolume(NRIRenderer& renderer, const NRISmokeRouteDesc
 	volumeLightingHash = HashCombine64(volumeLightingHash,
 		worldEmissiveRequested ? effectiveEmissiveEstimatorKey : 0u);
 	volumeLightingHash = HashCombine64(volumeLightingHash, visualHistoryHash);
+	// Reconstruction controls invalidate only the final smoke layer, not frozen
+	// per-carrier lighting. Profile changes may resize froxels without changing
+	// the full-resolution history extent.
+	volumeLightingHash = HashCombine64(volumeLightingHash,
+		(mSettings.volumeHistory ? 1u : 0u) | (mSettings.transientHistory ? 2u : 0u) |
+		(mSettings.transientCoverage ? 4u : 0u));
+	volumeLightingHash = HashCombine64(volumeLightingHash, mResourceFroxelWidth);
+	volumeLightingHash = HashCombine64(volumeLightingHash, mResourceFroxelHeight);
+	volumeLightingHash = HashCombine64(volumeLightingHash, mResourceFroxelDepth);
+	volumeLightingHash = HashCombine64(volumeLightingHash, FloatBits(mSettings.froxelMaxDistance));
 	const bool volumeHistoryCompatible = volumeHistoryAllowed && mVolumeHistoryValid && mLastVolumeHistoryEnabled &&
+		reprojectionResourcesReady &&
 		!renderer.mResetHistory && mLastVolumeFrame + 1u == renderer.mFrameIndex &&
 		mLastVolumeWidth == route.width && mLastVolumeHeight == route.height &&
 		mLastVolumePlacement == (uint32_t)route.placement && mLastVolumeSimulationEpoch == mStatus.simulationEpoch &&
 		mLastVolumeLightingHash == volumeLightingHash;
-	if (volumeHistoryAllowed)
+	if (mSettings.volumeHistory && !fieldDiagnostics)
 		constants.flags |= 0x2000u;
 	if (volumeHistoryCompatible)
 		constants.flags |= 0x1000u;
-	mStatus.volumeHistoryRequested = mSettings.volumeHistory;
+	mStatus.volumeHistoryRequested = mSettings.volumeHistory || mSettings.transientHistory;
+	mStatus.transientHistoryRequested = mSettings.transientHistory;
+	mStatus.transientHistoryEffective = transientHistoryAllowed && reprojectionResourcesReady;
 	mStatus.volumeHistoryEffective = volumeHistoryAllowed && reprojectionResourcesReady;
 	mStatus.volumeHistoryValid = volumeHistoryCompatible;
 	mStatus.volumeHistoryAge = volumeHistoryCompatible ? std::min(mStatus.volumeHistoryAge + 1u, 255u) : 0u;
@@ -2557,7 +2576,7 @@ bool NRISmokeSystem::RecordVolume(NRIRenderer& renderer, const NRISmokeRouteDesc
 		mStatus.volumeHistoryResetReason = "none";
 	else if (fieldDiagnostics)
 		mStatus.volumeHistoryResetReason = "field-debug";
-	else if (!mSettings.volumeHistory)
+	else if (!volumeHistoryAllowed)
 		mStatus.volumeHistoryResetReason = "disabled";
 	else if (!reprojectionResourcesReady)
 		mStatus.volumeHistoryResetReason = "missing-reprojection";
@@ -3079,6 +3098,9 @@ bool NRISmokeSystem::DispatchRoute(NRIRenderer& renderer, const NRISmokeRouteDes
 	mStatus.routePlacement = (uint32_t)route.placement;
 	mStatus.dlrrModeEffective = route.placement == NRISmokeRoutePlacement::DlrrPreUpscaleMainInput && route.supported ? 1u : 0u;
 	mStatus.exposureDomain = (uint32_t)route.exposureDomain;
+	mStatus.volumeHistoryEffective = false;
+	mStatus.transientHistoryRequested = mSettings.transientHistory;
+	mStatus.transientHistoryEffective = false;
 	if (!mSettings.enabled || !mStatus.mainViewEligible || !route.supported || !mStatus.authorityOperational)
 	{
 		mStatus.volumeResolvedSlot = UINT32_MAX;
@@ -3326,6 +3348,8 @@ void NRISmokeSystem::Reset(const char* reason)
 	mStatus.volumeMetaSlot = UINT32_MAX;
 	mStatus.volumeHistoryAge = 0;
 	mStatus.volumeHistoryResetReason = mStatus.resetReason;
+	mStatus.volumeHistoryEffective = false;
+	mStatus.transientHistoryEffective = false;
 	if (std::strcmp(mStatus.resetReason, "authority-transition") != 0)
 	{
 		mEmitters.Reset();
@@ -3682,9 +3706,10 @@ void NRISmokeSystem::PrintStatus(const NRIRenderer& renderer) const
 		renderer.GetFrameTextureSlotName((NRIRenderer::FrameTextureSlot)mStatus.volumeResolvedSlot) : "none";
 	const char* volumeMetaName = mStatus.volumeMetaSlot < (uint32_t)NRIRenderer::FrameTextureSlot::Count ?
 		renderer.GetFrameTextureSlotName((NRIRenderer::FrameTextureSlot)mStatus.volumeMetaSlot) : "none";
-	Printf("NRI PT smoke volume status: history_requested=%s history_effective=%s history_valid=%s history_age=%u reset=%s layer_mib=%.2f resolved=%s metadata=%s dlrr_mode_requested=%u dlrr_mode_effective=%u field_readback=0\n",
+	Printf("NRI PT smoke volume status: history_requested=%s history_effective=%s history_valid=%s history_age=%u reset=%s layer_mib=%.2f resolved=%s metadata=%s dlrr_mode_requested=%u dlrr_mode_effective=%u field_readback=0 transient_history_requested=%s transient_history_effective=%s\n",
 		mStatus.volumeHistoryRequested ? "yes" : "no", mStatus.volumeHistoryEffective ? "yes" : "no",
 		mStatus.volumeHistoryValid ? "yes" : "no", mStatus.volumeHistoryAge, mStatus.volumeHistoryResetReason,
 		(double)mStatus.volumeHistoryBytes / (1024.0 * 1024.0), volumeName, volumeMetaName,
-		mStatus.dlrrModeRequested, mStatus.dlrrModeEffective);
+		mStatus.dlrrModeRequested, mStatus.dlrrModeEffective,
+		mStatus.transientHistoryRequested ? "yes" : "no", mStatus.transientHistoryEffective ? "yes" : "no");
 }
