@@ -417,7 +417,7 @@ LIGHTOVR
 
     smokestyle "duke_muzzle_smoke"
     {
-        density 1.2
+        density 6.0
         opticalamountscale 0.25
         extinction 0.004
         albedo 0.44 0.43 0.42
@@ -482,7 +482,7 @@ LIGHTOVR
 
     smokestyle "ground_mood_smoke"
     {
-        density 1.6
+        density 8.0
         extinction 0.0035
         albedo 0.9 0.9 0.9
         anisotropy 0.05
