@@ -33,6 +33,7 @@ struct NRISmokeTransientResidencySnapshot
 	uint64_t compactExplosionEvents = 0u;
 	uint64_t firstPresentedExplosionEvents = 0u;
 	uint32_t maximumExplosionFirstAgeMilliseconds = 0u;
+	uint32_t maximumExplosionAdmissionDelayMilliseconds = 0u;
 	uint32_t epoch = 0u;
 	uint32_t historyGroups = 0u;
 	uint32_t hotGroups = 0u;
@@ -95,6 +96,7 @@ private:
 		float boundsMin[3] = {};
 		float boundsMax[3] = {};
 		double lastHotSeconds = -1.0e30;
+		double submittedGameplaySeconds = 0.0;
 		uint64_t admissionOrdinal = 0u;
 		uint32_t count = 0u;
 		uint32_t residentLobes = 0u;

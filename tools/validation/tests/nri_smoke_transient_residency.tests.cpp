@@ -460,7 +460,9 @@ void AircarBorrowedBirthCoverage(bool lateFires)
 	Require(peakExplosions == 38u && peakExplosionLobes == 123u,
 		"actual 30Hz/4-tick/five-second episode reaches its expected 38-group/123-lobe bound");
 	Require(owner.GetSnapshot().maximumExplosionFirstAgeMilliseconds <= 34u,
-		"first-presentation telemetry matches the timely-birth acceptance gate");
+		"same-tick synthetic delivery reaches first payload within one actor tick (not a runtime upstream-arrival gate)");
+	Require(owner.GetSnapshot().maximumExplosionAdmissionDelayMilliseconds == 0u,
+		"actual aircar-shaped workload adds no residency admission waiting after submission");
 	Require(owner.GetSnapshot().compactExplosionEvents == 51u && owner.GetSnapshot().historyGroups == 0u,
 		"all followers compact once and every original event eventually expires naturally");
 }
@@ -594,6 +596,148 @@ void EstablishedFireWindowsPrecedeLoans()
 	Require(clouds.GetSnapshot().activeGroups == 64u && state.residentBorrowExplosionLobes <= 56u,
 		"wrongly flagged non-explosion effects stay ordinary and cannot enlarge loans");
 }
+
+void ExplosionAdmissionLatencySeparatesArrivalAndQueue()
+{
+	NRISmokeTransientResidency owner;
+	NRISmokeTransientClouds clouds;
+	const auto profile = clouds.ProfileForQuality(2u);
+	owner.BeginFrame(0.2, 7u, profile, View(), clouds);
+	const auto oldAtArrival = Build(40u, 0.0, false, 1000.0f, 5.0f, 12u, true);
+	Submit(owner, oldAtArrival); owner.Resolve(clouds);
+	Require(owner.GetSnapshot().maximumExplosionFirstAgeMilliseconds >= 200u &&
+		owner.GetSnapshot().maximumExplosionAdmissionDelayMilliseconds == 0u,
+		"old authored birth arriving this frame is immediate admission, not scheduler queue latency");
+	owner.BeginFrame(0.4, 7u, profile, View(), clouds);
+	Submit(owner, oldAtArrival); owner.Resolve(clouds);
+	Require(owner.GetSnapshot().duplicateGroups == 1u &&
+		owner.GetSnapshot().maximumExplosionAdmissionDelayMilliseconds == 0u,
+		"duplicates neither restart the original submission clock nor add fake admission latency");
+	owner.BeginFrame(1.5, 7u, profile, View(-1.0f), clouds); owner.Resolve(clouds);
+	owner.BeginFrame(2.0, 7u, profile, View(), clouds); owner.Resolve(clouds);
+	Require(owner.GetSnapshot().reenteredGroups == 1u &&
+		owner.GetSnapshot().maximumExplosionAdmissionDelayMilliseconds == 0u &&
+		owner.GetSnapshot().maximumExplosionFirstAgeMilliseconds == 200u,
+		"reentry preserves original submission and first-presentation metrics without counting a second first admission");
+	NRISmokeTransientResidency queued;
+	NRISmokeTransientClouds queuedClouds;
+	const auto low = queuedClouds.ProfileForQuality(3u);
+	queued.BeginFrame(0.2, 7u, low, View(), queuedClouds);
+	Submit(queued, Build(10u, 0.0, false, 1000.0f, 0.5f, 4u, true));
+	Submit(queued, Build(11u, 0.1, false, 1000.0f, 0.5f, 4u, true));
+	const auto held = Build(12u, 0.2, false, 1000.0f, 1.0f, 4u, true);
+	Submit(queued, held); queued.Resolve(queuedClouds);
+	Require(queued.GetSnapshot().deferredBorrowExplosionGroups == 1u &&
+		queued.GetSnapshot().maximumExplosionAdmissionDelayMilliseconds == 0u,
+		"capacity-held events report deferral but do not claim admission before a slot exists");
+	queued.BeginFrame(0.4, 7u, low, View(), queuedClouds);
+	Submit(queued, held); queued.Resolve(queuedClouds);
+	queued.BeginFrame(0.55, 7u, low, View(), queuedClouds); queued.Resolve(queuedClouds);
+	Require(queued.GetSnapshot().deferredBorrowExplosionGroups == 0u &&
+		queued.GetSnapshot().maximumExplosionAdmissionDelayMilliseconds >= 349u &&
+		queued.GetSnapshot().maximumExplosionAdmissionDelayMilliseconds <= 351u,
+		"real admission waiting measures from the original submission despite a queued duplicate");
+}
+
+void BatchedAircarWithoutFireUsesRealHeadroom()
+{
+	NRISmokeTransientResidency owner;
+	NRISmokeTransientClouds clouds;
+	const auto profile = clouds.ProfileForQuality(2u);
+	std::array<double, 52u> authored = {}, delivery = {};
+	for (uint32_t index = 0u; index < 52u; ++index)
+		authored[index] = delivery[index] = static_cast<double>(index + 1u) * 4.0 / 30.0;
+	// Valid, monotonic authored times: event44 crosses early afterevent43.
+	// Both are delivered together. This intentionally exceeds the ideal
+	// cadence's 38-live-event bound before the oldest surviving event expires.
+	authored[43] -= 0.1;
+	delivery[42] = delivery[43] = authored[43] + 1.0 / 60.0;
+	std::array<bool, 52u> submitted = {};
+	std::set<uint32_t> presented;
+	uint32_t peakGroups = 0u;
+	for (uint32_t frame = 0u; frame <= 750u; ++frame)
+	{
+		const double time = static_cast<double>(frame) / 60.0;
+		owner.BeginFrame(time, 7u, profile, View(), clouds);
+		if (frame == 0u)
+			for (uint32_t source = 80u; source < 82u; ++source)
+			{
+				auto normal = Build(source, time, false, 1000.0f, 12.0f, 4u);
+				for (auto& lobe : normal) lobe.transientClass = NRISmokeTransientClass::TrailChunk;
+				Submit(owner, normal);
+			}
+		for (uint32_t reverse = 52u; reverse > 0u; --reverse)
+		{
+			const uint32_t index = reverse - 1u;
+			if (submitted[index] || delivery[index] > time + 1.0e-8) continue;
+			Require(authored[index] <= time + 1.0e-8, "batched fixture never invents a future-authored birth");
+			Submit(owner, Build(1000u + index, authored[index], false, 1000.0f, 5.0f, 12u, true));
+			submitted[index] = true;
+		}
+		owner.Resolve(clouds);
+		const auto& status = owner.GetSnapshot();
+		peakGroups = std::max(peakGroups, status.residentBorrowExplosionGroups);
+		Require(status.deferredBorrowExplosionGroups == 0u &&
+			status.maximumExplosionAdmissionDelayMilliseconds == 0u,
+			"batched no-Fire aircar consumes real spare capacity without introducing residency queueing");
+		Require(status.protectedFireGroups == 12u && status.protectedFireLobes == 60u &&
+			status.borrowExplosionGroupBudget >= 50u && status.borrowExplosionLobeBudget >= 188u,
+			"zero Fire preserves one whole future window, not an artificial 38-event ceiling");
+		Require(clouds.GetSnapshot().activeGroups <= 64u && clouds.GetSnapshot().activeLobes <= 256u,
+			"batch slack never expands the physical pool");
+		for (const auto& group : clouds.GetGpuGroups())
+			if (group.flags != 0u && group.sourceId >= 1000u && group.lobeCount > 0u)
+				presented.insert(group.sourceId);
+	}
+	Require(peakGroups >= 39u && presented.size() == 52u && owner.GetSnapshot().firstPresentedExplosionEvents == 52u,
+		"all 52 jittered births present, including the 39th living event the old cap deferred");
+	std::cout << "Batched aircar peak=" << peakGroups << " published=" << presented.size()
+		<< " max_admission_delay_ms=" << owner.GetSnapshot().maximumExplosionAdmissionDelayMilliseconds << '\n';
+}
+
+void OneFireWindowSurvivesMaximumZeroFireLoans()
+{
+	NRISmokeTransientResidency owner;
+	NRISmokeTransientClouds clouds;
+	const auto profile = clouds.ProfileForQuality(2u);
+	owner.BeginFrame(4.9, 7u, profile, View(), clouds);
+	for (uint32_t index = 0u; index < 50u; ++index)
+		Submit(owner, Build(1000u + index, index * 0.1, false, 1000.0f, 5.0f, 12u, true));
+	for (uint32_t source = 80u; source < 82u; ++source)
+	{
+		auto normal = Build(source, 4.9, false, 1000.0f, 12.0f, 4u);
+		for (auto& lobe : normal) lobe.transientClass = NRISmokeTransientClass::TrailChunk;
+		Submit(owner, normal);
+	}
+	owner.Resolve(clouds);
+	Require(owner.GetSnapshot().residentBorrowExplosionGroups == 50u &&
+		owner.GetSnapshot().deferredBorrowExplosionGroups == 0u,
+		"no-Fire loans can use all fifty groups outside the future-Fire/ordinary windows");
+	owner.BeginFrame(4.91, 7u, profile, View(), clouds);
+	Submit(owner, Build(1u, 4.91, true));
+	Submit(owner, Build(2u, 4.91, true));
+	owner.Resolve(clouds);
+	Require(owner.GetSnapshot().residentFireGroups == 1u && owner.GetSnapshot().hotFireDeferredGroups == 1u,
+		"one late Fire immediately fits the promised window; the second waits for a complete window");
+	bool secondEntered = false;
+	for (uint32_t step = 1u; step <= 50u; ++step)
+	{
+		const double time = 4.91 + step * 0.05;
+		owner.BeginFrame(time, 7u, profile, View(), clouds);
+		if (step % 10u == 0u) Submit(owner, Build(1u, time, true));
+		owner.Resolve(clouds);
+		if (step % 10u == 0u)
+		{
+			bool firstCadence = false;
+			for (const auto& group : clouds.GetGpuGroups())
+				firstCadence = firstCadence || (group.flags != 0u && group.sourceId == 1u && group.ageSeconds < 1.0e-4f);
+			Require(firstCadence, "second Fire cannot interrupt the first Fire's reserved ongoing cadence");
+		}
+		for (const auto& group : clouds.GetGpuGroups())
+			secondEntered = secondEntered || (group.flags != 0u && group.sourceId == 2u);
+	}
+	Require(secondEntered, "second Fire enters at its original age after natural loan repayment opens another window");
+}
 }
 
 int main()
@@ -611,6 +755,9 @@ int main()
 	BorrowOptInAndEpisodeIdentity();
 	LateFireCannotSpendPromisedCadences();
 	EstablishedFireWindowsPrecedeLoans();
+	ExplosionAdmissionLatencySeparatesArrivalAndQueue();
+	BatchedAircarWithoutFireUsesRealHeadroom();
+	OneFireWindowSurvivesMaximumZeroFireLoans();
 	std::cout << "Transient residency tests passed: " << Checks << " checks.\n";
 	return 0;
 }

@@ -200,6 +200,7 @@ bool NRISmokeTransientResidency::SubmitBatch(
 	}
 	Entry entry = {};
 	entry.count = count;
+	entry.submittedGameplaySeconds = mTime;
 	std::copy_n(requests, count, entry.requests.begin());
 	BuildBounds(entry);
 	Classify(entry);
@@ -316,20 +317,26 @@ void NRISmokeTransientResidency::Resolve(NRISmokeTransientClouds& clouds)
 		(detailedFireSources <= 2u ? 5u : 3u);
 	const bool allowLoans = mProfile.maximumActiveGroups >= 64u &&
 		mProfile.maximumActiveLobes >= 256u;
-	const uint32_t protectedSources = std::clamp(detailedFireSources, 2u, 4u);
+	// With no detailed Fire sources, preserve one complete future window and
+	// lend the actual remainder. Engine birth batching can exceed the ideal
+	// 38-event cadence estimate. Once any Fire is relevant/resident, keep the
+	// two-source floor plus all established three/four-source windows.
+	const uint32_t protectedSources = detailedFireSources == 0u ? 1u :
+		std::clamp(detailedFireSources, 2u, 4u);
 	mSnapshot.protectedFireGroups = allowLoans ?
 		std::max(fireUse.groups, protectedSources * MaximumFireCohortsPerSource) : mSnapshot.fireGroupBudget;
 	mSnapshot.protectedFireLobes = allowLoans ? std::max(fireUse.lobes,
-		120u + (protectedSources - 2u) * 36u) : mSnapshot.fireLobeBudget;
+		protectedSources <= 2u ? protectedSources * 60u :
+			120u + (protectedSources - 2u) * 36u) : mSnapshot.fireLobeBudget;
 	auto remaining = [](uint32_t capacity, uint32_t used) { return capacity > used ? capacity - used : 0u; };
 	auto budget = [&](const Entry& entry) -> Occupancy
 	{
 		if (IsFire(entry.requests[0])) return { mSnapshot.fireGroupBudget, mSnapshot.fireLobeBudget };
 		if (IsBorrowExplosion(entry.requests[0]) && allowLoans)
-			return { std::min(38u, remaining(mProfile.maximumActiveGroups,
-				mSnapshot.protectedFireGroups + std::max(ordinaryUse.groups, 2u))),
-				std::min(128u, remaining(mProfile.maximumActiveLobes,
-				mSnapshot.protectedFireLobes + std::max(ordinaryUse.lobes, 8u))) };
+			return { remaining(mProfile.maximumActiveGroups,
+				mSnapshot.protectedFireGroups + std::max(ordinaryUse.groups, 2u)),
+				remaining(mProfile.maximumActiveLobes,
+				mSnapshot.protectedFireLobes + std::max(ordinaryUse.lobes, 8u)) };
 		// Non-opted effects never borrow. A current loan cannot be silently
 		// double-promised to future Fire or to another ordinary burst either.
 		if (allowLoans && explosionUse.groups > 0u)
@@ -429,6 +436,10 @@ void NRISmokeTransientResidency::Resolve(NRISmokeTransientClouds& clouds)
 			const uint32_t detail = std::min(desired, available.lobes - occupied.lobes);
 			const auto admission = clouds.AdmitRetainedBatch(entry.requests.data(), entry.count, detail);
 			if (!admission.Accepted()) continue;
+			if (entry.admissionOrdinal == 0u && IsBorrowExplosion(entry.requests[0]))
+				mSnapshot.maximumExplosionAdmissionDelayMilliseconds = std::max(
+					mSnapshot.maximumExplosionAdmissionDelayMilliseconds, static_cast<uint32_t>(std::clamp(
+					(mTime - entry.submittedGameplaySeconds) * 1000.0, 0.0, static_cast<double>(UINT32_MAX))));
 			if (entry.admissionOrdinal != 0u) ++mSnapshot.reenteredGroups;
 			entry.handle = admission.handle;
 			entry.residentLobes = admission.admittedLobes;

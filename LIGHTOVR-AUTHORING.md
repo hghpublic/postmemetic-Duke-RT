@@ -271,23 +271,33 @@ starts another full-detail episode. Reduction retains the primary connected
 binder, optical quantity, original time, seed, and natural lifetime; it changes
 spatial detail rather than increasing density authoring or shortening smoke life.
 
-On Medium, High, and Reference, opted-in explosions may occupy up to 38 groups
-and 128 lobes when unused Fire capacity permits. Before lending, the scheduler
-protects at least 24 groups / 120 lobes for two Fire sources, plus the complete
-bounded cadence windows of already Hot or resident-Warm Fire sources (up to the
-normal four-source limit). It also leaves at least two groups / eight lobes for
-ordinary effects. These are overlapping allocation rights inside the unchanged
+On Medium, High, and Reference, opted-in explosions may use the actual spare
+capacity after whole Fire windows and ordinary-effect headroom are reserved.
+With no Hot or resident-Warm Fire sources, the scheduler protects one future
+Fire window (12 groups / 60 lobes), allowing up to 50 explosion groups / 188
+lobes. Once any Fire is Hot or resident, it protects at least two Fire windows
+(24 / 120), plus all established three/four-source windows. It also leaves at
+least two groups / eight lobes for ordinary effects. These are overlapping allocation rights inside the unchanged
 64-group / 256-lobe physical pool, not additional memory or lighting-ray budgets.
 Ordinary effects cannot borrow; heavier ordinary traffic reduces loan headroom.
 
-The guaranteed opening-aircar load is 52 births every four 30 Hz actor ticks,
+The evenly spaced reference aircar load is 52 births every four 30 Hz actor ticks,
 with five-second lifetime, up to two Fire sources with at most 12 live cohorts
 each, and two ordinary four-lobe groups. At peak, the 38 explosion groups use
 `12 + 37*3 = 123` lobes; together with the protected Fire and ordinary shares,
-this fits 64 groups / 251 lobes. Existing visible smoke is never evicted to
-repay a loan. Consequently, activating more than the protected Fire source set
+this fits 64 groups / 251 lobes. Actual engine batching/early birth crossings can
+exceed 38 living events; the no-Fire case can use its full 50-group headroom,
+but a batched excess with two Fire windows protected can still defer until
+capacity naturally returns. This is a bounded envelope, not an unconditional
+zero-delay guarantee for arbitrary runtime delivery or extra effects.
+
+Existing visible smoke is never evicted to repay a loan. Consequently, activating more than the protected Fire source set
 while loans are outstanding can defer the extra sources until old smoke expires;
 the ordinary immediate four-Fire guarantee does not apply during those loans.
+After maximum no-Fire borrowing, the first Fire can immediately use its reserved
+window; a second Fire waits until its entire additional window fits, without
+interrupting the first stream. Existing loans are not revoked to make that
+second source appear sooner.
 Four already-established Fire sources are protected before new loans are granted,
 so the full aircar burst is not guaranteed simultaneously with those four fires.
 Low retains its smaller fixed pool and does not offer expanded borrowing.
