@@ -278,6 +278,10 @@ if ($process.ExitCode -ne 0 -and -not $CaptureWhenPassed) {
     throw "validation run exited with code $($process.ExitCode); log=$LogPath"
 }
 
+# The PowerShell assertion script sets an exit code on failure but returns
+# normally on success. Fresh, non-Build launches may have no native exit code
+# at all; stale native command results must not override a successful assertion.
+$global:LASTEXITCODE = 0
 & (Join-Path $PSScriptRoot "assert-nri-log.ps1") -InputPath $LogPath -ScenarioPath $ScenarioPath -SummaryOutput $SummaryOutput
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
