@@ -388,6 +388,21 @@ void RecordMotionAudit(
 	gTraceShaderStats[TRACE_STAT_MOTION_AUDIT_VALID] = 1u;
 }
 
+#if NRI_SHADER_DIAGNOSTICS
+// Applicability only: identity-dot and no-instance arithmetic are not merged.
+bool IsStaticIdentityLodProfileHit(HitData hit)
+{
+	if (hit.dataSource != SCENE_DATA_SOURCE_STATIC ||
+		hit.primitiveIndex >= gTraceConstants.StaticPrimitiveCount ||
+		hit.instanceId == 0xffffffffu || hit.instanceId >= gTraceConstants.SceneInstanceCount)
+		return false;
+	const SceneInstanceData instance = GetSceneInstanceData(hit.instanceId);
+	return instance.dataSource == SCENE_DATA_SOURCE_STATIC &&
+		all(asuint(instance.currentTransformRow0) == uint4(0x3f800000u, 0u, 0u, 0u)) &&
+		all(asuint(instance.currentTransformRow1) == uint4(0u, 0x3f800000u, 0u, 0u)) &&
+		all(asuint(instance.currentTransformRow2) == uint4(0u, 0u, 0x3f800000u, 0u));
+}
+#endif
 float3 ResolvePrimaryFootprintVertexPosition(HitData hit, float3 localPosition)
 {
 	if (hit.instanceId != 0xffffffffu)
@@ -407,6 +422,9 @@ bool TryResolvePrimaryBaseColorLod(
 {
 	selectedLod = 0.0;
 	mipCount = 0u;
+#if NRI_SHADER_DIAGNOSTICS
+	TraceShaderStatAdd(TRACE_STAT_DATA2_PRIMARY_LOD_CALLS, 1u);
+#endif
 	if (material.textureIndex == 0xffffffffu)
 	{
 		return false;
@@ -429,6 +447,10 @@ bool TryResolvePrimaryBaseColorLod(
 		return true;
 	}
 
+#if NRI_SHADER_DIAGNOSTICS
+	TraceShaderStatAdd(TRACE_STAT_DATA2_LOD_EXPENSIVE, 1u);
+	const bool lodProfileStaticIdentity = IsStaticIdentityLodProfileHit(hit);
+#endif
 	const PrimitiveData primitive = GetPrimitiveData(
 		hit.dataSource, hit.primitiveIndex);
 	const float3 p0 = ResolvePrimaryFootprintVertexPosition(
@@ -447,8 +469,14 @@ bool TryResolvePrimaryBaseColorLod(
 		!all(isfinite(p0)) || !all(isfinite(p1)) || !all(isfinite(p2)) ||
 		!isfinite(hit.distance))
 	{
+#if NRI_SHADER_DIAGNOSTICS
+		TraceShaderStatAdd(TRACE_STAT_DATA2_LOD_GEOMETRY_FALLBACK, 1u);
+#endif
 		return true;
 	}
+#if NRI_SHADER_DIAGNOSTICS
+	TraceShaderStatAdd(TRACE_STAT_DATA2_LOD_STATIC_IDENTITY, lodProfileStaticIdentity ? 1u : 0u);
+#endif
 
 	// Gradients of the UV coordinates over the placed triangle. Portal-path
 	// distance remains an approximation until HitData carries the accumulated
@@ -482,12 +510,20 @@ bool TryResolvePrimaryBaseColorLod(
 	const float texelFootprint = surfaceFootprint * texelsPerWorld;
 	if (!isfinite(texelFootprint) || texelFootprint <= 0.0)
 	{
+#if NRI_SHADER_DIAGNOSTICS
+		TraceShaderStatAdd(TRACE_STAT_DATA2_LOD_FOOTPRINT_FALLBACK, 1u);
+#endif
 		return true;
 	}
 
 	const float maximumLod = (float)(mipCount - 1u);
 	selectedLod = round(clamp(
 		log2(max(texelFootprint, 1.0)), 0.0, maximumLod));
+#if NRI_SHADER_DIAGNOSTICS
+	TraceShaderStatAdd(TRACE_STAT_DATA2_LOD_SELECTED_POSITIVE, selectedLod > 0.0 ? 1u : 0u);
+	TraceShaderStatAdd(TRACE_STAT_DATA2_LOD_STATIC_IDENTITY_SELECTED_POSITIVE,
+		lodProfileStaticIdentity && selectedLod > 0.0 ? 1u : 0u);
+#endif
 	return true;
 }
 

@@ -269,7 +269,7 @@ static const uint TRACE_STAT_PRIMARY_GEOMETRY_ORACLE_PREVIOUS_NORMAL = TRACE_STA
 static const uint TRACE_STAT_PRIMARY_GEOMETRY_ORACLE_IDENTITY = TRACE_STAT_PRIMARY_GEOMETRY_ORACLE_BASE + 6u;
 
 // Additive absence profiling region: absolute indices 9038..9069.
-// 20..23 reserve the future footprint oracle; 24..31 remain reserved.
+// 20..23 hold the footprint oracle; 24..31 profile DATA2 applicability.
 #if NRI_SHADER_DIAGNOSTICS
 static const uint TRACE_STAT_ABSENCE_PROFILE_BASE = TRACE_STAT_PROFILE_BASE + 447u;
 static const uint TRACE_STAT_ABSENCE_FOOTPRINT_CALLS = TRACE_STAT_ABSENCE_PROFILE_BASE + 0u;
@@ -296,6 +296,16 @@ static const uint TRACE_STAT_ABSENCE_ORACLE_COMPARISONS = TRACE_STAT_ABSENCE_PRO
 static const uint TRACE_STAT_ABSENCE_ORACLE_INSIDE_MISMATCH = TRACE_STAT_ABSENCE_PROFILE_BASE + 21u;
 static const uint TRACE_STAT_ABSENCE_ORACLE_VALIDITY_MISMATCH = TRACE_STAT_ABSENCE_PROFILE_BASE + 22u;
 static const uint TRACE_STAT_ABSENCE_ORACLE_PROBE_MISMATCH = TRACE_STAT_ABSENCE_PROFILE_BASE + 23u;
+#endif
+#if NRI_SHADER_DIAGNOSTICS
+static const uint TRACE_STAT_DATA2_STATIC_TANGENT_CALLS = TRACE_STAT_ABSENCE_PROFILE_BASE + 24u;
+static const uint TRACE_STAT_DATA2_PRIMARY_LOD_CALLS = TRACE_STAT_ABSENCE_PROFILE_BASE + 25u;
+static const uint TRACE_STAT_DATA2_LOD_EXPENSIVE = TRACE_STAT_ABSENCE_PROFILE_BASE + 26u;
+static const uint TRACE_STAT_DATA2_LOD_STATIC_IDENTITY = TRACE_STAT_ABSENCE_PROFILE_BASE + 27u;
+static const uint TRACE_STAT_DATA2_LOD_SELECTED_POSITIVE = TRACE_STAT_ABSENCE_PROFILE_BASE + 28u;
+static const uint TRACE_STAT_DATA2_LOD_STATIC_IDENTITY_SELECTED_POSITIVE = TRACE_STAT_ABSENCE_PROFILE_BASE + 29u;
+static const uint TRACE_STAT_DATA2_LOD_GEOMETRY_FALLBACK = TRACE_STAT_ABSENCE_PROFILE_BASE + 30u;
+static const uint TRACE_STAT_DATA2_LOD_FOOTPRINT_FALLBACK = TRACE_STAT_ABSENCE_PROFILE_BASE + 31u;
 #endif
 
 bool TraceShaderStatsEnabled()
@@ -615,6 +625,9 @@ float4 SampleMaterialColor(MaterialData material, uint textureIndex, float2 uv, 
 
 bool TryResolveHitTangentFrame(uint dataSource, uint primitiveIndex, float3 geometricNormal, out float3 tangent, out float3 bitangent)
 {
+#if NRI_SHADER_DIAGNOSTICS
+	TraceShaderStatAdd(TRACE_STAT_DATA2_STATIC_TANGENT_CALLS, dataSource == SCENE_DATA_SOURCE_STATIC ? 1u : 0u);
+#endif
 	const PrimitiveData primitive = GetPrimitiveData(dataSource, primitiveIndex);
 	const SceneVertex v0 = GetVertexData(dataSource, primitive.indices.x);
 	const SceneVertex v1 = GetVertexData(dataSource, primitive.indices.y);
@@ -2358,16 +2371,21 @@ bool TraceClosestSurfaceRoute(float3 startOrigin, float3 direction, float maxDis
 				const PrimitiveData candidatePrimitive = GetPrimitiveData(
 					candidateInstance.dataSource,
 					candidatePrimitiveIndex);
+				// Retain only these candidate-local scalars for the static gate.
+				// MaterialData stays confined to the existing filtering scope.
+				uint candidateMaterialIndex = 0xffffffffu;
+				uint candidateMaterialFlags = 0u;
 				if (candidateInstance.dataSource == SCENE_DATA_SOURCE_STATIC ||
 					candidateInstance.dataSource == SCENE_DATA_SOURCE_DYNAMIC ||
 					candidateInstance.dataSource == SCENE_DATA_SOURCE_PERSISTENT_VOXEL)
 				{
-					const uint candidateMaterialIndex = ResolvePrimitiveMaterialIndex(
+					candidateMaterialIndex = ResolvePrimitiveMaterialIndex(
 						candidateInstance,
 						candidatePrimitive);
 					const MaterialData candidateMaterial = GetMaterialData(
 						candidateMaterialIndex,
 						candidateInstance.dataSource);
+					candidateMaterialFlags = candidateMaterial.flags;
 					const bool candidateReflectionOnly = IsReflectionOnlyPrimitive(candidatePrimitive);
 					const bool candidateOneWay = (candidateMaterial.flags & MATERIAL_FLAG_ONE_WAY) != 0u;
 					const bool candidateNoShadow =
@@ -2480,9 +2498,6 @@ bool TraceClosestSurfaceRoute(float3 startOrigin, float3 direction, float maxDis
 					TraceShaderStatAdd(TRACE_STAT_FILTER_CANDIDATE_COMMITS, 1u);
 					continue;
 				}
-				const uint candidateMaterialIndex = ResolvePrimitiveMaterialIndex(
-					candidateInstance,
-					candidatePrimitive);
 				const uint candidateVisibilityChunk = ResolveVisibilityChunk(
 					candidateInstance,
 					candidatePrimitive);
@@ -2516,9 +2531,6 @@ bool TraceClosestSurfaceRoute(float3 startOrigin, float3 direction, float maxDis
 				}
 				const float candidateDistance = rayQuery.CandidateTriangleRayT();
 				const float3 candidatePosition = startOrigin + direction * candidateDistance;
-				const uint candidateMaterialFlags = GetMaterialData(
-					candidateMaterialIndex,
-					candidateInstance.dataSource).flags;
 				const bool exactNegativeSurfaceMembership =
 					(candidateMaterialFlags & (MATERIAL_FLAG_FLAT | MATERIAL_FLAG_SPRITE)) == 0u;
 				uint candidatePositiveChunk = 0xffffffffu;

@@ -1070,6 +1070,7 @@ set (NRI_SOURCES
 	common/rendering/nri/renderer/nri_trace_stats.cpp
 	common/rendering/nri/renderer/nri_primary_temporal_geometry_diagnostics.cpp
 	common/rendering/nri/renderer/nri_spatial_absence_diagnostics.cpp
+	common/rendering/nri/renderer/nri_static_shading_diagnostics.cpp
 	common/rendering/nri/renderer/nri_upscaler.cpp
 	common/rendering/nri/renderer/nri_voxel_compute_preload.cpp
 	common/rendering/nri/renderer/nri_voxel_compute_batch_plan.cpp
