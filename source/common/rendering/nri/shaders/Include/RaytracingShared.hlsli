@@ -1195,7 +1195,16 @@ bool ValidateSpatialFootprintLookup(uint ownerChunk, SpatialAbsenceRecord lookup
 	return true;
 }
 
+#if NRI_SHADER_DIAGNOSTICS
+// Keep both oracle evaluations shared in SPIR-V; expanding this body into every
+// cache-path caller overflows DXC's compiler stack. DXIL requires it inlined.
+#if defined(__spirv__)
+[noinline]
+#endif
+bool PointInSpatialFootprintImpl(
+#else
 bool PointInSpatialFootprint(
+#endif
 	uint ownerChunk,
 	SpatialAbsenceRecord lookup,
 	float2 samplePoint,
@@ -1203,13 +1212,24 @@ bool PointInSpatialFootprint(
 	bool lookupPrevalidated,
 	bool collectProbeDetails,
 	bool structurePrevalidated,
+#if NRI_SHADER_DIAGNOSTICS
+	bool allowEarlyExit,
+	bool recordCounters,
+#endif
 	out bool recordsValid,
 	out SpatialFootprintProbeDetails probeDetails)
 {
+#if !NRI_SHADER_DIAGNOSTICS
+	const bool allowEarlyExit = true;
+	const bool recordCounters = true;
+#endif
 #if NRI_SHADER_DIAGNOSTICS
-	TraceShaderStatAdd(TRACE_STAT_ABSENCE_FOOTPRINT_CALLS, 1u);
-	TraceShaderStatAdd(TRACE_STAT_ABSENCE_FOOTPRINT_ELIGIBLE, structurePrevalidated && !collectProbeDetails ? 1u : 0u);
-	TraceShaderStatAdd(TRACE_STAT_ABSENCE_FOOTPRINT_PROBE_CALLS, collectProbeDetails ? 1u : 0u);
+	if (recordCounters)
+		TraceShaderStatAdd(TRACE_STAT_ABSENCE_FOOTPRINT_CALLS, 1u);
+	if (recordCounters)
+		TraceShaderStatAdd(TRACE_STAT_ABSENCE_FOOTPRINT_ELIGIBLE, structurePrevalidated && !collectProbeDetails ? 1u : 0u);
+	if (recordCounters)
+		TraceShaderStatAdd(TRACE_STAT_ABSENCE_FOOTPRINT_PROBE_CALLS, collectProbeDetails ? 1u : 0u);
 #endif
 	probeDetails = EmptySpatialFootprintProbeDetails();
 	recordsValid = structurePrevalidated || lookupPrevalidated ||
@@ -1288,9 +1308,11 @@ bool PointInSpatialFootprint(
 		if (!certificateValid)
 			return false;
 #if NRI_SHADER_DIAGNOSTICS
-		TraceShaderStatAdd(TRACE_STAT_ABSENCE_CERTIFICATE_TESTS, 1u);
+		if (recordCounters)
+			TraceShaderStatAdd(TRACE_STAT_ABSENCE_CERTIFICATE_TESTS, 1u);
 #endif
-		TraceShaderStatAdd(TRACE_STAT_SPATIAL_WITNESS_TESTS, 1u);
+		if (recordCounters)
+			TraceShaderStatAdd(TRACE_STAT_SPATIAL_WITNESS_TESTS, 1u);
 		float certificateMargin = -3.402823466e+38;
 		const bool certificateInside = collectProbeDetails ?
 			PointInSpatialTriangle(
@@ -1306,13 +1328,18 @@ bool PointInSpatialFootprint(
 		}
 		inside = certificateInside;
 #if NRI_SHADER_DIAGNOSTICS
-		TraceShaderStatAdd(TRACE_STAT_ABSENCE_CERTIFICATE_HITS, certificateInside ? 1u : 0u);
+		if (recordCounters)
+			TraceShaderStatAdd(TRACE_STAT_ABSENCE_CERTIFICATE_HITS, certificateInside ? 1u : 0u);
 		if (certificateInside && structurePrevalidated && !collectProbeDetails)
 		{
-			TraceShaderStatAdd(TRACE_STAT_ABSENCE_AVOIDABLE_REFERENCES, cellReferenceRecordCount);
-			TraceShaderStatAdd(TRACE_STAT_ABSENCE_AVOIDABLE_TRIANGLES, cell.Data2);
+			if (recordCounters)
+				TraceShaderStatAdd(TRACE_STAT_ABSENCE_AVOIDABLE_REFERENCES, cellReferenceRecordCount);
+			if (recordCounters)
+				TraceShaderStatAdd(TRACE_STAT_ABSENCE_AVOIDABLE_TRIANGLES, cell.Data2);
 		}
 #endif
+		if (allowEarlyExit && structurePrevalidated && !collectProbeDetails && inside)
+			return true;
 	}
 	if (cell.Data2 == 0u)
 	{
@@ -1321,11 +1348,14 @@ bool PointInSpatialFootprint(
 		return inside;
 	}
 	[loop]
-	for (uint referenceRecordOffset = 0u; referenceRecordOffset < cellReferenceRecordCount; ++referenceRecordOffset)
+	for (uint referenceRecordOffset = 0u; referenceRecordOffset < cellReferenceRecordCount &&
+		!(allowEarlyExit && structurePrevalidated && !collectProbeDetails && inside); ++referenceRecordOffset)
 	{
 #if NRI_SHADER_DIAGNOSTICS
-		TraceShaderStatAdd(TRACE_STAT_ABSENCE_REFERENCE_VISITS, 1u);
-		TraceShaderStatAdd(TRACE_STAT_ABSENCE_REFERENCE_AFTER_HIT, inside ? 1u : 0u);
+		if (recordCounters)
+			TraceShaderStatAdd(TRACE_STAT_ABSENCE_REFERENCE_VISITS, 1u);
+		if (recordCounters)
+			TraceShaderStatAdd(TRACE_STAT_ABSENCE_REFERENCE_AFTER_HIT, inside ? 1u : 0u);
 #endif
 		const SpatialAbsenceRecord referenceRecord = gSpatialAbsenceRecords[cell.Data1 + referenceRecordOffset];
 		uint referenceOwner = 0u;
@@ -1350,6 +1380,8 @@ bool PointInSpatialFootprint(
 		{
 			if (triangleLane >= tailCount)
 				continue;
+			if (allowEarlyExit && structurePrevalidated && !collectProbeDetails && inside)
+				continue;
 			const uint triangleOffset = triangleOffsets[triangleLane];
 			const bool triangleReferenceValid = structurePrevalidated ||
 				(triangleOffset < lookup.Data1 && lookup.Data0 + triangleOffset < recordCount);
@@ -1357,8 +1389,10 @@ bool PointInSpatialFootprint(
 			if (!triangleReferenceValid)
 				continue;
 #if NRI_SHADER_DIAGNOSTICS
-			TraceShaderStatAdd(TRACE_STAT_ABSENCE_TRIANGLE_VISITS, 1u);
-			TraceShaderStatAdd(TRACE_STAT_ABSENCE_TRIANGLE_AFTER_HIT, inside ? 1u : 0u);
+			if (recordCounters)
+				TraceShaderStatAdd(TRACE_STAT_ABSENCE_TRIANGLE_VISITS, 1u);
+			if (recordCounters)
+				TraceShaderStatAdd(TRACE_STAT_ABSENCE_TRIANGLE_AFTER_HIT, inside ? 1u : 0u);
 #endif
 			const SpatialAbsenceRecord triangleRecord = gSpatialAbsenceRecords[lookup.Data0 + triangleOffset];
 			const bool triangleValid = structurePrevalidated ||
@@ -1367,7 +1401,8 @@ bool PointInSpatialFootprint(
 			recordsValid = recordsValid && triangleValid;
 			if (triangleValid && !inside)
 			{
-				TraceShaderStatAdd(TRACE_STAT_SPATIAL_WITNESS_TESTS, 1u);
+				if (recordCounters)
+					TraceShaderStatAdd(TRACE_STAT_SPATIAL_WITNESS_TESTS, 1u);
 				float edgeMargin = -3.402823466e+38;
 				const bool triangleInside = collectProbeDetails ?
 					PointInSpatialTriangle(
@@ -1384,11 +1419,14 @@ bool PointInSpatialFootprint(
 #if NRI_SHADER_DIAGNOSTICS
 				if (triangleInside)
 				{
-					TraceShaderStatAdd(TRACE_STAT_ABSENCE_TRIANGLE_FIRST_HITS, 1u);
+					if (recordCounters)
+						TraceShaderStatAdd(TRACE_STAT_ABSENCE_TRIANGLE_FIRST_HITS, 1u);
 					if (structurePrevalidated && !collectProbeDetails)
 					{
-						TraceShaderStatAdd(TRACE_STAT_ABSENCE_AVOIDABLE_REFERENCES, cellReferenceRecordCount - referenceRecordOffset - 1u);
-						TraceShaderStatAdd(TRACE_STAT_ABSENCE_AVOIDABLE_TRIANGLES, cell.Data2 - (referenceRecordOffset * 3u + triangleLane + 1u));
+						if (recordCounters)
+							TraceShaderStatAdd(TRACE_STAT_ABSENCE_AVOIDABLE_REFERENCES, cellReferenceRecordCount - referenceRecordOffset - 1u);
+						if (recordCounters)
+							TraceShaderStatAdd(TRACE_STAT_ABSENCE_AVOIDABLE_TRIANGLES, cell.Data2 - (referenceRecordOffset * 3u + triangleLane + 1u));
 					}
 				}
 #endif
@@ -1400,6 +1438,122 @@ bool PointInSpatialFootprint(
 		probeDetails.stage = SPATIAL_FOOTPRINT_PROBE_TRIANGLE_MISS;
 	return recordsValid && inside;
 }
+
+#if NRI_SHADER_DIAGNOSTICS && !defined(__spirv__)
+// DXIL noinline interfaces accept scalar parameters; keep aggregate values local.
+// This bridge changes call representation only, not either oracle evaluation.
+[noinline]
+bool PointInSpatialFootprintDxilScalar(
+	uint ownerChunk,
+	uint lookupFlags, uint lookupData0, uint lookupData1, uint lookupData2,
+	float payload0x, float payload0y, float payload0z, float payload0w,
+	float payload1x, float payload1y, float payload1z, float payload1w,
+	float payload2x, float payload2y, float payload2z, float payload2w,
+	float payload3x, float payload3y, float payload3z, float payload3w,
+	float sampleX, float sampleY,
+	uint recordCount,
+	bool lookupPrevalidated, bool collectProbeDetails, bool structurePrevalidated,
+	bool allowEarlyExit, bool recordCounters,
+	out bool recordsValid,
+	out uint probeStage, out uint probeCellReferenceCount,
+	out float probeBestMargin, out uint probeBestTriangle)
+{
+	SpatialAbsenceRecord lookup;
+	lookup.Flags = lookupFlags;
+	lookup.Data0 = lookupData0;
+	lookup.Data1 = lookupData1;
+	lookup.Data2 = lookupData2;
+	lookup.Payload0 = float4(payload0x, payload0y, payload0z, payload0w);
+	lookup.Payload1 = float4(payload1x, payload1y, payload1z, payload1w);
+	lookup.Payload2 = float4(payload2x, payload2y, payload2z, payload2w);
+	lookup.Payload3 = float4(payload3x, payload3y, payload3z, payload3w);
+	SpatialFootprintProbeDetails probeDetails;
+	const bool inside = PointInSpatialFootprintImpl(
+		ownerChunk, lookup, float2(sampleX, sampleY), recordCount,
+		lookupPrevalidated, collectProbeDetails, structurePrevalidated,
+		allowEarlyExit, recordCounters, recordsValid, probeDetails);
+	probeStage = probeDetails.stage;
+	probeCellReferenceCount = probeDetails.cellReferenceCount;
+	probeBestMargin = probeDetails.bestMargin;
+	probeBestTriangle = probeDetails.bestTriangle;
+	return inside;
+}
+#endif
+
+#if NRI_SHADER_DIAGNOSTICS
+// Same-call baseline oracle is diagnostic-only. Production uses the original
+// function signature and shared body directly, avoiding a wrapper call.
+bool PointInSpatialFootprint(
+	uint ownerChunk,
+	SpatialAbsenceRecord lookup,
+	float2 samplePoint,
+	uint recordCount,
+	bool lookupPrevalidated,
+	bool collectProbeDetails,
+	bool structurePrevalidated,
+	out bool recordsValid,
+	out SpatialFootprintProbeDetails probeDetails)
+{
+	bool inside = false;
+	recordsValid = false;
+	probeDetails = EmptySpatialFootprintProbeDetails();
+	// One syntactic implementation call keeps the diagnostic SPIR-V graph
+	// bounded while evaluating the exact same inputs in optimized/reference modes.
+	const uint oraclePassCount = TraceShaderStatsEnabled() ? 2u : 1u;
+	[loop]
+	for (uint oraclePass = 0u; oraclePass < oraclePassCount; ++oraclePass)
+	{
+		bool passRecordsValid = false;
+		SpatialFootprintProbeDetails passProbeDetails = EmptySpatialFootprintProbeDetails();
+		const bool selectedPass = oraclePass == 0u;
+#if defined(__spirv__)
+		const bool passInside = PointInSpatialFootprintImpl(
+			ownerChunk, lookup, samplePoint, recordCount,
+			lookupPrevalidated, collectProbeDetails, structurePrevalidated,
+			selectedPass, selectedPass, passRecordsValid, passProbeDetails);
+#else
+		uint passProbeStage, passProbeCellReferenceCount, passProbeBestTriangle;
+		float passProbeBestMargin;
+		const bool passInside = PointInSpatialFootprintDxilScalar(
+			ownerChunk, lookup.Flags, lookup.Data0, lookup.Data1, lookup.Data2,
+			lookup.Payload0.x, lookup.Payload0.y, lookup.Payload0.z, lookup.Payload0.w,
+			lookup.Payload1.x, lookup.Payload1.y, lookup.Payload1.z, lookup.Payload1.w,
+			lookup.Payload2.x, lookup.Payload2.y, lookup.Payload2.z, lookup.Payload2.w,
+			lookup.Payload3.x, lookup.Payload3.y, lookup.Payload3.z, lookup.Payload3.w,
+			samplePoint.x, samplePoint.y, recordCount,
+			lookupPrevalidated, collectProbeDetails, structurePrevalidated,
+			selectedPass, selectedPass, passRecordsValid,
+			passProbeStage, passProbeCellReferenceCount, passProbeBestMargin, passProbeBestTriangle);
+		passProbeDetails.stage = passProbeStage;
+		passProbeDetails.cellReferenceCount = passProbeCellReferenceCount;
+		passProbeDetails.bestMargin = passProbeBestMargin;
+		passProbeDetails.bestTriangle = passProbeBestTriangle;
+#endif
+		if (selectedPass)
+		{
+			inside = passInside;
+			recordsValid = passRecordsValid;
+			probeDetails = passProbeDetails;
+		}
+		else
+		{
+			TraceShaderStatAdd(TRACE_STAT_ABSENCE_ORACLE_COMPARISONS, 1u);
+			TraceShaderStatAdd(TRACE_STAT_ABSENCE_ORACLE_INSIDE_MISMATCH,
+				inside != passInside ? 1u : 0u);
+			TraceShaderStatAdd(TRACE_STAT_ABSENCE_ORACLE_VALIDITY_MISMATCH,
+				recordsValid != passRecordsValid ? 1u : 0u);
+			const bool probeMismatch =
+				probeDetails.stage != passProbeDetails.stage ||
+				probeDetails.cellReferenceCount != passProbeDetails.cellReferenceCount ||
+				probeDetails.bestTriangle != passProbeDetails.bestTriangle ||
+				asuint(probeDetails.bestMargin) != asuint(passProbeDetails.bestMargin);
+			TraceShaderStatAdd(TRACE_STAT_ABSENCE_ORACLE_PROBE_MISMATCH, probeMismatch ? 1u : 0u);
+		}
+	}
+	return inside;
+}
+
+#endif
 
 bool GetSpatialAbsenceProbeConfig(
 	out SpatialAbsenceRecord header,

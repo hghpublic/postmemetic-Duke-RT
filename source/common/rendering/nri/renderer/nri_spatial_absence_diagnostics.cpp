@@ -42,4 +42,12 @@ void LogNRISpatialAbsenceProfile(uint64_t frameNumber, const NRITraceShaderStats
 		c[NRI_TRACE_SHADER_ABSENCE_PAIR_VISITS],
 		c[NRI_TRACE_SHADER_ABSENCE_PAIR_BOUNDS_HITS],
 		c[NRI_TRACE_SHADER_ABSENCE_POSITIVE_EVALUATIONS]);
+	Printf("PERF pt shader absence oracle NRI: schema=1 frame=%llu stats_frame=%llu trace_flags=0x%08x comparisons=%u inside_mismatch=%u validity_mismatch=%u probe_mismatch=%u\n",
+		(unsigned long long)frameNumber,
+		(unsigned long long)snapshot.frameNumber,
+		snapshot.dispatchMetadata.traceFlags,
+		c[NRI_TRACE_SHADER_ABSENCE_ORACLE_COMPARISONS],
+		c[NRI_TRACE_SHADER_ABSENCE_ORACLE_INSIDE_MISMATCH],
+		c[NRI_TRACE_SHADER_ABSENCE_ORACLE_VALIDITY_MISMATCH],
+		c[NRI_TRACE_SHADER_ABSENCE_ORACLE_PROBE_MISMATCH]);
 }
