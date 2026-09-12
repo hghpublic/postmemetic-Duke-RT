@@ -216,6 +216,11 @@ CUSTOM_CVAR(Int, nri_ptemissiveresponselookup, 0, 0)
 	if (self < 0) self = 0;
 	else if (self > 2) self = 2;
 }
+CVAR(Bool, nri_ptemissivecache, true, 0)
+// Full geometry/payload shadow validation; intentionally expensive and session-only.
+CVAR(Bool, nri_ptemissivecachevalidate, false, 0)
+CVAR(Bool, nri_ptlightregistry, true, 0)
+CVAR(Bool, nri_ptlightregistryvalidate, false, 0)
 CVAR(Bool, nri_ptindirectradiancecache, false, 0)
 CVAR(Bool, nri_ptindirectradiancecacheaccept, false, 0)
 
@@ -327,6 +332,12 @@ CUSTOM_CVAR(Int, nri_ptscenedataringmaxbytes, 0, 0)
 
 CVAR(Bool, nri_voxelstats, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 
+CVAR(Bool, nri_ptvoxelpublication, true, 0)
+CVAR(Int, nri_ptvoxelpublicationvalidate, 0, 0)
+CVAR(Bool, nri_ptmaterialpatch, true, 0)
+CVAR(Bool, nri_ptmaterialpatchvalidate, false, 0)
+CVAR(Bool, nri_ptstaticmaterialpatch, true, 0)
+CVAR(Bool, nri_ptstaticmaterialpatchvalidate, false, 0)
 CVAR(Bool, nri_ptvoxelactorstatetrace, false, 0)
 
 CVAR(Bool, nri_ptvoxelactorlifecycle, true, 0)

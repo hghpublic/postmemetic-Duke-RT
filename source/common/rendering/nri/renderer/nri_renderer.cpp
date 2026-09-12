@@ -1,4 +1,5 @@
 #include "nri_renderer.h"
+#include "nri_scene_frame_scratch.h"
 #include "nri_smoke.h"
 #include "nri_cvars.h"
 

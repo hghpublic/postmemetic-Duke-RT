@@ -937,6 +937,8 @@ set (NRI_SOURCES
 	common/rendering/nri/renderer/nri_dynamic_scene_status.cpp
 	common/rendering/nri/renderer/nri_dynamic_overlay_blas.cpp
 	common/rendering/nri/renderer/nri_dynamic_overlay_blas_diagnostics.cpp
+	common/rendering/nri/renderer/nri_emissive_sampling_build.cpp
+	common/rendering/nri/renderer/nri_emissive_sampling_geometry.cpp
 	common/rendering/nri/renderer/nri_emissive_sampling_distribution.cpp
 	common/rendering/nri/renderer/nri_emissive_sampling_upload.cpp
 	common/rendering/nri/renderer/nri_cvars.cpp
@@ -970,6 +972,8 @@ set (NRI_SOURCES
 	common/rendering/nri/renderer/nri_persistent_voxel_pressure_policy.cpp
 	common/rendering/nri/renderer/nri_persistent_voxel_services.cpp
 	common/rendering/nri/renderer/nri_persistent_voxels.cpp
+	common/rendering/nri/renderer/nri_persistent_voxel_publication.cpp
+	common/rendering/nri/renderer/nri_voxel_publication_order.cpp
 	common/rendering/nri/renderer/nri_actor_occurrence_ledger.cpp
 	common/rendering/nri/renderer/nri_actor_occurrence_policy.cpp
 	common/rendering/nri/renderer/nri_actor_occurrence_diagnostics.cpp
@@ -1022,6 +1026,8 @@ set (NRI_SOURCES
 	common/rendering/nri/renderer/nri_scene_frame_diagnostics.cpp
 	common/rendering/nri/renderer/nri_scene_frame_builder.cpp
 	common/rendering/nri/renderer/nri_scene_material_frame_cache.cpp
+	common/rendering/nri/renderer/nri_scene_material_product.cpp
+	common/rendering/nri/renderer/nri_scene_material_product_policy.cpp
 	common/rendering/nri/renderer/nri_scene_material_texture_slots.cpp
 	common/rendering/nri/renderer/nri_scene_texture_frame_cache.cpp
 	common/rendering/nri/renderer/nri_scene_texture_slot_table.cpp
@@ -1031,6 +1037,7 @@ set (NRI_SOURCES
 	common/rendering/nri/renderer/nri_static_scene_geometry_upload.cpp
 	common/rendering/nri/renderer/nri_runtime_mutation.cpp
 	common/rendering/nri/renderer/nri_runtime_mutation_worklist.cpp
+	common/rendering/nri/renderer/nri_runtime_mutation_discovery.cpp
 	common/rendering/nri/renderer/nri_runtime_mutation_overlay.cpp
 	common/rendering/nri/renderer/nri_runtime_mutation_resident_apply.cpp
 	common/rendering/nri/renderer/nri_runtime_mutation_resident_static.cpp
@@ -1045,11 +1052,17 @@ set (NRI_SOURCES
 	common/rendering/nri/renderer/nri_scene_buffer_residency.cpp
 	common/rendering/nri/renderer/nri_sector_lighting.cpp
 	common/rendering/nri/renderer/nri_scene_lights.cpp
+	common/rendering/nri/renderer/nri_scene_light_registry.cpp
+	common/rendering/nri/renderer/nri_scene_light_rules.cpp
+	common/rendering/nri/renderer/nri_scene_light_rule_validation.cpp
 	common/rendering/nri/renderer/nri_scene_upload.cpp
 	common/rendering/nri/renderer/nri_scene_upload_identity.cpp
 	common/rendering/nri/renderer/nri_scene_upload_dirty_plan.cpp
 	common/rendering/nri/renderer/nri_scene_upload_ranges.cpp
 	common/rendering/nri/renderer/nri_static_scene.cpp
+	common/rendering/nri/renderer/nri_static_scene_animated.cpp
+	common/rendering/nri/renderer/nri_static_scene_animated_bindings.cpp
+	common/rendering/nri/renderer/nri_static_material_slices.cpp
 	common/rendering/nri/renderer/nri_static_scene_diagnostics.cpp
 	common/rendering/nri/renderer/nri_static_scene_residency.cpp
 	common/rendering/nri/renderer/nri_surface_probe.cpp
@@ -1083,6 +1096,7 @@ set (NRI_SOURCES
 	common/rendering/nri/scene/nri_voxel_palette_policy.cpp
 	common/rendering/nri/scene/nri_voxel_actor_cache_maintenance.cpp
 	common/rendering/nri/scene/nri_scene_bridge.cpp
+	common/rendering/nri/scene/nri_voxel_actor_publication.cpp
 	common/rendering/nri/scene/nri_portal_bridge.cpp
 	common/rendering/nri/scene/nri_geometry_bridge.cpp
 	common/rendering/nri/scene/nri_indexed_mip_chain.cpp

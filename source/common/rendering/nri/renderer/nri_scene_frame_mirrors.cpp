@@ -5,6 +5,7 @@
 #include "../scene/nri_hash.h"
 #include "../scene/nri_material_bridge.h"
 #include "../scene/nri_scene_bridge.h"
+#include "../scene/nri_scene_view_scratch.h"
 #include "coreactor.h"
 #include "coreplayer.h"
 #include "gamecontrol.h"
@@ -238,7 +239,7 @@ public:
 		bool* outCurrentVoxel,
 		NRILocalPlayerReflectionCaptureStats* outStats = nullptr)
 	{
-		outView = {};
+		nri_scene::ClearSceneViewRetainingCapacity(outView);
 		if (outCurrentVoxel != nullptr)
 		{
 			*outCurrentVoxel = false;
@@ -318,7 +319,7 @@ public:
 		if (!sceneCapture.capturedFallbackScene || !AppendLocalPlayerReflectionSurfaces(capturedView, outView))
 		{
 			publishStats();
-			outView = {};
+			nri_scene::ClearSceneViewRetainingCapacity(outView);
 			return false;
 		}
 
@@ -405,7 +406,7 @@ NRILocalPlayerReflectionCaptureResult CaptureNRILocalPlayerReflectionDynamicScen
 	NRILocalPlayerReflectionCaptureResult result = {};
 	if (request.drawInfo == nullptr)
 	{
-		outView = {};
+		nri_scene::ClearSceneViewRetainingCapacity(outView);
 		return result;
 	}
 	result.captured = CaptureLocalPlayerReflectionDynamicScene(
