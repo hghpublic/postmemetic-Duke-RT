@@ -16,6 +16,7 @@
 #include "nri_pipeline_state.h"
 #include "nri_renderer_context.h"
 #include "nri_resources.h"
+#include "nri_static_tangent_integration.h"
 #include "nri_map_movers.h"
 #include "nri_map_motion_history.h"
 #include "nri_map_material_only_route.h"
@@ -1739,6 +1740,11 @@ public:
 		uint64_t traceRendererFrame = 0;
 		uint64_t traceSettingsKey = 0;
 		uint64_t traceWorkloadKey = 0;
+		uint64_t traceSettingsKeyWithoutStaticTangent = 0;
+		uint64_t traceWorkloadKeyWithoutStaticTangent = 0;
+		uint32_t traceStaticTangentRequested = 0;
+		uint32_t traceStaticTangentActive = 0;
+		uint32_t traceAux1 = 0;
 		uint32_t traceRenderWidth = 0;
 		uint32_t traceRenderHeight = 0;
 		uint32_t traceOutputWidth = 0;
@@ -2691,6 +2697,11 @@ private:
 	const NRIBufferResource& GetActivePrimitiveBuffer() const;
 	const NRIBufferResource& GetActiveMaterialBuffer() const;
 	bool BindSceneRootDescriptors();
+	NRIStaticTangentServices BuildStaticTangentServices();
+	NRIStaticTangentFrame BuildStaticTangentFrame() const;
+	nri::Descriptor* PublishStaticTangents(const NRIBufferResource&, const NRIBufferResource&, uint32_t);
+	void CommitStaticTangentPublication();
+	uint32_t RecordStaticTangents(uint32_t primitiveCount, bool supported, bool diagnosticWindow, nri::CommandBuffer* consumingCommand);
 
 	bool CreateStructuredBuffer(NRIBufferResource& resource, const void* data, uint64_t size, uint32_t stride, nri::BufferUsageBits usage, nri::AccessStage after);
 	bool EnsureStructuredBuffer(NRIBufferResource& resource, SceneBufferDebugStats& stats, const void* data, uint64_t size, uint32_t stride, nri::BufferUsageBits usage, nri::AccessStage after, bool writesQuiesced = false, const char* waitReason = nullptr);
@@ -2828,6 +2839,7 @@ private:
 	NRIBufferResource mSpatialAbsenceTypedBuffer;
 	NRITraceShaderStats mTraceShaderStats;
 	NRIIndirectRadianceCache mIndirectRadianceCache;
+	NRIStaticTangentIntegration mStaticTangents;
 	NRIIndirectRadianceCacheTelemetrySnapshot mLastIndirectRadianceCacheTelemetry = {};
 	NRIBufferResource mScratchBuffer;
 	NRIBufferResource mResidentStaticBlasScratchBuffer;

@@ -1772,6 +1772,8 @@ void NRIRenderer::Shutdown()
 	mNrd.Shutdown();
 	mUpscaler.Shutdown(*mFrameBuffer);
 	mIndirectRadianceCache.Destroy(BuildResourceServices());
+	mStaticTangents.scratch.Destroy(BuildResourceServices());
+	mStaticTangents = {};
 	DestroyNRIVoxelComputeMeshingDiagnostics(*this);
 	DestroyAccelerationStructures();
 	ClearRuntimePointLights();

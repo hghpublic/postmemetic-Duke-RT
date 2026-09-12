@@ -3,6 +3,39 @@
 
 #include "Shared.hlsli"
 #include "MotionContracts.hlsli"
+#include "StaticShadingData.hlsli"
+
+StructuredBuffer<StaticTangentData> gStaticTangents : register(t28, space2);
+
+#ifndef NRI_STATIC_TANGENT_ORACLE_ONLY
+#define NRI_STATIC_TANGENT_ORACLE_ONLY 0
+#endif
+#if NRI_STATIC_TANGENT_ORACLE_ONLY && NRI_SHADER_DIAGNOSTICS
+#error Static tangent validation must not enable unrelated broad diagnostics
+#endif
+#if NRI_STATIC_TANGENT_ORACLE_ONLY && (NRI_SPATIAL_ABSENCE_FORMAT == 2 || NRI_FILTER_COMPARATOR)
+#error Static tangent validation cannot select comparison workloads
+#endif
+#if NRI_STATIC_TANGENT_ORACLE_ONLY
+bool StaticTangentOracleStatsEnabled()
+{
+	return (gTraceConstants.Flags & NRI_FLAG_TRACE_SHADER_STATS) != 0u;
+}
+void TraceStaticTangentStatAdd(uint index, uint value)
+{
+	if (StaticTangentOracleStatsEnabled())
+		InterlockedAdd(gTraceShaderStats[index], value);
+}
+#endif
+
+#if NRI_STATIC_TANGENT_ORACLE_ONLY
+// Invocation-local budgets: only four pixels, at most eight calls per pixel.
+static uint gStaticTangentProbeRemaining = 0u;
+static bool gStaticTangentCompared = false;
+static bool gStaticTangentCandidateSuccess = false;
+static float3 gStaticTangentCandidateT = 0.0;
+static float3 gStaticTangentCandidateB = 0.0;
+#endif
 
 #ifndef NRI_SPATIAL_ABSENCE_FORMAT
 #define NRI_SPATIAL_ABSENCE_FORMAT 0
@@ -306,6 +339,17 @@ static const uint TRACE_STAT_DATA2_LOD_SELECTED_POSITIVE = TRACE_STAT_ABSENCE_PR
 static const uint TRACE_STAT_DATA2_LOD_STATIC_IDENTITY_SELECTED_POSITIVE = TRACE_STAT_ABSENCE_PROFILE_BASE + 29u;
 static const uint TRACE_STAT_DATA2_LOD_GEOMETRY_FALLBACK = TRACE_STAT_ABSENCE_PROFILE_BASE + 30u;
 static const uint TRACE_STAT_DATA2_LOD_FOOTPRINT_FALLBACK = TRACE_STAT_ABSENCE_PROFILE_BASE + 31u;
+#endif
+#if NRI_STATIC_TANGENT_ORACLE_ONLY
+static const uint TRACE_STAT_STATIC_TANGENT_BASE = TRACE_STAT_PROFILE_BASE + 479u;
+static const uint TRACE_STAT_STATIC_TANGENT_COMPARISONS = TRACE_STAT_STATIC_TANGENT_BASE + 0u;
+static const uint TRACE_STAT_STATIC_TANGENT_RAW_MISMATCH = TRACE_STAT_STATIC_TANGENT_BASE + 1u;
+static const uint TRACE_STAT_STATIC_TANGENT_SUCCESS_MISMATCH = TRACE_STAT_STATIC_TANGENT_BASE + 2u;
+static const uint TRACE_STAT_STATIC_TANGENT_FRAME_MISMATCH = TRACE_STAT_STATIC_TANGENT_BASE + 3u;
+static const uint TRACE_STAT_STATIC_TANGENT_MAPPED_MISMATCH = TRACE_STAT_STATIC_TANGENT_BASE + 4u;
+static const uint TRACE_STAT_STATIC_TANGENT_VALID = TRACE_STAT_STATIC_TANGENT_BASE + 5u;
+static const uint TRACE_STAT_STATIC_TANGENT_DEGENERATE = TRACE_STAT_STATIC_TANGENT_BASE + 6u;
+static const uint TRACE_STAT_STATIC_TANGENT_UNSUPPORTED = TRACE_STAT_STATIC_TANGENT_BASE + 7u;
 #endif
 
 bool TraceShaderStatsEnabled()
@@ -671,6 +715,89 @@ bool TryResolveHitTangentFrame(uint dataSource, uint primitiveIndex, float3 geom
 	return true;
 }
 
+uint GetStaticTangentMode()
+{
+	return (gTraceConstants.ReservedTrace1 >> 6u) & 3u;
+}
+
+#if NRI_STATIC_TANGENT_ORACLE_ONLY
+void InitializeStaticTangentProbe(uint2 pixelPos)
+{
+	gStaticTangentProbeRemaining = 0u;
+	gStaticTangentCompared = false;
+	const uint2 center = uint2(gTraceConstants.RenderWidth, gTraceConstants.RenderHeight) / 2u;
+	if (GetStaticTangentMode() == 1u && StaticTangentOracleStatsEnabled() &&
+		all(pixelPos >= center) && all(pixelPos - center < 2u))
+		gStaticTangentProbeRemaining = 8u;
+}
+#endif
+
+bool TryResolveStaticTangentFrame(uint dataSource, uint primitiveIndex, float3 geometricNormal,
+	out float3 tangent, out float3 bitangent)
+{
+#if NRI_STATIC_TANGENT_ORACLE_ONLY
+	gStaticTangentCompared = false;
+#endif
+	const uint mode = GetStaticTangentMode();
+	// Mode0/unsupported never reads t28. The valid typed fallback is not data.
+	if ((mode != 1u && mode != 2u) || dataSource != SCENE_DATA_SOURCE_STATIC ||
+		primitiveIndex >= gTraceConstants.StaticPrimitiveCount)
+		return TryResolveHitTangentFrame(dataSource, primitiveIndex, geometricNormal, tangent, bitangent);
+	if (mode == 1u)
+	{
+#if NRI_STATIC_TANGENT_ORACLE_ONLY
+		if (!StaticTangentOracleStatsEnabled() || gStaticTangentProbeRemaining == 0u)
+			return TryResolveHitTangentFrame(dataSource, primitiveIndex, geometricNormal, tangent, bitangent);
+		--gStaticTangentProbeRemaining;
+#else
+		return TryResolveHitTangentFrame(dataSource, primitiveIndex, geometricNormal, tangent, bitangent);
+#endif
+	}
+	const StaticTangentData record = gStaticTangents[primitiveIndex];
+	float3 candidateT = 0.0, candidateB = 0.0;
+	bool candidateSuccess = false;
+	if (record.valid > 1u)
+	{
+#if NRI_STATIC_TANGENT_ORACLE_ONLY
+		if (mode == 1u) TraceStaticTangentStatAdd(TRACE_STAT_STATIC_TANGENT_UNSUPPORTED, 1u);
+#endif
+		return TryResolveHitTangentFrame(dataSource, primitiveIndex, geometricNormal, tangent, bitangent);
+	}
+	if (record.valid == 1u)
+		candidateSuccess = FinishTriangleTangentFrame(record.tangentRaw, record.bitangentRaw,
+			geometricNormal, candidateT, candidateB);
+#if NRI_STATIC_TANGENT_ORACLE_ONLY
+	if (mode == 1u)
+	{
+		const bool legacySuccess = TryResolveHitTangentFrame(dataSource, primitiveIndex, geometricNormal, tangent, bitangent);
+		const PrimitiveData primitive = GetPrimitiveData(dataSource, primitiveIndex);
+		float3 referenceT, referenceB;
+		const bool referenceValid = ResolveRawTriangleTangents(
+			GetVertexData(dataSource, primitive.indices.x).position,
+			GetVertexData(dataSource, primitive.indices.y).position,
+			GetVertexData(dataSource, primitive.indices.z).position,
+			primitive.uv0, primitive.uv1, primitive.uv2, referenceT, referenceB);
+		TraceStaticTangentStatAdd(TRACE_STAT_STATIC_TANGENT_COMPARISONS, 1u);
+		TraceStaticTangentStatAdd(TRACE_STAT_STATIC_TANGENT_RAW_MISMATCH,
+			record.valid != (referenceValid ? 1u : 0u) ||
+			any(asuint(referenceT) != asuint(record.tangentRaw)) || any(asuint(referenceB) != asuint(record.bitangentRaw)) ? 1u : 0u);
+		TraceStaticTangentStatAdd(TRACE_STAT_STATIC_TANGENT_SUCCESS_MISMATCH, legacySuccess != candidateSuccess ? 1u : 0u);
+		TraceStaticTangentStatAdd(TRACE_STAT_STATIC_TANGENT_FRAME_MISMATCH,
+			any(asuint(tangent) != asuint(candidateT)) || any(asuint(bitangent) != asuint(candidateB)) ? 1u : 0u);
+		TraceStaticTangentStatAdd(TRACE_STAT_STATIC_TANGENT_VALID, referenceValid ? 1u : 0u);
+		TraceStaticTangentStatAdd(TRACE_STAT_STATIC_TANGENT_DEGENERATE, referenceValid ? 0u : 1u);
+		gStaticTangentCompared = true;
+		gStaticTangentCandidateSuccess = candidateSuccess;
+		gStaticTangentCandidateT = candidateT;
+		gStaticTangentCandidateB = candidateB;
+		return legacySuccess;
+	}
+#endif
+	tangent = candidateT;
+	bitangent = candidateB;
+	return candidateSuccess;
+}
+
 float3 SampleMaterialNormalMap(MaterialData material, float2 uv, float3 geometricNormal, float3 tangent, float3 bitangent)
 {
 	if (material.normalTextureIndex == 0xffffffffu)
@@ -742,12 +869,31 @@ float3 ResolveHitNormal(uint materialIndex, uint dataSource, uint primitiveIndex
 
 	float3 tangent = 0.0;
 	float3 bitangent = 0.0;
-	if (!TryResolveHitTangentFrame(dataSource, primitiveIndex, resolvedNormal, tangent, bitangent))
+	const bool tangentSuccess = TryResolveStaticTangentFrame(dataSource, primitiveIndex, resolvedNormal, tangent, bitangent);
+	if (!tangentSuccess)
 	{
+#if NRI_STATIC_TANGENT_ORACLE_ONLY
+		if (gStaticTangentCompared)
+		{
+			float3 candidate = resolvedNormal;
+			if (gStaticTangentCandidateSuccess)
+				candidate = SampleMaterialNormalMap(material, uv, resolvedNormal, gStaticTangentCandidateT, gStaticTangentCandidateB);
+			TraceStaticTangentStatAdd(TRACE_STAT_STATIC_TANGENT_MAPPED_MISMATCH, any(asuint(resolvedNormal) != asuint(candidate)) ? 1u : 0u);
+		}
+#endif
 		return resolvedNormal;
 	}
-
-	return SampleMaterialNormalMap(material, uv, resolvedNormal, tangent, bitangent);
+	const float3 result = SampleMaterialNormalMap(material, uv, resolvedNormal, tangent, bitangent);
+#if NRI_STATIC_TANGENT_ORACLE_ONLY
+	if (gStaticTangentCompared)
+	{
+		float3 candidate = resolvedNormal;
+		if (gStaticTangentCandidateSuccess)
+			candidate = SampleMaterialNormalMap(material, uv, resolvedNormal, gStaticTangentCandidateT, gStaticTangentCandidateB);
+		TraceStaticTangentStatAdd(TRACE_STAT_STATIC_TANGENT_MAPPED_MISMATCH, any(asuint(result) != asuint(candidate)) ? 1u : 0u);
+	}
+#endif
+	return result;
 }
 
 float3 ResolveHitBarycentricWeights(HitData hit)

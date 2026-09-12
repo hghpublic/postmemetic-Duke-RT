@@ -1689,6 +1689,8 @@ CVAR(Int, nri_ptfilterpolicymask, 0x1, 0)
 // Developer-shader oracle: runs legacy and candidate traversal for the same
 // segment, returns the legacy result, and records exact mismatch categories.
 CVAR(Bool, nri_ptfiltercompare, false, 0)
+// Session-only trial:0legacy,1bounded diagnostic reference,2consume sidecar.
+CVAR(Int, nri_ptstatictangents, 0, 0)
 
 // Exact player-root negative evidence suppresses co-located map occurrences for
 // primary, indirect, and shadow rays. Keep this independently reversible.

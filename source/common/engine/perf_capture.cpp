@@ -288,11 +288,14 @@ namespace
 			(unsigned long long)outer.traceFrame, (unsigned long long)nri.frame,
 			nri.resourceWaitCalls, nri.resourceWaitMs,
 			(unsigned long long)gCapture.epoch, record.eligibleIndex);
-		Printf("PERF pt trace workload NRI: frame=%llu nri_frame=%llu renderer_frame=%llu schema=5 settings_key=%llu workload_key=%llu render_w=%u render_h=%u output_w=%u output_h=%u dispatch_x=%u dispatch_y=%u dispatch_z=%u light_bounces=%u mirror_bounces=%u portal_depth=%u emissive_samples=%u emissive_requested=%u emissive_budget=%u indirect_requested=%u indirect_effective=%u indirect_active=%u hit_recon=%u runtime_lights=%u light_tiles_x=%u light_tiles_y=%u light_tile_size=%u light_tile_indices=%u light_tile_max=%u light_shadow_budget=%u light_shadow_candidates=%u light_shadow_selected=%u light_shadow_overflow=%u light_shadow_tile_max=%u light_shadow_selected_tile_max=%u light_shadow_selection_hash=%llu light_shadow_retained=%u light_shadow_replaced=%u light_shadow_expired=%u light_shadow_retained_hash=%llu light_shadow_replaced_hash=%llu light_shadow_expired_hash=%llu emissive_prims=%u emissive_power=%.3f voxel_occurrences=%u voxel_instance_prims=%llu voxel_occurrence_control=%u flags=%u debug=%u bootstrap=%u upscaler=%u upscaler_mode=%u denoiser=%u direct_scene=%u directional=%u directional_shadow=%u split_shadow=%u fast_emissive_shadow=%u visible_chunk_gate=%u compact=1 epoch=%llu sample=%u\n",
+		Printf("PERF pt trace workload NRI: frame=%llu nri_frame=%llu renderer_frame=%llu schema=6 settings_key=%llu workload_key=%llu settings_key_without_static_tangent=%llu workload_key_without_static_tangent=%llu static_tangent_requested=%u static_tangent_active=%u trace_aux1=%u render_w=%u render_h=%u output_w=%u output_h=%u dispatch_x=%u dispatch_y=%u dispatch_z=%u light_bounces=%u mirror_bounces=%u portal_depth=%u emissive_samples=%u emissive_requested=%u emissive_budget=%u indirect_requested=%u indirect_effective=%u indirect_active=%u hit_recon=%u runtime_lights=%u light_tiles_x=%u light_tiles_y=%u light_tile_size=%u light_tile_indices=%u light_tile_max=%u light_shadow_budget=%u light_shadow_candidates=%u light_shadow_selected=%u light_shadow_overflow=%u light_shadow_tile_max=%u light_shadow_selected_tile_max=%u light_shadow_selection_hash=%llu light_shadow_retained=%u light_shadow_replaced=%u light_shadow_expired=%u light_shadow_retained_hash=%llu light_shadow_replaced_hash=%llu light_shadow_expired_hash=%llu emissive_prims=%u emissive_power=%.3f voxel_occurrences=%u voxel_instance_prims=%llu voxel_occurrence_control=%u flags=%u debug=%u bootstrap=%u upscaler=%u upscaler_mode=%u denoiser=%u direct_scene=%u directional=%u directional_shadow=%u split_shadow=%u fast_emissive_shadow=%u visible_chunk_gate=%u compact=1 epoch=%llu sample=%u\n",
 			(unsigned long long)outer.traceFrame, (unsigned long long)nri.frame,
 			(unsigned long long)nri.traceRendererFrame,
 			(unsigned long long)nri.traceSettingsKey,
 			(unsigned long long)nri.traceWorkloadKey,
+			(unsigned long long)nri.traceSettingsKeyWithoutStaticTangent,
+			(unsigned long long)nri.traceWorkloadKeyWithoutStaticTangent,
+			nri.traceStaticTangentRequested, nri.traceStaticTangentActive, nri.traceAux1,
 			nri.traceRenderWidth, nri.traceRenderHeight, nri.traceOutputWidth, nri.traceOutputHeight,
 			nri.traceDispatchX, nri.traceDispatchY, nri.traceDispatchZ,
 			nri.traceLightBounces, nri.traceMirrorBounces, nri.tracePortalDepth, nri.traceEmissiveSamples,
@@ -318,6 +321,12 @@ namespace
 			nri.traceUpscalerKind, nri.traceUpscalerMode, nri.traceDenoiserMode,
 			nri.traceDirectScene, nri.traceDirectional, nri.traceDirectionalShadow,
 			nri.traceSplitShadow, nri.traceFastEmissiveShadow, nri.traceVisibleChunkGate,
+			(unsigned long long)gCapture.epoch, record.eligibleIndex);
+		Printf("PERF pt static tangent gpu timing NRI: frame=%llu nri_frame=%llu renderer_frame=%llu producer_path=%.6f scopes=%u valid=%u invalid=%u dropped=%u compact=1 epoch=%llu sample=%u\n",
+			(unsigned long long)outer.traceFrame, (unsigned long long)nri.frame,
+			(unsigned long long)nri.traceRendererFrame, record.gpu.staticTangentBuildMs,
+			record.gpu.staticTangentScopes, record.gpu.staticTangentValid,
+			record.gpu.staticTangentInvalid, record.gpu.staticTangentDropped,
 			(unsigned long long)gCapture.epoch, record.eligibleIndex);
 		Printf("PERF pt gpu timing NRI: frame=%llu nri_frame=%llu segment=%.3f scene=%.3f trace=%.3f trace_dispatch=%.3f denoise=%.3f compose=%.3f upscale=%.3f final=%.3f smoke_simulation=%.3f smoke_volume=%.3f smoke_total=%.3f smoke_detail_total=%.3f smoke_grid_allocate=%.3f smoke_grid_initialize=%.3f smoke_grid_deposit=%.3f smoke_grid_halo=%.3f smoke_grid_simulate=%.3f smoke_grid_rebuild=%.3f smoke_dormant_archive=%.3f smoke_dormant_promote=%.3f smoke_dormant_evolve=%.3f smoke_world_active=%.3f smoke_world_link=%.3f smoke_world_proposal=%.3f smoke_world_seed=%.3f smoke_world_temporal=%.3f smoke_world_filter=%.3f smoke_world_scatter=%.3f smoke_carrier=%.3f smoke_view_prepare=%.3f smoke_materialize=%.3f smoke_analytic_materialize=%.3f smoke_view_point=%.3f smoke_view_directional=%.3f smoke_view_direct_reuse=%.3f smoke_view_emissive=%.3f smoke_analytic_emissive_build=%.3f smoke_analytic_emissive_apply=%.3f smoke_view_indirect=%.3f smoke_integrate=%.3f smoke_reconstruction=%.3f segments=%u invalid=%u dropped=%u resolved=%u expected=%u compact=1 epoch=%llu sample=%u\n",
 			(unsigned long long)outer.traceFrame, (unsigned long long)nri.frame,
@@ -534,6 +543,11 @@ void PerfCompactCaptureResolveGpuSegment(const PerfCompactCaptureToken& token, c
 	r.resolvedGpuSegments++;
 	r.gpu.segmentMs += timing.segmentMs; r.gpu.sceneMs += timing.sceneMs;
 	r.gpu.traceMs += timing.traceMs; r.gpu.traceDispatchMs += timing.traceDispatchMs;
+	r.gpu.staticTangentBuildMs += timing.staticTangentBuildMs;
+	r.gpu.staticTangentScopes += timing.staticTangentScopes;
+	r.gpu.staticTangentValid += timing.staticTangentValid;
+	r.gpu.staticTangentInvalid += timing.staticTangentInvalid;
+	r.gpu.staticTangentDropped += timing.staticTangentDropped;
 	r.gpu.denoiseMs += timing.denoiseMs;
 	r.gpu.compositionMs += timing.compositionMs; r.gpu.upscaleMs += timing.upscaleMs;
 	r.gpu.finalMs += timing.finalMs; r.gpu.segmentCount += timing.segmentCount;

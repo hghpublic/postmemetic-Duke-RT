@@ -5,6 +5,8 @@
 #include "../renderer/nri_primary_temporal_geometry_diagnostics.h"
 #include "../renderer/nri_spatial_absence_diagnostics.h"
 #include "../renderer/nri_static_shading_diagnostics.h"
+#include "../renderer/nri_static_tangent_diagnostics.h"
+#include "../renderer/nri_static_tangent_capacity.h"
 #include "../renderer/nri_dynamic_overlay_blas_diagnostics.h"
 #include "../renderer/nri_occurrence_workload_mask_diagnostics.h"
 
@@ -4982,6 +4984,7 @@ bool NRIRenderDevice::RenderPathTracedScene(HWDrawInfo& di, int drawmode, bool p
 			LogNRIPrimaryTemporalGeometryOracle(mLastFrameBoundaryStats.frameNumber, shader);
 			LogNRISpatialAbsenceProfile(mLastFrameBoundaryStats.frameNumber, shader);
 			LogNRIStaticShadingApplicability(mLastFrameBoundaryStats.frameNumber, shader);
+			LogNRIStaticTangentTrial(mLastFrameBoundaryStats.frameNumber, shader);
 			Printf("PERF pt shader emissive response lookup NRI: frame=%llu stats_frame=%llu mode=%u binary_calls=%u oracle_calls=%u oracle_mismatches=%u oracle_iterations=%u\n",
 				(unsigned long long)mLastFrameBoundaryStats.frameNumber,
 				(unsigned long long)shader.frameNumber,
@@ -10079,7 +10082,7 @@ bool NRIRenderDevice::CreateRenderResources()
 	poolDesc.samplerMaxNum = 32;
 	poolDesc.textureMaxNum = 16384;
 	poolDesc.storageTextureMaxNum = 128;
-	poolDesc.structuredBufferMaxNum = 512;
+	poolDesc.structuredBufferMaxNum = NRIStaticTangentStructuredPoolCapacity(NRIFrameShell::QueuedFrameCount);
 	poolDesc.storageStructuredBufferMaxNum = 512;
 	poolDesc.accelerationStructureMaxNum = 16;
 

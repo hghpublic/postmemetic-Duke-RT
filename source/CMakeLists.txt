@@ -1071,6 +1071,9 @@ set (NRI_SOURCES
 	common/rendering/nri/renderer/nri_primary_temporal_geometry_diagnostics.cpp
 	common/rendering/nri/renderer/nri_spatial_absence_diagnostics.cpp
 	common/rendering/nri/renderer/nri_static_shading_diagnostics.cpp
+	common/rendering/nri/renderer/nri_static_tangent_scratch.cpp
+	common/rendering/nri/renderer/nri_static_tangent_integration.cpp
+	common/rendering/nri/renderer/nri_static_tangent_diagnostics.cpp
 	common/rendering/nri/renderer/nri_upscaler.cpp
 	common/rendering/nri/renderer/nri_voxel_compute_preload.cpp
 	common/rendering/nri/renderer/nri_voxel_compute_batch_plan.cpp
@@ -1574,6 +1577,8 @@ if (HAVE_NRI)
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/Nri2D.ps.spirv"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaque.cs.dxil"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaque.cs.spirv"
+			"${RAZE_NRI_SHADER_OUTPUT_DIR}/StaticShadingBuild.cs.dxil"
+			"${RAZE_NRI_SHADER_OUTPUT_DIR}/StaticShadingBuild.cs.spirv"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaqueLeanDebug.cs.dxil"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaqueLeanDebug.cs.spirv"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaqueCache.cs.dxil"
@@ -1766,6 +1771,8 @@ if (HAVE_NRI)
 		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -spirv -fspv-target-env=vulkan1.2 -fvk-use-dx-layout -T vs_6_0 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/Nri2D.vs.spirv" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/Nri2D.vs.hlsl"
 		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -spirv -fspv-target-env=vulkan1.2 -fvk-use-dx-layout -T ps_6_0 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/Nri2D.ps.spirv" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/Nri2D.ps.hlsl"
 		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -T cs_6_6 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaque.cs.dxil" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/TraceOpaque.cs.hlsl"
+		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -T cs_6_6 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/StaticShadingBuild.cs.dxil" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/StaticShadingBuild.cs.hlsl"
+		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -spirv -fspv-target-env=vulkan1.2 -fvk-use-dx-layout -T cs_6_6 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/StaticShadingBuild.cs.spirv" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/StaticShadingBuild.cs.hlsl"
 		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -spirv -fspv-target-env=vulkan1.2 -fvk-use-dx-layout -fspv-extension=SPV_KHR_ray_query -T cs_6_6 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaque.cs.spirv" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/TraceOpaque.cs.hlsl"
 		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -DNRI_TRACE_GEOMETRY_DEBUG_ONLY=1 -T cs_6_6 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaqueLeanDebug.cs.dxil" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/TraceOpaque.cs.hlsl"
 		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -DNRI_TRACE_GEOMETRY_DEBUG_ONLY=1 -spirv -fspv-target-env=vulkan1.2 -fvk-use-dx-layout -fspv-extension=SPV_KHR_ray_query -T cs_6_6 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaqueLeanDebug.cs.spirv" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/TraceOpaque.cs.hlsl"
@@ -2067,6 +2074,8 @@ if (HAVE_NRI)
 		VERBATIM)
 	add_custom_target(raze_nri_shaders ALL
 		DEPENDS
+			"${RAZE_NRI_SHADER_OUTPUT_DIR}/StaticShadingBuild.cs.dxil"
+			"${RAZE_NRI_SHADER_OUTPUT_DIR}/StaticShadingBuild.cs.spirv"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/Nri2D.vs.dxil"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/Nri2D.ps.dxil"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/Nri2D.vs.spirv"

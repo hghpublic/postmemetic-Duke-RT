@@ -554,7 +554,7 @@ bool UseDirectionalPlaceholderShadow()
 
 bool UseRelaxDenoiser()
 {
-	return (gTraceConstants.ReservedTrace1 & 0xffu) == 1u;
+	return (gTraceConstants.ReservedTrace1 & 0x3fu) == 1u;
 }
 
 uint GetEmissiveDirectSampleCount()
@@ -1617,6 +1617,9 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 	}
 
 	const uint2 pixelPos = dispatchThreadId.xy;
+#if NRI_STATIC_TANGENT_ORACLE_ONLY
+	InitializeStaticTangentProbe(pixelPos);
+#endif
 #if NRI_SHADER_DIAGNOSTICS
 	if (all(pixelPos == 0u) && TraceShaderStatsEnabled())
 	{

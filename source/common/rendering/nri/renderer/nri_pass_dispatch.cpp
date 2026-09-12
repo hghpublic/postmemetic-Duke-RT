@@ -702,6 +702,17 @@ bool NRIPassDispatcher::DispatchTraceOpaque(NRIPassDispatchContext& context, HWD
 	{
 		return false;
 	}
+	const bool tangentDiagnosticWindow =
+		(constants.Flags & NRI_FLAG_TRACE_SHADER_STATS) != 0u &&
+		(int)nri_pttraceframes > 0 && !PerfCompactCaptureTimingActive();
+	const uint32_t tangentMode = context.mSceneBinding.RecordStaticTangents(
+		constants.StaticPrimitiveCount,
+		context.mFrame.mainViewEligible && !rawDebugLeanActive,
+		tangentDiagnosticWindow, context.mCommands.commandBuffer);
+	constants.ReservedTrace1 = (constants.ReservedTrace1 & ~(3u << NRI_TRACE_AUX_STATIC_TANGENT_SHIFT)) |
+		(tangentMode << NRI_TRACE_AUX_STATIC_TANGENT_SHIFT);
+	// Producer changed native bindings. These service calls issue NRI commands
+	// unconditionally (no cached-state elision); restore all consuming state.
 	context.mCommands.SetPipelineLayout(const_cast<nri::PipelineLayout*>(tracePipelineLayout));
 	context.mCommands.SetRootConstants(&constants, sizeof(constants));
 	if (!context.mSceneBinding.BindSceneRootDescriptors())
@@ -774,6 +785,9 @@ bool NRIPassDispatcher::DispatchTraceOpaque(NRIPassDispatchContext& context, HWD
 	tracePerf.traceSplitShadow = context.mUseSplitShadowDenoiser && !directSceneTrace ? 1u : 0u;
 	tracePerf.traceFastEmissiveShadow = nri_ptemissivefastshadow ? 1u : 0u;
 	tracePerf.traceVisibleChunkGate = nri_ptvisiblechunkgate ? 1u : 0u;
+	tracePerf.traceStaticTangentRequested = (uint32_t)(int)nri_ptstatictangents;
+	tracePerf.traceStaticTangentActive = tangentMode;
+	tracePerf.traceAux1 = constants.ReservedTrace1;
 	uint64_t settingsKey = 1469598103934665603ull;
 	const uint64_t settingsValues[] = {
 		constants.RenderWidth, constants.RenderHeight, constants.DisplayWidth, constants.DisplayHeight,
@@ -785,11 +799,29 @@ bool NRIPassDispatcher::DispatchTraceOpaque(NRIPassDispatchContext& context, HWD
 		denoiserSettings.hitDistanceReconstructionMode,
 		(uint32_t)resolvedMainUpscaler, (uint32_t)resolvedUpscalerMode
 	};
-	for (uint64_t value : settingsValues) settingsKey = AppendTraceWorkloadHash(settingsKey, value);
+	// Treatment-neutral key uses the identical input sequence, masking ONLY
+	// the two DATA2 mode bits in ReservedTrace1 (array index 12).
+	constexpr size_t reservedTrace1SettingsIndex = 12;
+	static_assert(std::size(settingsValues) == 21);
+	uint64_t settingsKeyWithoutStaticTangent = 1469598103934665603ull;
+	for (size_t valueIndex = 0; valueIndex < std::size(settingsValues); ++valueIndex)
+	{
+		const uint64_t value = settingsValues[valueIndex];
+		settingsKey = AppendTraceWorkloadHash(settingsKey, value);
+		const uint64_t neutralValue = valueIndex == reservedTrace1SettingsIndex ?
+			value & ~uint64_t(NRI_TRACE_AUX1_STATIC_TANGENT_MASK) : value;
+		settingsKeyWithoutStaticTangent = AppendTraceWorkloadHash(settingsKeyWithoutStaticTangent, neutralValue);
+	}
 	// Preserve control/beauty keys, but distinguish the selected pipeline in A/B captures.
-	if (rawDebugLeanActive) settingsKey = AppendTraceWorkloadHash(settingsKey, 0x4c45414e44454247ull);
+	if (rawDebugLeanActive)
+	{
+		settingsKey = AppendTraceWorkloadHash(settingsKey, 0x4c45414e44454247ull);
+		settingsKeyWithoutStaticTangent = AppendTraceWorkloadHash(settingsKeyWithoutStaticTangent, 0x4c45414e44454247ull);
+	}
 	tracePerf.traceSettingsKey = settingsKey;
+	tracePerf.traceSettingsKeyWithoutStaticTangent = settingsKeyWithoutStaticTangent;
 	uint64_t workloadKey = settingsKey;
+	uint64_t workloadKeyWithoutStaticTangent = settingsKeyWithoutStaticTangent;
 	const uint64_t workloadValues[] = {
 		constants.Flags, constants.ReservedTrace0,
 		constants.SceneInstanceCount, constants.StaticPrimitiveCount, constants.DynamicPrimitiveCount,
@@ -806,11 +838,16 @@ bool NRIPassDispatcher::DispatchTraceOpaque(NRIPassDispatchContext& context, HWD
 		context.mSceneStats.emissivePrimitiveCount, (uint32_t)resolvedMainUpscaler, (uint32_t)resolvedUpscalerMode,
 		tracePerf.traceVoxelOccurrenceControl
 	};
-	for (uint64_t value : workloadValues) workloadKey = AppendTraceWorkloadHash(workloadKey, value);
+	for (uint64_t value : workloadValues)
+	{
+		workloadKey = AppendTraceWorkloadHash(workloadKey, value);
+		workloadKeyWithoutStaticTangent = AppendTraceWorkloadHash(workloadKeyWithoutStaticTangent, value);
+	}
 	uint32_t emissivePowerBits = 0;
 	static_assert(sizeof(emissivePowerBits) == sizeof(context.mSceneStats.emissiveTotalPower));
 	std::memcpy(&emissivePowerBits, &context.mSceneStats.emissiveTotalPower, sizeof(emissivePowerBits));
 	tracePerf.traceWorkloadKey = AppendTraceWorkloadHash(workloadKey, emissivePowerBits);
+	tracePerf.traceWorkloadKeyWithoutStaticTangent = AppendTraceWorkloadHash(workloadKeyWithoutStaticTangent, emissivePowerBits);
 	{
 		ScopedPtPerfTimer perfTimer(context.mLastPerfShellTraceStats.traceOpaqueCommandMs);
 		context.mTraceShaderStats.ResetBuffer(context.mResources.BuildResourceServices(), ShouldCollectTraceShaderStats(context.mResources.frameBuffer));
@@ -830,6 +867,7 @@ bool NRIPassDispatcher::DispatchTraceOpaque(NRIPassDispatchContext& context, HWD
 		input.enabled = ShouldCollectTraceShaderStats(context.mResources.frameBuffer);
 		input.frameNumber = (uint64_t)context.mFrame.frameIndex;
 		input.dispatchMetadata.traceFlags = constants.Flags;
+		input.dispatchMetadata.staticTangents = context.mSceneBinding.StaticTangentState();
 		input.dispatchMetadata.renderWidth = constants.RenderWidth;
 		input.dispatchMetadata.renderHeight = constants.RenderHeight;
 		input.dispatchMetadata.lightBounceCount = traceSettings.lightBounceCount;

@@ -3314,6 +3314,10 @@ bool NRISceneUploadManager::UpdateSceneDataSet(
 		renderer.mSceneDataDescriptors[25] = renderer.mEmissiveMaterialResponseBuffer.shaderView;
 		renderer.mSceneDataDescriptors[NRI_SCENE_DATA_SPATIAL_ABSENCE_RAW_SLOT] = spatialAbsenceDescriptorBuffer.shaderView;
 		renderer.mSceneDataDescriptors[NRI_SCENE_DATA_SPATIAL_ABSENCE_TYPED_SLOT] = spatialAbsenceTypedDescriptorBuffer.shaderView;
+		renderer.mSceneDataDescriptors[NRI_SCENE_DATA_STATIC_TANGENT_SLOT] = renderer.PublishStaticTangents(
+			staticVertexBuffer.shaderView != nullptr ? staticVertexBuffer : dynamicVertexBuffer,
+			staticPrimitiveBuffer.shaderView != nullptr ? staticPrimitiveBuffer : dynamicPrimitiveBuffer,
+			staticPrimitiveCount);
 	}
 
 	{
@@ -3334,6 +3338,7 @@ bool NRISceneUploadManager::UpdateSceneDataSet(
 	}
 
 	renderer.mSceneDataSnapshotGeneration = ++renderer.mSceneDataSnapshotGenerationCounter;
+	renderer.CommitStaticTangentPublication();
 	renderer.mSceneDataSnapshotFrameIndex = renderer.mFrameIndex;
 	renderer.mSceneDataSnapshotQueuedFrameIndex = renderer.GetCurrentQueuedFrameIndex();
 	renderer.mSceneDataSnapshotSceneInstanceHash = sceneInstanceHash;
