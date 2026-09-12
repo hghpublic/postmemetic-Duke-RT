@@ -268,6 +268,36 @@ static const uint TRACE_STAT_PRIMARY_GEOMETRY_ORACLE_CURRENT_NORMAL = TRACE_STAT
 static const uint TRACE_STAT_PRIMARY_GEOMETRY_ORACLE_PREVIOUS_NORMAL = TRACE_STAT_PRIMARY_GEOMETRY_ORACLE_BASE + 5u;
 static const uint TRACE_STAT_PRIMARY_GEOMETRY_ORACLE_IDENTITY = TRACE_STAT_PRIMARY_GEOMETRY_ORACLE_BASE + 6u;
 
+// Additive absence profiling region: absolute indices 9038..9069.
+// 20..23 reserve the future footprint oracle; 24..31 remain reserved.
+#if NRI_SHADER_DIAGNOSTICS
+static const uint TRACE_STAT_ABSENCE_PROFILE_BASE = TRACE_STAT_PROFILE_BASE + 447u;
+static const uint TRACE_STAT_ABSENCE_FOOTPRINT_CALLS = TRACE_STAT_ABSENCE_PROFILE_BASE + 0u;
+static const uint TRACE_STAT_ABSENCE_FOOTPRINT_ELIGIBLE = TRACE_STAT_ABSENCE_PROFILE_BASE + 1u;
+static const uint TRACE_STAT_ABSENCE_FOOTPRINT_PROBE_CALLS = TRACE_STAT_ABSENCE_PROFILE_BASE + 2u;
+static const uint TRACE_STAT_ABSENCE_CERTIFICATE_TESTS = TRACE_STAT_ABSENCE_PROFILE_BASE + 3u;
+static const uint TRACE_STAT_ABSENCE_CERTIFICATE_HITS = TRACE_STAT_ABSENCE_PROFILE_BASE + 4u;
+static const uint TRACE_STAT_ABSENCE_REFERENCE_VISITS = TRACE_STAT_ABSENCE_PROFILE_BASE + 5u;
+static const uint TRACE_STAT_ABSENCE_REFERENCE_AFTER_HIT = TRACE_STAT_ABSENCE_PROFILE_BASE + 6u;
+static const uint TRACE_STAT_ABSENCE_TRIANGLE_VISITS = TRACE_STAT_ABSENCE_PROFILE_BASE + 7u;
+static const uint TRACE_STAT_ABSENCE_TRIANGLE_AFTER_HIT = TRACE_STAT_ABSENCE_PROFILE_BASE + 8u;
+static const uint TRACE_STAT_ABSENCE_TRIANGLE_FIRST_HITS = TRACE_STAT_ABSENCE_PROFILE_BASE + 9u;
+static const uint TRACE_STAT_ABSENCE_AVOIDABLE_REFERENCES = TRACE_STAT_ABSENCE_PROFILE_BASE + 10u;
+static const uint TRACE_STAT_ABSENCE_AVOIDABLE_TRIANGLES = TRACE_STAT_ABSENCE_PROFILE_BASE + 11u;
+static const uint TRACE_STAT_ABSENCE_CANDIDATE_EVALUATIONS = TRACE_STAT_ABSENCE_PROFILE_BASE + 12u;
+static const uint TRACE_STAT_ABSENCE_CANDIDATE_REJECTS = TRACE_STAT_ABSENCE_PROFILE_BASE + 13u;
+static const uint TRACE_STAT_ABSENCE_FALLBACK_EVALUATIONS = TRACE_STAT_ABSENCE_PROFILE_BASE + 14u;
+static const uint TRACE_STAT_ABSENCE_STATIC_RESTARTS = TRACE_STAT_ABSENCE_PROFILE_BASE + 15u;
+static const uint TRACE_STAT_ABSENCE_ACTOR_RESTARTS = TRACE_STAT_ABSENCE_PROFILE_BASE + 16u;
+static const uint TRACE_STAT_ABSENCE_PAIR_VISITS = TRACE_STAT_ABSENCE_PROFILE_BASE + 17u;
+static const uint TRACE_STAT_ABSENCE_PAIR_BOUNDS_HITS = TRACE_STAT_ABSENCE_PROFILE_BASE + 18u;
+static const uint TRACE_STAT_ABSENCE_POSITIVE_EVALUATIONS = TRACE_STAT_ABSENCE_PROFILE_BASE + 19u;
+static const uint TRACE_STAT_ABSENCE_ORACLE_COMPARISONS = TRACE_STAT_ABSENCE_PROFILE_BASE + 20u;
+static const uint TRACE_STAT_ABSENCE_ORACLE_INSIDE_MISMATCH = TRACE_STAT_ABSENCE_PROFILE_BASE + 21u;
+static const uint TRACE_STAT_ABSENCE_ORACLE_VALIDITY_MISMATCH = TRACE_STAT_ABSENCE_PROFILE_BASE + 22u;
+static const uint TRACE_STAT_ABSENCE_ORACLE_PROBE_MISMATCH = TRACE_STAT_ABSENCE_PROFILE_BASE + 23u;
+#endif
+
 bool TraceShaderStatsEnabled()
 {
 #if NRI_SHADER_DIAGNOSTICS
@@ -1176,6 +1206,11 @@ bool PointInSpatialFootprint(
 	out bool recordsValid,
 	out SpatialFootprintProbeDetails probeDetails)
 {
+#if NRI_SHADER_DIAGNOSTICS
+	TraceShaderStatAdd(TRACE_STAT_ABSENCE_FOOTPRINT_CALLS, 1u);
+	TraceShaderStatAdd(TRACE_STAT_ABSENCE_FOOTPRINT_ELIGIBLE, structurePrevalidated && !collectProbeDetails ? 1u : 0u);
+	TraceShaderStatAdd(TRACE_STAT_ABSENCE_FOOTPRINT_PROBE_CALLS, collectProbeDetails ? 1u : 0u);
+#endif
 	probeDetails = EmptySpatialFootprintProbeDetails();
 	recordsValid = structurePrevalidated || lookupPrevalidated ||
 		ValidateSpatialFootprintLookup(ownerChunk, lookup, recordCount);
@@ -1252,6 +1287,9 @@ bool PointInSpatialFootprint(
 		recordsValid = recordsValid && certificateValid;
 		if (!certificateValid)
 			return false;
+#if NRI_SHADER_DIAGNOSTICS
+		TraceShaderStatAdd(TRACE_STAT_ABSENCE_CERTIFICATE_TESTS, 1u);
+#endif
 		TraceShaderStatAdd(TRACE_STAT_SPATIAL_WITNESS_TESTS, 1u);
 		float certificateMargin = -3.402823466e+38;
 		const bool certificateInside = collectProbeDetails ?
@@ -1267,6 +1305,14 @@ bool PointInSpatialFootprint(
 			probeDetails.bestTriangle = certifiedTriangleOffset;
 		}
 		inside = certificateInside;
+#if NRI_SHADER_DIAGNOSTICS
+		TraceShaderStatAdd(TRACE_STAT_ABSENCE_CERTIFICATE_HITS, certificateInside ? 1u : 0u);
+		if (certificateInside && structurePrevalidated && !collectProbeDetails)
+		{
+			TraceShaderStatAdd(TRACE_STAT_ABSENCE_AVOIDABLE_REFERENCES, cellReferenceRecordCount);
+			TraceShaderStatAdd(TRACE_STAT_ABSENCE_AVOIDABLE_TRIANGLES, cell.Data2);
+		}
+#endif
 	}
 	if (cell.Data2 == 0u)
 	{
@@ -1277,6 +1323,10 @@ bool PointInSpatialFootprint(
 	[loop]
 	for (uint referenceRecordOffset = 0u; referenceRecordOffset < cellReferenceRecordCount; ++referenceRecordOffset)
 	{
+#if NRI_SHADER_DIAGNOSTICS
+		TraceShaderStatAdd(TRACE_STAT_ABSENCE_REFERENCE_VISITS, 1u);
+		TraceShaderStatAdd(TRACE_STAT_ABSENCE_REFERENCE_AFTER_HIT, inside ? 1u : 0u);
+#endif
 		const SpatialAbsenceRecord referenceRecord = gSpatialAbsenceRecords[cell.Data1 + referenceRecordOffset];
 		uint referenceOwner = 0u;
 		uint storedReferenceRecordOffset = 0u;
@@ -1306,6 +1356,10 @@ bool PointInSpatialFootprint(
 			recordsValid = recordsValid && triangleReferenceValid;
 			if (!triangleReferenceValid)
 				continue;
+#if NRI_SHADER_DIAGNOSTICS
+			TraceShaderStatAdd(TRACE_STAT_ABSENCE_TRIANGLE_VISITS, 1u);
+			TraceShaderStatAdd(TRACE_STAT_ABSENCE_TRIANGLE_AFTER_HIT, inside ? 1u : 0u);
+#endif
 			const SpatialAbsenceRecord triangleRecord = gSpatialAbsenceRecords[lookup.Data0 + triangleOffset];
 			const bool triangleValid = structurePrevalidated ||
 				((triangleRecord.Flags & SPATIAL_ABSENCE_REQUIRED_FOOTPRINT_FLAGS) == SPATIAL_ABSENCE_REQUIRED_FOOTPRINT_FLAGS &&
@@ -1327,6 +1381,17 @@ bool PointInSpatialFootprint(
 					probeDetails.bestMargin = edgeMargin;
 					probeDetails.bestTriangle = triangleOffset;
 				}
+#if NRI_SHADER_DIAGNOSTICS
+				if (triangleInside)
+				{
+					TraceShaderStatAdd(TRACE_STAT_ABSENCE_TRIANGLE_FIRST_HITS, 1u);
+					if (structurePrevalidated && !collectProbeDetails)
+					{
+						TraceShaderStatAdd(TRACE_STAT_ABSENCE_AVOIDABLE_REFERENCES, cellReferenceRecordCount - referenceRecordOffset - 1u);
+						TraceShaderStatAdd(TRACE_STAT_ABSENCE_AVOIDABLE_TRIANGLES, cell.Data2 - (referenceRecordOffset * 3u + triangleLane + 1u));
+					}
+				}
+#endif
 				inside = inside || triangleInside;
 			}
 		}
@@ -1551,11 +1616,18 @@ uint EvaluateRawSpatialAbsence(
 	for (uint pairOffset = 0u; pairOffset < pairCount; ++pairOffset)
 	{
 		const SpatialAbsenceRecord pair = gSpatialAbsenceRecords[chunkRecord.Data2 + pairOffset];
+#if NRI_SHADER_DIAGNOSTICS
+		TraceShaderStatAdd(TRACE_STAT_ABSENCE_PAIR_VISITS, 1u);
+#endif
 		const float2 pairBoundsEpsilon = 1.0e-3;
 		if (any(worldPosition.xz < pair.Payload0.xz - pairBoundsEpsilon) ||
 			any(worldPosition.xz > pair.Payload1.xz + pairBoundsEpsilon) ||
 			worldPosition.y < pair.Payload0.y || worldPosition.y > pair.Payload1.y)
 			continue;
+#if NRI_SHADER_DIAGNOSTICS
+		TraceShaderStatAdd(TRACE_STAT_ABSENCE_PAIR_BOUNDS_HITS, 1u);
+		TraceShaderStatAdd(TRACE_STAT_ABSENCE_POSITIVE_EVALUATIONS, 1u);
+#endif
 		pairBoundsMatched = true;
 		matchedPositiveChunk = pair.Data1;
 		bool positiveRecordsValid = false;
@@ -2297,6 +2369,9 @@ bool TraceClosestSurfaceRoute(float3 startOrigin, float3 direction, float maxDis
 					(candidateMaterialFlags & (MATERIAL_FLAG_FLAT | MATERIAL_FLAG_SPRITE)) == 0u;
 				uint candidatePositiveChunk = 0xffffffffu;
 				SpatialFootprintProbeDetails candidateFootprint = EmptySpatialFootprintProbeDetails();
+#if NRI_SHADER_DIAGNOSTICS
+				TraceShaderStatAdd(TRACE_STAT_ABSENCE_CANDIDATE_EVALUATIONS, 1u);
+#endif
 			#if NRI_SPATIAL_ABSENCE_FORMAT == 1
 				const uint candidateSpatialOutcome = EvaluateTypedSpatialAbsencePrevalidated(
 					spatialTypedCandidateView,
@@ -2327,6 +2402,9 @@ bool TraceClosestSurfaceRoute(float3 startOrigin, float3 direction, float maxDis
 			#endif
 				if (candidateSpatialOutcome == SPATIAL_PROBE_OUTCOME_REJECT)
 				{
+#if NRI_SHADER_DIAGNOSTICS
+					TraceShaderStatAdd(TRACE_STAT_ABSENCE_CANDIDATE_REJECTS, 1u);
+#endif
 					TraceShaderStatAdd(TRACE_STAT_FILTER_SKIPS, 1u);
 					TraceShaderStatSource(
 						TRACE_STAT_REJECT_STATIC,
@@ -2452,6 +2530,9 @@ bool TraceClosestSurfaceRoute(float3 startOrigin, float3 direction, float maxDis
 				{
 					TraceShaderStatAdd(TRACE_STAT_FILTER_SKIPS, 1u);
 					TraceShaderStatMax(TRACE_STAT_MAX_SKIP, skipCount + 1u);
+#if NRI_SHADER_DIAGNOSTICS
+					TraceShaderStatAdd(TRACE_STAT_ABSENCE_ACTOR_RESTARTS, 1u);
+#endif
 					TraceShaderStatAdd(TRACE_STAT_ACTOR_CENSUS_REJECT, 1u);
 					TraceShaderStatAdd(TRACE_STAT_REJECT_VOXEL, 1u);
 					if (statsKind == TRACE_STATS_KIND_PRIMARY)
@@ -2508,6 +2589,9 @@ bool TraceClosestSurfaceRoute(float3 startOrigin, float3 direction, float maxDis
 			spatialCandidateMaterialFlags = GetMaterialData(materialIndex, instanceData.dataSource).flags;
 			const bool exactNegativeSurfaceMembership =
 				(spatialCandidateMaterialFlags & (MATERIAL_FLAG_FLAT | MATERIAL_FLAG_SPRITE)) == 0u;
+#if NRI_SHADER_DIAGNOSTICS
+			TraceShaderStatAdd(TRACE_STAT_ABSENCE_FALLBACK_EVALUATIONS, 1u);
+#endif
 			spatialOutcome = EvaluateSpatialAbsence(
 				visibilityChunk,
 				committedPosition,
@@ -2545,6 +2629,9 @@ bool TraceClosestSurfaceRoute(float3 startOrigin, float3 direction, float maxDis
 		}
 		if (spatialAbsenceGateActive && spatialOutcome == SPATIAL_PROBE_OUTCOME_REJECT)
 		{
+#if NRI_SHADER_DIAGNOSTICS
+			TraceShaderStatAdd(TRACE_STAT_ABSENCE_STATIC_RESTARTS, 1u);
+#endif
 			TraceShaderStatAdd(TRACE_STAT_FILTER_SKIPS, 1u);
 			TraceShaderStatMax(TRACE_STAT_MAX_SKIP, skipCount + 1u);
 			TraceShaderStatSource(TRACE_STAT_REJECT_STATIC, TRACE_STAT_REJECT_DYNAMIC, TRACE_STAT_REJECT_VOXEL, instanceData.dataSource);
