@@ -44,7 +44,8 @@ Assert-Match $runtime 'workSchedule\.table\.froxelPixelSize[\s\S]*mSettings\.fro
 Assert-Match $runtime 'workSchedule\.table\.emissiveLights[\s\S]*mSettings\.emissiveLights[\s\S]*workSchedule\.table\.lightSamples[\s\S]*mSettings\.lightSamples' 'Profiles must resolve static lighting quantities before resource preparation.'
 Assert-Match $seed 'NRI_SMOKE_GRID_LIGHT_WORK_LIMITED[\s\S]*SmokeGridLightClaimNewInvalid[\s\S]*SmokeGridLightClaimMaintenance' 'Static profiles must activate both existing radiance ticket lanes.'
 Assert-Match $runtime 'PERF pt smoke schedule NRI:[\s\S]*unsupported_unrestricted=%u' 'Compact telemetry must publish the fixed table and unsupported sentinel.'
-Assert-Match $config '#define\s+LASTRUNVERSION\s+"9"' 'The smoke migration must advance the archived config version.'
+$configVersion = [regex]::Match($config, '#define\s+LASTRUNVERSION\s+"(\d+)"')
+if (-not $configVersion.Success -or [int]$configVersion.Groups[1].Value -lt 9) { throw 'The smoke migration requires archived config version 9 or newer.' }
 Assert-Match $config 'if\s*\(last\s*<\s*9\)[\s\S]*FindCVar\("nri_ptsmoke"[\s\S]*SetGenericRep\(true,\s*CVAR_Bool\)' 'Prior-install smoke settings must be forced on once.'
 Assert-Match $gameControl 'G_LoadConfig\(\);[\s\S]*V_Init2\(\);[\s\S]*G_ReadConfig\(currentGame\.GetChars\(\)\);' 'Archived smoke migration must run before normal command-line settings.'
 

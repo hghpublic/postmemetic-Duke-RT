@@ -45,7 +45,7 @@
 #include "gamecontrol.h"
 #include "version.h"
 
-#define LASTRUNVERSION "10"
+#define LASTRUNVERSION "11"
 
 #if !defined _MSC_VER && !defined __APPLE__
 #include "i_system.h"  // for SHARE_DIR
@@ -354,6 +354,7 @@ void FGameConfigFile::DoGlobalSetup ()
 	// Apply explicit overrides after the legacy cleanup above. If startup recovery
 	// applies Safe Mode later, it reapplies only these explicitly requested diagnostics.
 	ApplyEarlyNriDiagnosticOverrides();
+	double last = 0;
 	if (SetSection ("LastRun"))
 	{
 		const char *lastver = GetValueForKey ("Version");
@@ -369,7 +370,7 @@ void FGameConfigFile::DoGlobalSetup ()
 					var->SetGenericRep(v, CVAR_Float);
 				}
 			};
-			double last = atof (lastver);
+			last = atof (lastver);
 			if (last < 2)
 			{
 				auto var = FindCVar("mod_dumb_mastervolume", nullptr);
@@ -474,6 +475,18 @@ void FGameConfigFile::DoGlobalSetup ()
 					value.Int = 1;
 					var->SetGenericRep(value, CVAR_Int);
 				}
+			}
+		}
+	}
+	if (last < 11)
+	{
+		// Adopt the approved smoke look once, including configs without a version.
+		// Later user edits and explicit command-line overrides remain authoritative.
+		for (const char* name : { "nri_ptsmokedensityscale", "nri_ptsmokelightmode" })
+		{
+			if (auto var = FindCVar(name, nullptr))
+			{
+				var->ResetToDefault();
 			}
 		}
 	}
