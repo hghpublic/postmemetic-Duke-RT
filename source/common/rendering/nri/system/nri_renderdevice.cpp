@@ -21,6 +21,7 @@
 #include "c_cvars.h"
 #include "cmdlib.h"
 #include "d_eventbase.h"
+#include "input_lineage.h"
 #include "i_mainwindow.h"
 #include "i_time.h"
 #include "printf.h"
@@ -10410,6 +10411,11 @@ bool NRIRenderDevice::RefreshSwapChainDisplayDesc(bool logChanges)
 
 void NRIRenderDevice::EndFrameAndPresent()
 {
+	const bool inputLineageActive = PerfInputLineageActive();
+	const uint64_t inputLineagePresentation = inputLineageActive
+		? GetGameUpdateSnapshot().presentationGeneration : 0;
+	const PerfInputLineageViewSnapshot inputLineageView = inputLineageActive
+		? PerfInputLineageGetLatestViewSnapshot() : PerfInputLineageViewSnapshot{};
 	const double presentShellStartMs = I_msTimeF();
 	double frameGenEndMs = 0.0;
 	double configureDispatchMs = 0.0;
@@ -10486,14 +10492,56 @@ void NRIRenderDevice::EndFrameAndPresent()
 	submitDesc.signalFences = signalFences;
 	submitDesc.signalFenceNum = signalFenceCount;
 	nri::Result submitResult = nri::Result::FAILURE;
+	bool completedFrameFenceValid = false;
+	uint64_t completedFrameFence = 0;
+	uint32_t inputLineageOutstandingBefore = 0;
 	stageStartMs = I_msTimeF();
 	mFrameGeneration.OnRenderSubmitStart(*this);
 	submitPrepMs = I_msTimeF() - stageStartMs;
+	if (inputLineageActive && mFrameFence != nullptr)
+	{
+		completedFrameFenceValid = TryGetFenceValue(
+			*mFrameFence,
+			"GetFenceValue(InputLineageBeforeSubmit)",
+			completedFrameFence);
+		if (completedFrameFenceValid)
+		{
+			for (const QueuedFrame& queuedFrame : mQueuedFrames)
+			{
+				if (queuedFrame.hasSubmittedWork && queuedFrame.lastSubmittedFenceValue > completedFrameFence)
+				{
+					inputLineageOutstandingBefore++;
+				}
+			}
+		}
+	}
+	const uint64_t inputLineageSubmitStartUs = inputLineageActive ? PerfInputLineageNowUs() : 0;
 	{
 		ScopedNriTiming submitTiming(NriPTQueueSubmit, mLastFrameBoundaryStats.submitMs);
 		stageStartMs = I_msTimeF();
 		submitResult = mCore.QueueSubmit(*mGraphicsQueue, submitDesc);
 		submitCallMs = I_msTimeF() - stageStartMs;
+	}
+	const uint64_t inputLineageSubmitEndUs = inputLineageActive ? PerfInputLineageNowUs() : 0;
+	if (inputLineageActive)
+	{
+		PerfInputLineageNoteNriSubmit(
+			inputLineagePresentation,
+			inputLineageView,
+			mFrameIndex,
+			mCurrentQueuedFrameIndex,
+			mCurrentSwapChainImage,
+			submittedFenceValue,
+			completedFrameFenceValid,
+			completedFrameFence,
+			inputLineageOutstandingBefore,
+			completedFrameFenceValid
+				? inputLineageOutstandingBefore + (submitResult == nri::Result::SUCCESS ? 1u : 0u)
+				: 0,
+			inputLineageSubmitStartUs,
+			inputLineageSubmitEndUs,
+			(int32_t)submitResult,
+			submitResult == nri::Result::SUCCESS);
 	}
 	if (mRenderer != nullptr)
 	{
@@ -10532,9 +10580,11 @@ void NRIRenderDevice::EndFrameAndPresent()
 	FPSLimit();
 	nri::Result presentResult = nri::Result::FAILURE;
 	mFrameGeneration.OnPresentStart(*this);
+	uint64_t inputLineagePresentStartUs = 0;
 	{
 		ScopedNriTiming presentTiming(NriPTQueuePresent, mLastFrameBoundaryStats.presentMs);
 		stageStartMs = I_msTimeF();
+		inputLineagePresentStartUs = inputLineageActive ? PerfInputLineageNowUs() : 0;
 		if (IsFrameGenerationPresentPathActive())
 		{
 			if (!mFrameGeneration.Present(*this, !!vid_vsync, mFrameGenerationPresentAllowsTearing, presentResult))
@@ -10547,6 +10597,18 @@ void NRIRenderDevice::EndFrameAndPresent()
 			presentResult = mSwapChainInterface.QueuePresent(*mSwapChain, *mSwapChainImages[mCurrentSwapChainImage].releaseSemaphore);
 		}
 		presentCallMs = I_msTimeF() - stageStartMs;
+	}
+	const uint64_t inputLineagePresentEndUs = inputLineageActive ? PerfInputLineageNowUs() : 0;
+	if (inputLineageActive)
+	{
+		PerfInputLineageNoteNriPresent(
+			inputLineagePresentation,
+			mFrameIndex,
+			inputLineagePresentStartUs,
+			inputLineagePresentEndUs,
+			(int32_t)presentResult,
+			presentResult == nri::Result::SUCCESS,
+			IsFrameGenerationPresentPathActive());
 	}
 	mFrameGeneration.OnPresentEnd(*this, presentResult);
 	mLastFrameBoundaryStats.presentResult = presentResult;
@@ -10588,7 +10650,7 @@ void NRIRenderDevice::EndFrameAndPresent()
 			Printf(TEXTCOLOR_YELLOW "NRI framegen present fallback: scheduled native swapchain recreation for the next frame boundary.\n");
 		}
 	}
-	if (mCurrentQueuedFrameIndex < mQueuedFrames.size())
+	if (submitResult == nri::Result::SUCCESS && mCurrentQueuedFrameIndex < mQueuedFrames.size())
 	{
 		QueuedFrame& queuedFrame = mQueuedFrames[mCurrentQueuedFrameIndex];
 		queuedFrame.lastSubmittedFenceValue = submittedFenceValue;
@@ -10596,7 +10658,10 @@ void NRIRenderDevice::EndFrameAndPresent()
 		queuedFrame.hasSubmittedWork = true;
 	}
 	CaptureCompactPerfFrameBoundary(presentResult == nri::Result::SUCCESS);
-	RecordFrameSequence(mCurrentSwapChainImage, submittedFenceValue, presentResult);
+	RecordFrameSequence(
+		mCurrentSwapChainImage,
+		submitResult == nri::Result::SUCCESS ? submittedFenceValue : 0,
+		presentResult);
 	FinishPendingScreenshotReadbacks(submitResult == nri::Result::SUCCESS, submittedFenceValue);
 	const bool tracedGameplayFrame = mTraceThisFrame && (mLastFrameBoundaryStats.pathTracedSceneRendered || mLastFrameBoundaryStats.postProcessInvoked);
 	if (tracedGameplayFrame)

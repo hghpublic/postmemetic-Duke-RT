@@ -1367,6 +1367,7 @@ set (PCH_SOURCES
 	common/thirdparty/libsmackerdec/src/SmackerDecoder.cpp
 	common/engine/cycler.cpp
 	common/engine/d_event.cpp
+	common/engine/input_lineage.cpp
 	common/engine/perf_capture.cpp
 	common/engine/date.cpp
 	common/engine/stats.cpp
