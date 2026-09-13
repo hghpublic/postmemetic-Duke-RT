@@ -210,8 +210,9 @@ CVAR(Bool, nri_ptscenedataring, true, 0)
 CVAR(Bool, nri_ptscenedataringtrace, false, 0)
 
 CVAR(Bool, nri_ptemissivestabilitytrace, false, 0)
-// Session-only trial: 0=legacy, 1=reuse resolved scale, 2=sorted binary lookup.
-CUSTOM_CVAR(Int, nri_ptemissiveresponselookup, 0, 0)
+// Sorted binary lookup by default; session-only rollback:
+// 0=legacy, 1=reuse resolved scale, 2=sorted binary lookup.
+CUSTOM_CVAR(Int, nri_ptemissiveresponselookup, 2, 0)
 {
 	if (self < 0) self = 0;
 	else if (self > 2) self = 2;
@@ -1683,14 +1684,16 @@ CVAR(Bool, nri_ptvisiblechunkgate, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 // reversible for focused diagnosis; production uses the validated route.
 CVAR(Bool, nri_ptfilterquery, true, 0)
 // Whole-occurrence workload certificates are independently benchmarkable.
-// Keep this trial session-only; optional smoke consumers can withhold bits.
-CVAR(Bool, nri_ptoccurrenceworkloadmasks, false, 0)
+// Enabled by default with session-only rollback; optional smoke consumers
+// can withhold bits when they cannot certify a workload.
+CVAR(Bool, nri_ptoccurrenceworkloadmasks, true, 0)
 CVAR(Int, nri_ptfilterpolicymask, 0x1, 0)
 // Developer-shader oracle: runs legacy and candidate traversal for the same
 // segment, returns the legacy result, and records exact mismatch categories.
 CVAR(Bool, nri_ptfiltercompare, false, 0)
-// Session-only trial:0legacy,1bounded diagnostic reference,2consume sidecar.
-CVAR(Int, nri_ptstatictangents, 0, 0)
+// Consume queued static tangents by default, with legacy fallback for
+// ineligible work. Session-only: 0=legacy, 1=diagnostic reference, 2=sidecar.
+CVAR(Int, nri_ptstatictangents, 2, 0)
 
 // Exact player-root negative evidence suppresses co-located map occurrences for
 // primary, indirect, and shadow rays. Keep this independently reversible.
@@ -1799,10 +1802,11 @@ CVAR(Bool, nri_ptdynamicoverlayblasbuild, false, 0)
 CVAR(Bool, nri_ptdynamicoverlayblasroute, false, 0)
 
 CVAR(Int, nri_ptdynamicoverlayblasbuilds, 1, 0)
-// Session-only construction trial: 0 preserves fast-build, 1 prefers fast-trace.
+// Prefer fast-trace for retained overlay BLASes; session-only rollback:
+// 0=fast-build, 1=fast-trace.
 // Effective flags participate in the retained BLAS key, so live A/B switching
 // cannot silently reuse an AS built under the other policy.
-CVAR(Int, nri_ptdynamicoverlayblaspolicy, 0, 0)
+CVAR(Int, nri_ptdynamicoverlayblaspolicy, 1, 0)
 
 
 // Moved from source/common/rendering/nri/renderer/nri_renderer_settings.cpp
