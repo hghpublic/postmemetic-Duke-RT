@@ -1,6 +1,5 @@
 #include "nri_renderdevice.h"
 #include "nri_gpu_timing.h"
-#include "nri_rendered_frame_budget.h"
 #include "../renderer/nri_cvars.h"
 #include "../renderer/nri_diagnostic_cadence.h"
 
@@ -2938,6 +2937,8 @@ void NRIRenderDevice::BeginFrame()
 		mGpuTiming->Prepare(mCore, *mDevice);
 	}
 
+	mFrameGeneration.BeginFrame(*this);
+
 	mTraceThisFrame = false;
 	if (nri_pttraceframes > 0)
 	{
@@ -2948,15 +2949,11 @@ void NRIRenderDevice::BeginFrame()
 	mLastFrameBoundaryStats.frameNumber++;
 	mLastFrameBoundaryStats.frameIndex = mFrameIndex;
 	mLastFrameBoundaryStats.waitMs = 0.0;
-	mLastFrameBoundaryStats.admissionWaitMs = 0.0;
 	mLastFrameBoundaryStats.waitForPresentMs = 0.0;
 	mLastFrameBoundaryStats.acquireMs = 0.0;
 	mLastFrameBoundaryStats.submitMs = 0.0;
 	mLastFrameBoundaryStats.presentMs = 0.0;
 	mLastFrameBoundaryStats.submittedFenceValue = 0;
-	mLastFrameBoundaryStats.admissionTargetFenceValue = 0;
-	mLastFrameBoundaryStats.admissionCompletedFenceBefore = 0;
-	mLastFrameBoundaryStats.admissionCompletedFenceAfter = 0;
 	mLastFrameBoundaryStats.waitForPresentResult = nri::Result::SUCCESS;
 	mLastFrameBoundaryStats.acquireResult = nri::Result::FAILURE;
 	mLastFrameBoundaryStats.presentResult = nri::Result::FAILURE;
@@ -2964,12 +2961,6 @@ void NRIRenderDevice::BeginFrame()
 	mLastFrameBoundaryStats.queuedFrameIndex = mCurrentQueuedFrameIndex;
 	mLastFrameBoundaryStats.swapChainImageIndex = 0;
 	mLastFrameBoundaryStats.acquireSemaphoreIndex = 0;
-	mLastFrameBoundaryStats.renderedFrameLimit = nri_frame_budget::ClampLimit((int)nri_ptframesinflight);
-	mLastFrameBoundaryStats.physicalQueuedFrameCount = (uint32_t)mQueuedFrames.size();
-	mLastFrameBoundaryStats.outstandingBeforeAdmission = 0;
-	mLastFrameBoundaryStats.outstandingAfterAdmission = 0;
-	mLastFrameBoundaryStats.admissionFenceSnapshotValid = false;
-	mLastFrameBoundaryStats.admissionWaited = false;
 	mLastFrameBoundaryStats.sanityModeEnabled = !!nri_ptsanity;
 	mLastFrameBoundaryStats.sanityFrameUsed = false;
 	mLastFrameBoundaryStats.sceneTargetSelected = false;
@@ -2986,12 +2977,6 @@ void NRIRenderDevice::BeginFrame()
 	{
 		FatalTerminalDeviceLoss("Wait(FrameFenceRecycle)");
 	}
-	if (!WaitForRenderedFrameAdmission())
-	{
-		FatalTerminalDeviceLoss("Wait(RenderedFrameAdmission)");
-	}
-	mLastFrameBoundaryStats.waitMs += mLastFrameBoundaryStats.admissionWaitMs;
-	mFrameGeneration.BeginFrame(*this);
 	ReleaseRetiredTextureResources(false);
 	SetViewportRects(nullptr);
 
@@ -3820,76 +3805,16 @@ void NRIRenderDevice::WaitForCommands(bool finish)
 		return;
 	}
 
-	const QueuedFrame& queuedFrame = mQueuedFrames[GetQueuedFrameIndex(mFrameIndex)];
-	const uint64_t recycleFenceValue = queuedFrame.hasSubmittedWork
-		? queuedFrame.lastSubmittedFenceValue
-		: 0;
+	if (mFrameIndex < mQueuedFrames.size())
+	{
+		return;
+	}
+
+	const uint64_t recycleFenceValue = 1 + mFrameIndex - mQueuedFrames.size();
 	if (recycleFenceValue != 0)
 	{
 		WaitForFenceValue(*mFrameFence, recycleFenceValue, "Wait(FrameFenceRecycle)");
 	}
-}
-
-bool NRIRenderDevice::WaitForRenderedFrameAdmission()
-{
-	if (mFrameFence == nullptr || mQueuedFrames.empty())
-	{
-		return true;
-	}
-
-	uint64_t completedFenceBefore = 0;
-	if (!TryGetFenceValue(*mFrameFence, "GetFenceValue(RenderedFrameAdmission)", completedFenceBefore))
-	{
-		return false;
-	}
-
-	std::array<uint64_t, QueuedFrameCount> submittedFenceValues = {};
-	for (size_t index = 0; index < mQueuedFrames.size() && index < submittedFenceValues.size(); ++index)
-	{
-		const QueuedFrame& queuedFrame = mQueuedFrames[index];
-		submittedFenceValues[index] = queuedFrame.hasSubmittedWork
-			? queuedFrame.lastSubmittedFenceValue
-			: 0;
-	}
-
-	auto& stats = mLastFrameBoundaryStats;
-	stats.admissionFenceSnapshotValid = true;
-	stats.admissionCompletedFenceBefore = completedFenceBefore;
-	stats.outstandingBeforeAdmission = nri_frame_budget::CountOutstanding(
-		submittedFenceValues.data(),
-		submittedFenceValues.size(),
-		completedFenceBefore);
-	stats.admissionTargetFenceValue = nri_frame_budget::SelectAdmissionFence(
-		submittedFenceValues.data(),
-		submittedFenceValues.size(),
-		completedFenceBefore,
-		stats.renderedFrameLimit);
-
-	uint64_t completedFenceAfter = completedFenceBefore;
-	if (stats.admissionTargetFenceValue > completedFenceBefore)
-	{
-		stats.admissionWaited = true;
-		{
-			ScopedNriTiming admissionTiming(NriPTFrameWait, stats.admissionWaitMs);
-			if (!WaitForFenceValue(
-				*mFrameFence,
-				stats.admissionTargetFenceValue,
-				"Wait(RenderedFrameAdmission)"))
-			{
-				return false;
-			}
-		}
-		if (!TryGetFenceValue(*mFrameFence, "GetFenceValue(RenderedFrameAdmissionAfterWait)", completedFenceAfter))
-		{
-			return false;
-		}
-	}
-	stats.admissionCompletedFenceAfter = completedFenceAfter;
-	stats.outstandingAfterAdmission = nri_frame_budget::CountOutstanding(
-		submittedFenceValues.data(),
-		submittedFenceValues.size(),
-		completedFenceAfter);
-	return true;
 }
 
 bool NRIRenderDevice::TryGetFenceValue(nri::Fence& fence, const char* context, uint64_t& outCompletedFenceValue)
@@ -8161,20 +8086,10 @@ void NRIRenderDevice::PrintPathTracingMapChunkCompare(int32_t chunkIndex) const
 void NRIRenderDevice::PrintFrameBoundaryStatus() const
 {
 	const auto& stats = mLastFrameBoundaryStats;
-	Printf("NRI PT frame boundary: frame=%llu frame_index=%llu qframe=%u rendered_limit=%u physical_qframes=%u admission_target=%llu outstanding_before=%u outstanding_after=%u admission_waited=%u admission_wait=%2.3f admission_snapshot_valid=%u admission_completed_before=%llu admission_completed_after=%llu sanity_mode=%s last_frame=%s wait=%2.3f wait_present=%2.3f acquire=%2.3f submit=%2.3f present=%2.3f wait_present_result=%s acquire_result=%s present_result=%s image=%u sem_index=%u submit_fence=%llu\n",
+	Printf("NRI PT frame boundary: frame=%llu frame_index=%llu qframe=%u sanity_mode=%s last_frame=%s wait=%2.3f wait_present=%2.3f acquire=%2.3f submit=%2.3f present=%2.3f wait_present_result=%s acquire_result=%s present_result=%s image=%u sem_index=%u submit_fence=%llu\n",
 		(unsigned long long)stats.frameNumber,
 		(unsigned long long)stats.frameIndex,
 		stats.queuedFrameIndex,
-		stats.renderedFrameLimit,
-		stats.physicalQueuedFrameCount,
-		(unsigned long long)stats.admissionTargetFenceValue,
-		stats.outstandingBeforeAdmission,
-		stats.outstandingAfterAdmission,
-		stats.admissionWaited ? 1u : 0u,
-		stats.admissionWaitMs,
-		stats.admissionFenceSnapshotValid ? 1u : 0u,
-		(unsigned long long)stats.admissionCompletedFenceBefore,
-		(unsigned long long)stats.admissionCompletedFenceAfter,
 		stats.sanityModeEnabled ? "on" : "off",
 		stats.sanityFrameUsed ? "clear-only" : "normal",
 		stats.waitMs,
@@ -10461,9 +10376,6 @@ void NRIRenderDevice::EndFrameAndPresent()
 			mFrameIndex,
 			mCurrentQueuedFrameIndex,
 			mCurrentSwapChainImage,
-			mLastFrameBoundaryStats.renderedFrameLimit,
-			mLastFrameBoundaryStats.physicalQueuedFrameCount,
-			(uint64_t)std::llround(mLastFrameBoundaryStats.admissionWaitMs * 1000.0),
 			submittedFenceValue,
 			completedFrameFenceValid,
 			completedFrameFence,

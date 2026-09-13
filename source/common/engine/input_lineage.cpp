@@ -113,9 +113,6 @@ namespace
 		uint64_t presentEndUs = 0;
 		uint32_t queuedFrameIndex = 0;
 		uint32_t swapChainImageIndex = 0;
-		uint32_t renderedFrameLimit = 0;
-		uint32_t physicalQueuedFrameCount = 0;
-		uint64_t admissionWaitUs = 0;
 		uint32_t outstandingBefore = 0;
 		uint32_t outstandingAfter = 0;
 		int32_t submitResult = 0;
@@ -228,7 +225,7 @@ namespace
 		}
 		const uint64_t p50 = Percentile(count, 50, 100);
 		const uint64_t p95 = Percentile(count, 95, 100);
-		Printf("PERF input lineage bucket: schema=3 window=%llu bucket=%s samples=%u p50_us=%llu p95_us=%llu max_us=%llu\n",
+		Printf("PERF input lineage bucket: schema=2 window=%llu bucket=%s samples=%u p50_us=%llu p95_us=%llu max_us=%llu\n",
 			(unsigned long long)gCapture.window,
 			bucket,
 			count,
@@ -239,7 +236,7 @@ namespace
 
 	void PrintCapture()
 	{
-		Printf("PERF input lineage start: schema=3 window=%llu requested_frames=%u capacity=%u first_presentation=%llu clock=steady_us windows_queue=MSG.time_estimate render_view=duke_render_drawrooms late_latch=provisional rendered_queue=successful_main_submissions actual_display_timestamp=unavailable\n",
+		Printf("PERF input lineage start: schema=2 window=%llu requested_frames=%u capacity=%u first_presentation=%llu clock=steady_us windows_queue=MSG.time_estimate render_view=duke_render_drawrooms late_latch=provisional actual_display_timestamp=unavailable\n",
 			(unsigned long long)gCapture.window,
 			gCapture.requestedFrames,
 			MaxMouseRecords,
@@ -252,7 +249,7 @@ namespace
 			const uint64_t submitToPresentUs = frame.submitSeen && frame.presentSeen && frame.presentEndUs >= frame.submitStartUs
 				? frame.presentEndUs - frame.submitStartUs : 0;
 			Printf(
-				"PERF input lineage frame: schema=3 window=%llu ordinal=%u presentation_gen=%llu first_seq=%llu last_seq=%llu produced_through=%llu command_through=%llu build_through=%llu render_through=%llu render_cursor_through=%llu posted=%u dispatched=%u command=%u built=%u render=%u render_early=%u render_late=%u posted_delta=(%.3f,%.3f) sampled_post_delta=(%.3f,%.3f) render_eligible_post_delta=(%.3f,%.3f) ticcmd_deg=(%.4f,%.4f) mouse_camera_apply_deg=(%.4f,%.4f) late_mouse_camera_apply_deg=(%.4f,%.4f) late_pump_calls=%u late_pump_us=%llu late_pump_invalidations=%u late_latch_calls=%u max_queue_us=%llu max_dispatch_command_us=%llu max_dispatch_camera_us=%llu max_camera_render_view_us=%llu render_view_valid=%d render_view_seq=%llu render_view_cursor=%llu render_view_us=%llu render_view_angles=(%.4f,%.4f) sync=%d nri_submit=%d nri_frame=%llu queued_frame=%u image=%u rendered_limit=%u physical_qframes=%u admission_wait_us=%llu attempted_fence=%llu fence_snapshot_valid=%d completed_fence_pre_submit=%llu depth_inference_valid=%d depth_before_submit=%u depth_after_submit_upper_bound=%u submit_ok=%d submit_result=%d submit_call_us=%llu submit_presentation_match=%d submit_view_match=%d render_view_submit_us=%llu present_seen=%d present_ok=%d causal_present_ok=%d present_result=%d present_call_us=%llu present_join_match=%d submit_present_us=%llu framegen=%d actual_display_timestamp=unavailable\n",
+				"PERF input lineage frame: schema=2 window=%llu ordinal=%u presentation_gen=%llu first_seq=%llu last_seq=%llu produced_through=%llu command_through=%llu build_through=%llu render_through=%llu render_cursor_through=%llu posted=%u dispatched=%u command=%u built=%u render=%u render_early=%u render_late=%u posted_delta=(%.3f,%.3f) sampled_post_delta=(%.3f,%.3f) render_eligible_post_delta=(%.3f,%.3f) ticcmd_deg=(%.4f,%.4f) mouse_camera_apply_deg=(%.4f,%.4f) late_mouse_camera_apply_deg=(%.4f,%.4f) late_pump_calls=%u late_pump_us=%llu late_pump_invalidations=%u late_latch_calls=%u max_queue_us=%llu max_dispatch_command_us=%llu max_dispatch_camera_us=%llu max_camera_render_view_us=%llu render_view_valid=%d render_view_seq=%llu render_view_cursor=%llu render_view_us=%llu render_view_angles=(%.4f,%.4f) sync=%d nri_submit=%d nri_frame=%llu queued_frame=%u image=%u attempted_fence=%llu fence_snapshot_valid=%d completed_fence_pre_submit=%llu depth_inference_valid=%d depth_before_submit=%u depth_after_submit_upper_bound=%u submit_ok=%d submit_result=%d submit_call_us=%llu submit_presentation_match=%d submit_view_match=%d render_view_submit_us=%llu present_seen=%d present_ok=%d causal_present_ok=%d present_result=%d present_call_us=%llu present_join_match=%d submit_present_us=%llu framegen=%d actual_display_timestamp=unavailable\n",
 				(unsigned long long)gCapture.window,
 				index,
 				(unsigned long long)frame.presentation,
@@ -287,9 +284,6 @@ namespace
 				(unsigned long long)frame.nriFrame,
 				frame.queuedFrameIndex,
 				frame.swapChainImageIndex,
-				frame.renderedFrameLimit,
-				frame.physicalQueuedFrameCount,
-				(unsigned long long)frame.admissionWaitUs,
 				(unsigned long long)frame.attemptedFence,
 				frame.completedFenceValid ? 1 : 0,
 				(unsigned long long)frame.completedFence,
@@ -319,7 +313,7 @@ namespace
 			const MouseRecord* record = FindMouse(sequence);
 			if (record == nullptr) continue;
 			Printf(
-				"PERF input lineage event: schema=3 window=%llu seq=%llu raw=(%d,%d) post=(%.4f,%.4f) msg_time_ms32=%u windows_queue_us_est=%llu post_us=%llu dispatch_us=%llu command_us=%llu build_us=%llu camera_us=%llu render_view_us=%llu post_presentation=%llu command_presentation=%llu build_presentation=%llu camera_presentation=%llu render_view_presentation=%llu gameplay_dispatch=%d excluded=%d discarded=%d command_route_yaw=%d command_route_pitch=%d render_route_yaw=%d render_route_pitch=%d render_considered=%d camera_phase=%s sync=%d command_consumed=%d command_built=%d camera_applied=%d render_viewed=%d\n",
+				"PERF input lineage event: schema=2 window=%llu seq=%llu raw=(%d,%d) post=(%.4f,%.4f) msg_time_ms32=%u windows_queue_us_est=%llu post_us=%llu dispatch_us=%llu command_us=%llu build_us=%llu camera_us=%llu render_view_us=%llu post_presentation=%llu command_presentation=%llu build_presentation=%llu camera_presentation=%llu render_view_presentation=%llu gameplay_dispatch=%d excluded=%d discarded=%d command_route_yaw=%d command_route_pitch=%d render_route_yaw=%d render_route_pitch=%d render_considered=%d camera_phase=%s sync=%d command_consumed=%d command_built=%d camera_applied=%d render_viewed=%d\n",
 				(unsigned long long)gCapture.window,
 				(unsigned long long)record->sequence,
 				record->rawX, record->rawY, record->postX, record->postY,
@@ -407,7 +401,7 @@ namespace
 			missingSubmits != 0 || missingPresents != 0 ||
 			(gCapture.abortReason != nullptr && gCapture.abortReason[0] != 'n');
 		Printf(
-			"PERF input lineage complete: schema=3 window=%llu status=%s reason=%s requested_frames=%u observed_frames=%u capacity=%u mouse_high_water=%u overwritten=%u missing_stage=%u duplicate_stage=%u first_seq=%llu produced_through=%llu dispatched_through=%llu command_through=%llu build_through=%llu render_through=%llu render_cursor_through=%llu excluded=%u discarded=%u unresolved_dispatch=%u unresolved_command=%u unresolved_build=%u unresolved_render_decision=%u unresolved_camera=%u unresolved_sync_camera=%u unresolved_render_view=%u missing_submit=%u missing_present=%u frame_join_mismatch=%u posted=%llu dispatched=%llu command=%llu render=%llu posted_delta=(%.6f,%.6f) command_delta=(%.6f,%.6f) render_eligible_delta=(%.6f,%.6f) actual_display_timestamp=unavailable\n",
+			"PERF input lineage complete: schema=2 window=%llu status=%s reason=%s requested_frames=%u observed_frames=%u capacity=%u mouse_high_water=%u overwritten=%u missing_stage=%u duplicate_stage=%u first_seq=%llu produced_through=%llu dispatched_through=%llu command_through=%llu build_through=%llu render_through=%llu render_cursor_through=%llu excluded=%u discarded=%u unresolved_dispatch=%u unresolved_command=%u unresolved_build=%u unresolved_render_decision=%u unresolved_camera=%u unresolved_sync_camera=%u unresolved_render_view=%u missing_submit=%u missing_present=%u frame_join_mismatch=%u posted=%llu dispatched=%llu command=%llu render=%llu posted_delta=(%.6f,%.6f) command_delta=(%.6f,%.6f) render_eligible_delta=(%.6f,%.6f) actual_display_timestamp=unavailable\n",
 			(unsigned long long)gCapture.window,
 			incomplete ? "incomplete" : "complete",
 			gCapture.abortReason,
@@ -777,7 +771,6 @@ PerfInputLineageViewSnapshot PerfInputLineageGetLatestViewSnapshot()
 void PerfInputLineageNoteNriSubmit(
 	uint64_t presentationGeneration, const PerfInputLineageViewSnapshot& view,
 	uint64_t nriFrame, uint32_t queuedFrameIndex, uint32_t swapChainImageIndex,
-	uint32_t renderedFrameLimit, uint32_t physicalQueuedFrameCount, uint64_t admissionWaitUs,
 	uint64_t attemptedFence, bool completedFenceValid, uint64_t completedFence,
 	uint32_t outstandingBefore, uint32_t outstandingAfter,
 	uint64_t submitStartUs, uint64_t submitEndUs, int32_t submitResult, bool submitAccepted)
@@ -792,9 +785,6 @@ void PerfInputLineageNoteNriSubmit(
 		frame->view.captureUs == view.captureUs;
 	frame->queuedFrameIndex = queuedFrameIndex;
 	frame->swapChainImageIndex = swapChainImageIndex;
-	frame->renderedFrameLimit = renderedFrameLimit;
-	frame->physicalQueuedFrameCount = physicalQueuedFrameCount;
-	frame->admissionWaitUs = admissionWaitUs;
 	frame->attemptedFence = attemptedFence;
 	frame->completedFenceValid = completedFenceValid;
 	frame->completedFence = completedFence;

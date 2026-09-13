@@ -216,7 +216,7 @@ Require-Match $gameInputHeader 'void\s+Clear\(\)[\s\S]*CancelLateMouseLook\(\);[
 # post-acquire late consumption. Generic non-mouse camera updates must stay out.
 Require-Match $lineageHeader 'PerfInputLineageNoteRenderMouseSample\([\s\S]*bool\s+lateLatch\)' `
 	'Input lineage lacks explicit early/late render-mouse phase attribution.'
-Require-Match $lineage 'schema=3[\s\S]*render_early=%u\s+render_late=%u[\s\S]*late_pump_calls=%u[\s\S]*late_pump_invalidations=%u' `
+Require-Match $lineage 'schema=2[\s\S]*render_early=%u\s+render_late=%u[\s\S]*late_pump_calls=%u[\s\S]*late_pump_invalidations=%u' `
 	'Step-2 frame rows lack the late-pump and early/late consumption evidence needed for the breakpoint.'
 $genericFastApply = Get-FunctionBody $eventOwner 'void PerfLoopTraceNoteFastCameraApply('
 if ($genericFastApply -match 'PerfInputLineageNoteRenderMouseSample|PerfInputLineageNoteFastCameraApply') {
