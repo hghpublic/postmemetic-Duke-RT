@@ -2,6 +2,13 @@
 #include "nri_gpu_timing.h"
 #include "../renderer/nri_cvars.h"
 #include "../renderer/nri_diagnostic_cadence.h"
+#include "../renderer/nri_primary_temporal_geometry_diagnostics.h"
+#include "../renderer/nri_spatial_absence_diagnostics.h"
+#include "../renderer/nri_static_shading_diagnostics.h"
+#include "../renderer/nri_static_tangent_diagnostics.h"
+#include "../renderer/nri_static_tangent_capacity.h"
+#include "../renderer/nri_dynamic_overlay_blas_diagnostics.h"
+#include "../renderer/nri_occurrence_workload_mask_diagnostics.h"
 
 #include "../framegen/nri_framegen.h"
 #include "../renderer/nri_renderer.h"
@@ -4735,6 +4742,7 @@ bool NRIRenderDevice::RenderPathTracedScene(HWDrawInfo& di, int drawmode, bool p
 			shell.dynamicOverlayBlasCacheMisses,
 			shell.dynamicOverlayBlasRoutedInstances,
 			shell.dynamicOverlayBlasMonolithicRefs);
+		LogNRIDynamicOverlayBlasPolicyStats(mLastFrameBoundaryStats.frameNumber, shell.dynamicOverlayBlasPolicy);
 		Printf(
 			"PERF pt filter candidate certificate NRI: frame=%llu enabled=%u occurrences=%u certified=%u certified_prims=%u reject_empty=%u reject_range=%u reject_mixed=%u\n",
 			(unsigned long long)mLastFrameBoundaryStats.frameNumber,
@@ -4745,6 +4753,7 @@ bool NRIRenderDevice::RenderPathTracedScene(HWDrawInfo& di, int drawmode, bool p
 			shell.filterCandidateRejectEmpty,
 			shell.filterCandidateRejectRange,
 			shell.filterCandidateRejectMixed);
+		LogNRIOccurrenceWorkloadMaskStats(mLastFrameBoundaryStats.frameNumber, shell.occurrenceWorkloadMasks);
 		Printf(
 			"PERF pt world tlas detail NRI: frame=%llu total=%.3f retire=%.3f instance_upload=%.3f create=%.3f memory=%.3f scratch=%.3f descriptor=%.3f build=%.3f update=%.3f barrier=%.3f calls=%u exact_reuses=%u updates=%u update_reason_mask=0x%08x update_dirty_ranges=%u update_dirty_instances=%u update_dirty_bytes=%llu blas_override_updates=%u full_builds=%u full_reason_mask=0x%08x full_change_mask=0x%08x full_update_reject_mask=0x%08x full_update_gate_mask=0x%08x full_destination_reuses=%u full_destination_creates=%u full_growths=%u full_growth_mask=0x%08x full_reuse_reject_mask=0x%08x full_reuse_runtime_fallbacks=%u same_command_rotations=%u blas_generation=%llu instances=%u creates=%u scratch_queries=%u scratch_grows=%u scratch_requested=%llu build_scratch_requested=%llu update_scratch_requested=%llu scratch_allocated=%llu memory_bytes=%llu descriptor_creates=%u barriers=%u\n",
 			(unsigned long long)mLastFrameBoundaryStats.frameNumber,
@@ -4972,6 +4981,146 @@ bool NRIRenderDevice::RenderPathTracedScene(HWDrawInfo& di, int drawmode, bool p
 				c[NRI_TRACE_SHADER_FILTER_CANDIDATE_COMMITS],
 				c[NRI_TRACE_SHADER_FILTER_UNEXPECTED_COMMITS],
 				c[NRI_TRACE_SHADER_FILTER_POSTCOMMIT_RESTARTS]);
+			const auto& profileMetadata = shader.dispatchMetadata;
+			LogNRIPrimaryTemporalGeometryOracle(mLastFrameBoundaryStats.frameNumber, shader);
+			LogNRISpatialAbsenceProfile(mLastFrameBoundaryStats.frameNumber, shader);
+			LogNRIStaticShadingApplicability(mLastFrameBoundaryStats.frameNumber, shader);
+			LogNRIStaticTangentTrial(mLastFrameBoundaryStats.frameNumber, shader);
+			Printf("PERF pt shader emissive response lookup NRI: frame=%llu stats_frame=%llu mode=%u binary_calls=%u oracle_calls=%u oracle_mismatches=%u oracle_iterations=%u\n",
+				(unsigned long long)mLastFrameBoundaryStats.frameNumber,
+				(unsigned long long)shader.frameNumber,
+				c[NRI_TRACE_SHADER_RESPONSE_LOOKUP_MODE],
+				c[NRI_TRACE_SHADER_RESPONSE_LOOKUP_BINARY_CALLS],
+				c[NRI_TRACE_SHADER_RESPONSE_LOOKUP_ORACLE_CALLS],
+				c[NRI_TRACE_SHADER_RESPONSE_LOOKUP_ORACLE_MISMATCHES],
+				c[NRI_TRACE_SHADER_RESPONSE_LOOKUP_ORACLE_ITERATIONS]);
+			Printf(
+				"PERF pt shader profile NRI: schema=1 frame=%llu stats_frame=%llu reset=%u stats=%u render_w=%u render_h=%u light_bounces=%u indirect_requested=%u indirect_effective=%u indirect_active=%u eligible=%u single=%u dual=%u diffuse_selected=%u specular_selected=%u plain_mirror_forced_dual=%u diffuse_calls=%u specular_calls=%u diffuse_depth_1=%u diffuse_depth_2=%u diffuse_depth_3=%u diffuse_depth_4plus=%u specular_depth_1=%u specular_depth_2=%u specular_depth_3=%u specular_depth_4plus=%u response_records=%u response_lookups=%u response_iterations=%u response_hits=%u response_misses=%u response_max_iterations=%u\n",
+				(unsigned long long)mLastFrameBoundaryStats.frameNumber,
+				(unsigned long long)shader.frameNumber,
+				(profileMetadata.traceFlags & NRI_FLAG_RESET_HISTORY) != 0u ? 1u : 0u,
+				(profileMetadata.traceFlags & NRI_FLAG_TRACE_SHADER_STATS) != 0u ? 1u : 0u,
+				profileMetadata.renderWidth,
+				profileMetadata.renderHeight,
+				profileMetadata.lightBounceCount,
+				profileMetadata.indirectSamplingRequested,
+				profileMetadata.indirectSamplingEffective,
+				profileMetadata.indirectSamplingActive,
+				c[NRI_TRACE_SHADER_PROFILE_INDIRECT_ELIGIBLE_PIXELS],
+				c[NRI_TRACE_SHADER_PROFILE_INDIRECT_SINGLE_LOBE_PIXELS],
+				c[NRI_TRACE_SHADER_PROFILE_INDIRECT_DUAL_LOBE_PIXELS],
+				c[NRI_TRACE_SHADER_PROFILE_INDIRECT_DIFFUSE_SELECTED_PIXELS],
+				c[NRI_TRACE_SHADER_PROFILE_INDIRECT_SPECULAR_SELECTED_PIXELS],
+				c[NRI_TRACE_SHADER_PROFILE_INDIRECT_PLAIN_MIRROR_FORCED_DUAL_PIXELS],
+				c[52],
+				c[54],
+				c[NRI_TRACE_SHADER_PROFILE_DIFFUSE_BOUNCE_DEPTH_BASE + 0u],
+				c[NRI_TRACE_SHADER_PROFILE_DIFFUSE_BOUNCE_DEPTH_BASE + 1u],
+				c[NRI_TRACE_SHADER_PROFILE_DIFFUSE_BOUNCE_DEPTH_BASE + 2u],
+				c[NRI_TRACE_SHADER_PROFILE_DIFFUSE_BOUNCE_DEPTH_BASE + 3u],
+				c[NRI_TRACE_SHADER_PROFILE_SPECULAR_BOUNCE_DEPTH_BASE + 0u],
+				c[NRI_TRACE_SHADER_PROFILE_SPECULAR_BOUNCE_DEPTH_BASE + 1u],
+				c[NRI_TRACE_SHADER_PROFILE_SPECULAR_BOUNCE_DEPTH_BASE + 2u],
+				c[NRI_TRACE_SHADER_PROFILE_SPECULAR_BOUNCE_DEPTH_BASE + 3u],
+				c[NRI_TRACE_SHADER_PROFILE_EMISSIVE_RESPONSE_RECORD_COUNT],
+				c[NRI_TRACE_SHADER_PROFILE_EMISSIVE_RESPONSE_SCAN_HITS] + c[NRI_TRACE_SHADER_PROFILE_EMISSIVE_RESPONSE_SCAN_MISSES],
+				c[NRI_TRACE_SHADER_PROFILE_EMISSIVE_RESPONSE_SCAN_ITERATIONS],
+				c[NRI_TRACE_SHADER_PROFILE_EMISSIVE_RESPONSE_SCAN_HITS],
+				c[NRI_TRACE_SHADER_PROFILE_EMISSIVE_RESPONSE_SCAN_MISSES],
+				c[NRI_TRACE_SHADER_PROFILE_EMISSIVE_RESPONSE_SCAN_MAX_ITERATIONS]);
+			Printf(
+				"PERF pt shader continuation NRI: schema=1 frame=%llu stats_frame=%llu plain_mirror_replacements=%u mirror_primary=%u mirror_ungated=%u mirror_sun=%u mirror_point=%u mirror_emissive=%u mirror_fast_emissive=%u portal_primary=%u portal_ungated=%u portal_sun=%u portal_point=%u portal_emissive=%u portal_fast_emissive=%u limit_primary=%u limit_ungated=%u limit_sun=%u limit_point=%u limit_emissive=%u limit_fast_emissive=%u\n",
+				(unsigned long long)mLastFrameBoundaryStats.frameNumber,
+				(unsigned long long)shader.frameNumber,
+				c[NRI_TRACE_SHADER_PROFILE_PLAIN_MIRROR_PRIMARY_REPLACEMENTS],
+				c[NRI_TRACE_SHADER_PROFILE_MIRROR_CONTINUATION_BASE + 0u],
+				c[NRI_TRACE_SHADER_PROFILE_MIRROR_CONTINUATION_BASE + 1u],
+				c[NRI_TRACE_SHADER_PROFILE_MIRROR_CONTINUATION_BASE + 2u],
+				c[NRI_TRACE_SHADER_PROFILE_MIRROR_CONTINUATION_BASE + 3u],
+				c[NRI_TRACE_SHADER_PROFILE_MIRROR_CONTINUATION_BASE + 4u],
+				c[NRI_TRACE_SHADER_PROFILE_MIRROR_CONTINUATION_BASE + 5u],
+				c[NRI_TRACE_SHADER_PROFILE_PORTAL_CONTINUATION_BASE + 0u],
+				c[NRI_TRACE_SHADER_PROFILE_PORTAL_CONTINUATION_BASE + 1u],
+				c[NRI_TRACE_SHADER_PROFILE_PORTAL_CONTINUATION_BASE + 2u],
+				c[NRI_TRACE_SHADER_PROFILE_PORTAL_CONTINUATION_BASE + 3u],
+				c[NRI_TRACE_SHADER_PROFILE_PORTAL_CONTINUATION_BASE + 4u],
+				c[NRI_TRACE_SHADER_PROFILE_PORTAL_CONTINUATION_BASE + 5u],
+				c[NRI_TRACE_SHADER_PROFILE_CONTINUATION_LIMIT_BASE + 0u],
+				c[NRI_TRACE_SHADER_PROFILE_CONTINUATION_LIMIT_BASE + 1u],
+				c[NRI_TRACE_SHADER_PROFILE_CONTINUATION_LIMIT_BASE + 2u],
+				c[NRI_TRACE_SHADER_PROFILE_CONTINUATION_LIMIT_BASE + 3u],
+				c[NRI_TRACE_SHADER_PROFILE_CONTINUATION_LIMIT_BASE + 4u],
+				c[NRI_TRACE_SHADER_PROFILE_CONTINUATION_LIMIT_BASE + 5u]);
+			static const char* restartKindNames[NRI_TRACE_SHADER_RAY_KIND_COUNT] = {
+				"primary", "ungated", "sun", "point", "emissive", "fast_emissive"
+			};
+			for (uint32_t kind = 0; kind < NRI_TRACE_SHADER_RAY_KIND_COUNT; ++kind)
+			{
+				const uint32_t histogramBase = NRI_TRACE_SHADER_PROFILE_RESTART_HISTOGRAM_BASE +
+					kind * NRI_TRACE_SHADER_PROFILE_RESTART_HISTOGRAM_STRIDE;
+				uint64_t routes = 0;
+				uint64_t weightedRestarts = 0;
+				uint32_t maximum = 0;
+				for (uint32_t restartCount = 0; restartCount < NRI_TRACE_SHADER_PROFILE_RESTART_HISTOGRAM_STRIDE; ++restartCount)
+				{
+					const uint32_t routeCount = c[histogramBase + restartCount];
+					routes += routeCount;
+					weightedRestarts += (uint64_t)restartCount * routeCount;
+					if (routeCount != 0u)
+					{
+						maximum = restartCount;
+					}
+				}
+				const auto percentile = [&](uint32_t percentileValue)
+				{
+					if (routes == 0u)
+					{
+						return 0u;
+					}
+					const uint64_t target = (routes * percentileValue + 99u) / 100u;
+					uint64_t cumulative = 0;
+					for (uint32_t restartCount = 0; restartCount < NRI_TRACE_SHADER_PROFILE_RESTART_HISTOGRAM_STRIDE; ++restartCount)
+					{
+						cumulative += c[histogramBase + restartCount];
+						if (cumulative >= target)
+						{
+							return restartCount;
+						}
+					}
+					return NRI_TRACE_SHADER_PROFILE_RESTART_HISTOGRAM_STRIDE - 1u;
+				};
+				const auto sumBin = [&](uint32_t first, uint32_t last)
+				{
+					uint64_t sum = 0;
+					for (uint32_t restartCount = first; restartCount <= last; ++restartCount)
+					{
+						sum += c[histogramBase + restartCount];
+					}
+					return sum;
+				};
+				Printf(
+					"PERF pt shader restart distribution NRI: schema=1 frame=%llu stats_frame=%llu kind=%s routes=%llu expected_routes=%u weighted_restarts=%llu zero_restart_routes=%u p50=%u p95=%u p99=%u max=%u bin_0=%u bin_1=%u bin_2=%u bin_3=%u bin_4_7=%llu bin_8_15=%llu bin_16_31=%llu bin_32_63=%llu bin_64=%u\n",
+					(unsigned long long)mLastFrameBoundaryStats.frameNumber,
+					(unsigned long long)shader.frameNumber,
+					restartKindNames[kind],
+					(unsigned long long)routes,
+					c[1u + kind],
+					(unsigned long long)weightedRestarts,
+					c[histogramBase + 0u],
+					percentile(50u),
+					percentile(95u),
+					percentile(99u),
+					maximum,
+					c[histogramBase + 0u],
+					c[histogramBase + 1u],
+					c[histogramBase + 2u],
+					c[histogramBase + 3u],
+					(unsigned long long)sumBin(4u, 7u),
+					(unsigned long long)sumBin(8u, 15u),
+					(unsigned long long)sumBin(16u, 31u),
+					(unsigned long long)sumBin(32u, 63u),
+					c[histogramBase + 64u]);
+			}
 			Printf(
 				"PERF pt shader filter compare NRI: frame=%llu stats_frame=%llu total=%u excluded_probe=%u match=%u hit_miss=%u identity=%u distance=%u surface=%u portal=%u temporal=%u skip_limit=%u\n",
 				(unsigned long long)mLastFrameBoundaryStats.frameNumber,
@@ -9934,7 +10083,7 @@ bool NRIRenderDevice::CreateRenderResources()
 	poolDesc.samplerMaxNum = 32;
 	poolDesc.textureMaxNum = 16384;
 	poolDesc.storageTextureMaxNum = 128;
-	poolDesc.structuredBufferMaxNum = 512;
+	poolDesc.structuredBufferMaxNum = NRIStaticTangentStructuredPoolCapacity(NRIFrameShell::QueuedFrameCount);
 	poolDesc.storageStructuredBufferMaxNum = 512;
 	poolDesc.accelerationStructureMaxNum = 16;
 
@@ -11458,6 +11607,8 @@ bool NRIRenderDevice::LoadShaderBlob(const char* fileName, std::vector<uint8_t>&
 		FString(nri_shadervariant).CompareNoCase("diagnostic") == 0;
 	const bool diagnosticCandidate = std::strcmp(fileName, "TraceOpaque.cs.dxil") == 0 ||
 		std::strcmp(fileName, "TraceOpaque.cs.spirv") == 0 ||
+		std::strcmp(fileName, "TraceOpaqueLeanDebug.cs.dxil") == 0 ||
+		std::strcmp(fileName, "TraceOpaqueLeanDebug.cs.spirv") == 0 ||
 		std::strcmp(fileName, "TraceOpaqueCache.cs.dxil") == 0 ||
 		std::strcmp(fileName, "TraceOpaqueCache.cs.spirv") == 0 ||
 		std::strcmp(fileName, "TraceOpaqueTyped.cs.dxil") == 0 ||
@@ -11501,6 +11652,11 @@ bool NRIRenderDevice::LoadShaderBlob(const char* fileName, std::vector<uint8_t>&
 			Printf(TEXTCOLOR_ORANGE "NRI diagnostic shader variant is unavailable; using production shaders.\n");
 			mShaderVariantWarningEmitted = true;
 		}
+	}
+	else if (diagnosticCandidate && !mShaderVariantSelectionEmitted)
+	{
+		Printf("NRI shader variant: production (manifest base, first=%s).\n", fileName);
+		mShaderVariantSelectionEmitted = true;
 	}
 	shaderPath << fileName;
 

@@ -4,6 +4,7 @@
 #include "AnalyticLightSampling.hlsli"
 #include "SceneShadowContracts.hlsli"
 #include "EmissiveLightContracts.hlsli"
+#include "EmissiveResponseLookup.hlsli"
 #include "DirectionalLightSampling.hlsli"
 #include "SmokePhase.hlsli"
 
@@ -712,15 +713,13 @@ float SmokeGetEmissiveMaterialResponseScale(uint dataSource, uint primitiveIndex
 	gSmokeEmissiveMaterialResponses.GetDimensions(responseCapacity, responseStride);
 	if (responseCapacity == 0u)
 		return 1.0;
-	const uint responseCount = min(gSmokeEmissiveMaterialResponses[0].dataSource, responseCapacity - 1u);
-	[loop]
-	for (uint responseIndex = 1u; responseIndex <= responseCount; ++responseIndex)
+	const EmissiveMaterialResponseData header = gSmokeEmissiveMaterialResponses[0];
+	const uint responseCount = min(header.dataSource, responseCapacity - 1u);
+	if (GetEmissiveResponseLookupMode(header.flags) == 2u)
 	{
-		const EmissiveMaterialResponseData response = gSmokeEmissiveMaterialResponses[responseIndex];
-		if (response.dataSource == dataSource && response.primitiveIndex == primitiveIndex)
-			return max(response.materialScale, 0.0);
+		return FindEmissiveResponseBinary(gSmokeEmissiveMaterialResponses, responseCount, dataSource, primitiveIndex).scale;
 	}
-	return 1.0;
+	return FindEmissiveResponseLinear(gSmokeEmissiveMaterialResponses, responseCount, dataSource, primitiveIndex).scale;
 }
 
 float SmokeResolveEmissiveRadianceScale(EmissivePrimitiveData candidate, uint primitiveIndex)

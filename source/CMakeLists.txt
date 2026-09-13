@@ -630,7 +630,7 @@ file( GLOB HEADER_FILES
 	core/vmstubs.cpp
 )
 
-file(GLOB NRI_SHADER_FILES
+file(GLOB NRI_SHADER_FILES CONFIGURE_DEPENDS
 	common/rendering/nri/shaders/*.cfg
 	common/rendering/nri/shaders/*.hlsl
 	common/rendering/nri/shaders/*.hlsli
@@ -936,6 +936,9 @@ set (NRI_SOURCES
 	common/rendering/nri/renderer/nri_descriptor_sets.cpp
 	common/rendering/nri/renderer/nri_dynamic_scene_status.cpp
 	common/rendering/nri/renderer/nri_dynamic_overlay_blas.cpp
+	common/rendering/nri/renderer/nri_dynamic_overlay_blas_diagnostics.cpp
+	common/rendering/nri/renderer/nri_emissive_sampling_build.cpp
+	common/rendering/nri/renderer/nri_emissive_sampling_geometry.cpp
 	common/rendering/nri/renderer/nri_emissive_sampling_distribution.cpp
 	common/rendering/nri/renderer/nri_emissive_sampling_upload.cpp
 	common/rendering/nri/renderer/nri_cvars.cpp
@@ -969,6 +972,8 @@ set (NRI_SOURCES
 	common/rendering/nri/renderer/nri_persistent_voxel_pressure_policy.cpp
 	common/rendering/nri/renderer/nri_persistent_voxel_services.cpp
 	common/rendering/nri/renderer/nri_persistent_voxels.cpp
+	common/rendering/nri/renderer/nri_persistent_voxel_publication.cpp
+	common/rendering/nri/renderer/nri_voxel_publication_order.cpp
 	common/rendering/nri/renderer/nri_actor_occurrence_ledger.cpp
 	common/rendering/nri/renderer/nri_actor_occurrence_policy.cpp
 	common/rendering/nri/renderer/nri_actor_occurrence_diagnostics.cpp
@@ -1014,11 +1019,15 @@ set (NRI_SOURCES
 	common/rendering/nri/renderer/nri_scene_frame_overlay.cpp
 	common/rendering/nri/renderer/nri_scene_frame_selection.cpp
 	common/rendering/nri/renderer/nri_filter_candidate_policy.cpp
+	common/rendering/nri/renderer/nri_occurrence_workload_mask_policy.cpp
+	common/rendering/nri/renderer/nri_occurrence_workload_mask_diagnostics.cpp
 	common/rendering/nri/renderer/nri_scene_frame_build.cpp
 	common/rendering/nri/renderer/nri_scene_frame_state.cpp
 	common/rendering/nri/renderer/nri_scene_frame_diagnostics.cpp
 	common/rendering/nri/renderer/nri_scene_frame_builder.cpp
 	common/rendering/nri/renderer/nri_scene_material_frame_cache.cpp
+	common/rendering/nri/renderer/nri_scene_material_product.cpp
+	common/rendering/nri/renderer/nri_scene_material_product_policy.cpp
 	common/rendering/nri/renderer/nri_scene_material_texture_slots.cpp
 	common/rendering/nri/renderer/nri_scene_texture_frame_cache.cpp
 	common/rendering/nri/renderer/nri_scene_texture_slot_table.cpp
@@ -1028,6 +1037,7 @@ set (NRI_SOURCES
 	common/rendering/nri/renderer/nri_static_scene_geometry_upload.cpp
 	common/rendering/nri/renderer/nri_runtime_mutation.cpp
 	common/rendering/nri/renderer/nri_runtime_mutation_worklist.cpp
+	common/rendering/nri/renderer/nri_runtime_mutation_discovery.cpp
 	common/rendering/nri/renderer/nri_runtime_mutation_overlay.cpp
 	common/rendering/nri/renderer/nri_runtime_mutation_resident_apply.cpp
 	common/rendering/nri/renderer/nri_runtime_mutation_resident_static.cpp
@@ -1042,16 +1052,28 @@ set (NRI_SOURCES
 	common/rendering/nri/renderer/nri_scene_buffer_residency.cpp
 	common/rendering/nri/renderer/nri_sector_lighting.cpp
 	common/rendering/nri/renderer/nri_scene_lights.cpp
+	common/rendering/nri/renderer/nri_scene_light_registry.cpp
+	common/rendering/nri/renderer/nri_scene_light_rules.cpp
+	common/rendering/nri/renderer/nri_scene_light_rule_validation.cpp
 	common/rendering/nri/renderer/nri_scene_upload.cpp
 	common/rendering/nri/renderer/nri_scene_upload_identity.cpp
 	common/rendering/nri/renderer/nri_scene_upload_dirty_plan.cpp
 	common/rendering/nri/renderer/nri_scene_upload_ranges.cpp
 	common/rendering/nri/renderer/nri_static_scene.cpp
+	common/rendering/nri/renderer/nri_static_scene_animated.cpp
+	common/rendering/nri/renderer/nri_static_scene_animated_bindings.cpp
+	common/rendering/nri/renderer/nri_static_material_slices.cpp
 	common/rendering/nri/renderer/nri_static_scene_diagnostics.cpp
 	common/rendering/nri/renderer/nri_static_scene_residency.cpp
 	common/rendering/nri/renderer/nri_surface_probe.cpp
 	common/rendering/nri/renderer/nri_surface_light_overlay.cpp
 	common/rendering/nri/renderer/nri_trace_stats.cpp
+	common/rendering/nri/renderer/nri_primary_temporal_geometry_diagnostics.cpp
+	common/rendering/nri/renderer/nri_spatial_absence_diagnostics.cpp
+	common/rendering/nri/renderer/nri_static_shading_diagnostics.cpp
+	common/rendering/nri/renderer/nri_static_tangent_scratch.cpp
+	common/rendering/nri/renderer/nri_static_tangent_integration.cpp
+	common/rendering/nri/renderer/nri_static_tangent_diagnostics.cpp
 	common/rendering/nri/renderer/nri_upscaler.cpp
 	common/rendering/nri/renderer/nri_voxel_compute_preload.cpp
 	common/rendering/nri/renderer/nri_voxel_compute_batch_plan.cpp
@@ -1079,6 +1101,7 @@ set (NRI_SOURCES
 	common/rendering/nri/scene/nri_voxel_palette_policy.cpp
 	common/rendering/nri/scene/nri_voxel_actor_cache_maintenance.cpp
 	common/rendering/nri/scene/nri_scene_bridge.cpp
+	common/rendering/nri/scene/nri_voxel_actor_publication.cpp
 	common/rendering/nri/scene/nri_portal_bridge.cpp
 	common/rendering/nri/scene/nri_geometry_bridge.cpp
 	common/rendering/nri/scene/nri_indexed_mip_chain.cpp
@@ -1555,6 +1578,10 @@ if (HAVE_NRI)
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/Nri2D.ps.spirv"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaque.cs.dxil"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaque.cs.spirv"
+			"${RAZE_NRI_SHADER_OUTPUT_DIR}/StaticShadingBuild.cs.dxil"
+			"${RAZE_NRI_SHADER_OUTPUT_DIR}/StaticShadingBuild.cs.spirv"
+			"${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaqueLeanDebug.cs.dxil"
+			"${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaqueLeanDebug.cs.spirv"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaqueCache.cs.dxil"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaqueCache.cs.spirv"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaqueTyped.cs.dxil"
@@ -1745,7 +1772,11 @@ if (HAVE_NRI)
 		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -spirv -fspv-target-env=vulkan1.2 -fvk-use-dx-layout -T vs_6_0 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/Nri2D.vs.spirv" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/Nri2D.vs.hlsl"
 		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -spirv -fspv-target-env=vulkan1.2 -fvk-use-dx-layout -T ps_6_0 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/Nri2D.ps.spirv" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/Nri2D.ps.hlsl"
 		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -T cs_6_6 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaque.cs.dxil" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/TraceOpaque.cs.hlsl"
+		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -T cs_6_6 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/StaticShadingBuild.cs.dxil" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/StaticShadingBuild.cs.hlsl"
+		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -spirv -fspv-target-env=vulkan1.2 -fvk-use-dx-layout -T cs_6_6 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/StaticShadingBuild.cs.spirv" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/StaticShadingBuild.cs.hlsl"
 		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -spirv -fspv-target-env=vulkan1.2 -fvk-use-dx-layout -fspv-extension=SPV_KHR_ray_query -T cs_6_6 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaque.cs.spirv" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/TraceOpaque.cs.hlsl"
+		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -DNRI_TRACE_GEOMETRY_DEBUG_ONLY=1 -T cs_6_6 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaqueLeanDebug.cs.dxil" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/TraceOpaque.cs.hlsl"
+		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -DNRI_TRACE_GEOMETRY_DEBUG_ONLY=1 -spirv -fspv-target-env=vulkan1.2 -fvk-use-dx-layout -fspv-extension=SPV_KHR_ray_query -T cs_6_6 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaqueLeanDebug.cs.spirv" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/TraceOpaque.cs.hlsl"
 		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -DNRI_INDIRECT_RADIANCE_CACHE=1 -T cs_6_6 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaqueCache.cs.dxil" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/TraceOpaque.cs.hlsl"
 		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -DNRI_INDIRECT_RADIANCE_CACHE=1 -spirv -fspv-target-env=vulkan1.2 -fvk-use-dx-layout -fspv-extension=SPV_KHR_ray_query -T cs_6_6 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaqueCache.cs.spirv" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/TraceOpaque.cs.hlsl"
 		COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_COMMON_SHADER_ARGS} -DNRI_SPATIAL_ABSENCE_FORMAT=1 -T cs_6_6 -E main -Fo "${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaqueTyped.cs.dxil" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/TraceOpaque.cs.hlsl"
@@ -2044,12 +2075,16 @@ if (HAVE_NRI)
 		VERBATIM)
 	add_custom_target(raze_nri_shaders ALL
 		DEPENDS
+			"${RAZE_NRI_SHADER_OUTPUT_DIR}/StaticShadingBuild.cs.dxil"
+			"${RAZE_NRI_SHADER_OUTPUT_DIR}/StaticShadingBuild.cs.spirv"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/Nri2D.vs.dxil"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/Nri2D.ps.dxil"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/Nri2D.vs.spirv"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/Nri2D.ps.spirv"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaque.cs.dxil"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaque.cs.spirv"
+			"${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaqueLeanDebug.cs.dxil"
+			"${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaqueLeanDebug.cs.spirv"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaqueCache.cs.dxil"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaqueCache.cs.spirv"
 			"${RAZE_NRI_SHADER_OUTPUT_DIR}/TraceOpaqueTyped.cs.dxil"
@@ -2245,6 +2280,8 @@ if (HAVE_NRI)
 			OUTPUT
 				"${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaque.cs.dxil"
 				"${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaque.cs.spirv"
+				"${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaqueLeanDebug.cs.dxil"
+				"${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaqueLeanDebug.cs.spirv"
 				"${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaqueCache.cs.dxil"
 				"${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaqueCache.cs.spirv"
 				"${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaqueTyped.cs.dxil"
@@ -2258,6 +2295,8 @@ if (HAVE_NRI)
 			COMMAND ${CMAKE_COMMAND} -E make_directory "${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}"
 			COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_DIAGNOSTIC_SHADER_ARGS} -DNRI_FILTER_COMPARATOR=1 -T cs_6_6 -E main -Fo "${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaque.cs.dxil" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/TraceOpaque.cs.hlsl"
 			COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_DIAGNOSTIC_SHADER_ARGS} -spirv -fspv-target-env=vulkan1.2 -fvk-use-dx-layout -fspv-extension=SPV_KHR_ray_query -T cs_6_6 -E main -Fo "${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaque.cs.spirv" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/TraceOpaque.cs.hlsl"
+			COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_DIAGNOSTIC_SHADER_ARGS} -DNRI_FILTER_COMPARATOR=1 -DNRI_TRACE_GEOMETRY_DEBUG_ONLY=1 -T cs_6_6 -E main -Fo "${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaqueLeanDebug.cs.dxil" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/TraceOpaque.cs.hlsl"
+			COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_DIAGNOSTIC_SHADER_ARGS} -DNRI_TRACE_GEOMETRY_DEBUG_ONLY=1 -spirv -fspv-target-env=vulkan1.2 -fvk-use-dx-layout -fspv-extension=SPV_KHR_ray_query -T cs_6_6 -E main -Fo "${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaqueLeanDebug.cs.spirv" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/TraceOpaque.cs.hlsl"
 			COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_DIAGNOSTIC_SHADER_ARGS} -DNRI_INDIRECT_RADIANCE_CACHE=1 -T cs_6_6 -E main -Fo "${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaqueCache.cs.dxil" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/TraceOpaque.cs.hlsl"
 			COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_DIAGNOSTIC_SHADER_ARGS} -DNRI_INDIRECT_RADIANCE_CACHE=1 -spirv -fspv-target-env=vulkan1.2 -fvk-use-dx-layout -fspv-extension=SPV_KHR_ray_query -T cs_6_6 -E main -Fo "${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaqueCache.cs.spirv" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/TraceOpaque.cs.hlsl"
 			COMMAND "${RAZE_DXC_EXECUTABLE}" ${RAZE_NRI_DIAGNOSTIC_SHADER_ARGS} -DNRI_FILTER_COMPARATOR=1 -DNRI_SPATIAL_ABSENCE_FORMAT=1 -T cs_6_6 -E main -Fo "${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaqueTyped.cs.dxil" "${CMAKE_CURRENT_SOURCE_DIR}/common/rendering/nri/shaders/TraceOpaque.cs.hlsl"
@@ -2276,6 +2315,8 @@ if (HAVE_NRI)
 		add_custom_target(raze_nri_diagnostic_shaders DEPENDS
 			"${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaque.cs.dxil"
 			"${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaque.cs.spirv"
+			"${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaqueLeanDebug.cs.dxil"
+			"${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaqueLeanDebug.cs.spirv"
 			"${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaqueCache.cs.dxil"
 			"${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaqueCache.cs.spirv"
 			"${RAZE_NRI_DIAGNOSTIC_SHADER_DIR}/TraceOpaqueTyped.cs.dxil"

@@ -210,6 +210,18 @@ CVAR(Bool, nri_ptscenedataring, true, 0)
 CVAR(Bool, nri_ptscenedataringtrace, false, 0)
 
 CVAR(Bool, nri_ptemissivestabilitytrace, false, 0)
+// Sorted binary lookup by default; session-only rollback:
+// 0=legacy, 1=reuse resolved scale, 2=sorted binary lookup.
+CUSTOM_CVAR(Int, nri_ptemissiveresponselookup, 2, 0)
+{
+	if (self < 0) self = 0;
+	else if (self > 2) self = 2;
+}
+CVAR(Bool, nri_ptemissivecache, true, 0)
+// Full geometry/payload shadow validation; intentionally expensive and session-only.
+CVAR(Bool, nri_ptemissivecachevalidate, false, 0)
+CVAR(Bool, nri_ptlightregistry, true, 0)
+CVAR(Bool, nri_ptlightregistryvalidate, false, 0)
 CVAR(Bool, nri_ptindirectradiancecache, false, 0)
 CVAR(Bool, nri_ptindirectradiancecacheaccept, false, 0)
 
@@ -321,6 +333,12 @@ CUSTOM_CVAR(Int, nri_ptscenedataringmaxbytes, 0, 0)
 
 CVAR(Bool, nri_voxelstats, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 
+CVAR(Bool, nri_ptvoxelpublication, true, 0)
+CVAR(Int, nri_ptvoxelpublicationvalidate, 0, 0)
+CVAR(Bool, nri_ptmaterialpatch, true, 0)
+CVAR(Bool, nri_ptmaterialpatchvalidate, false, 0)
+CVAR(Bool, nri_ptstaticmaterialpatch, true, 0)
+CVAR(Bool, nri_ptstaticmaterialpatchvalidate, false, 0)
 CVAR(Bool, nri_ptvoxelactorstatetrace, false, 0)
 
 CVAR(Bool, nri_ptvoxelactorlifecycle, true, 0)
@@ -748,6 +766,9 @@ CUSTOM_CVAR(Int, nri_ptbloomdebug, 0, 0)
 
 
 // Moved from source/common/rendering/nri/renderer/nri_renderer.cpp
+
+// Session-only A/B switch for lighting-independent raw debug views.
+CVAR(Bool, nri_ptrawdebuglightingelision, false, 0)
 
 CUSTOM_CVAR(Int, nri_ptdebug, 0, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 {
@@ -1662,10 +1683,17 @@ CVAR(Bool, nri_ptvisiblechunkgate, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 // into the existing inline ray query. Session-only and independently
 // reversible for focused diagnosis; production uses the validated route.
 CVAR(Bool, nri_ptfilterquery, true, 0)
+// Whole-occurrence workload certificates are independently benchmarkable.
+// Enabled by default with session-only rollback; optional smoke consumers
+// can withhold bits when they cannot certify a workload.
+CVAR(Bool, nri_ptoccurrenceworkloadmasks, true, 0)
 CVAR(Int, nri_ptfilterpolicymask, 0x1, 0)
 // Developer-shader oracle: runs legacy and candidate traversal for the same
 // segment, returns the legacy result, and records exact mismatch categories.
 CVAR(Bool, nri_ptfiltercompare, false, 0)
+// Consume queued static tangents by default, with legacy fallback for
+// ineligible work. Session-only: 0=legacy, 1=diagnostic reference, 2=sidecar.
+CVAR(Int, nri_ptstatictangents, 2, 0)
 
 // Exact player-root negative evidence suppresses co-located map occurrences for
 // primary, indirect, and shadow rays. Keep this independently reversible.
@@ -1774,6 +1802,11 @@ CVAR(Bool, nri_ptdynamicoverlayblasbuild, false, 0)
 CVAR(Bool, nri_ptdynamicoverlayblasroute, false, 0)
 
 CVAR(Int, nri_ptdynamicoverlayblasbuilds, 1, 0)
+// Prefer fast-trace for retained overlay BLASes; session-only rollback:
+// 0=fast-build, 1=fast-trace.
+// Effective flags participate in the retained BLAS key, so live A/B switching
+// cannot silently reuse an AS built under the other policy.
+CVAR(Int, nri_ptdynamicoverlayblaspolicy, 1, 0)
 
 
 // Moved from source/common/rendering/nri/renderer/nri_renderer_settings.cpp

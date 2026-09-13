@@ -67,6 +67,7 @@
 #include "i_time.h"
 #include "d_net.h"
 #include "gamecontrol.h"
+#include "gamefuncs.h"
 #include "gameupdate.h"
 #include "actor_presentation_snapshot.h"
 #include "lightoverlay_editor.h"
@@ -141,6 +142,28 @@ CUSTOM_CVAR(Int, perf_fixedsimulationframes, 0, 0)
 	else if (self > 4096)
 	{
 		self = 4096;
+	}
+}
+
+// Session-only optional timer epoch for fixed-simulation captures. It is read
+// only when this control acquires its own freeze; existing engine freezes and
+// real CPU/GPU timing clocks keep their original behavior.
+CUSTOM_CVAR(Int, perf_fixedsimulationtime_ms, -1, 0)
+{
+	if (self < -1)
+	{
+		self = -1;
+	}
+}
+
+// Optional absolute gameplay-clock target for a capture armed after loading a
+// save. Console waits and engine tics can advance while gameplay is held by the
+// loading gate, so neither establishes a repeatable authoritative world state.
+CUSTOM_CVAR(Int, perf_fixedsimulationplayclock, -1, 0)
+{
+	if (self < -1)
+	{
+		self = -1;
 	}
 }
 
@@ -1432,13 +1455,19 @@ void TryRunTics (void)
 	// state fixed. This diagnostic control is deliberately session-only and is
 	// never permitted in network games, demos, or outside an active level.
 	// Fixed presentations must bypass I_WaitForTic: frozen time cannot advance.
-	if ((int)perf_fixedsimulationframes > 0 &&
-		gamestate == GS_LEVEL && !netgame && !demoplayback)
+	const bool fixedSimulationAllowed = gamestate == GS_LEVEL && !netgame && !demoplayback;
+	if ((int)perf_fixedsimulationframes > 0 && fixedSimulationAllowed &&
+		((int)perf_fixedsimulationplayclock < 0 || PlayClock >= (int)perf_fixedsimulationplayclock))
 	{
 		if (!perfFixedSimulationOwnsTimeFreeze && !I_IsTimeFrozen())
 		{
-			I_FreezeTime(true);
+			const int fixedTimeMs = perf_fixedsimulationtime_ms;
+			I_FreezeTime(true, fixedTimeMs >= 0 ? (uint64_t)fixedTimeMs * 1000000ull : UINT64_MAX);
 			perfFixedSimulationOwnsTimeFreeze = true;
+			Printf("PERF fixed simulation clock: requested_ms=%d elapsed_ns=%llu build_tics=%d owned=1\n",
+				fixedTimeMs, (unsigned long long)I_GetTimeNS(), I_GetTime(120));
+			Printf("PERF fixed simulation state: gametic=%d level_clock=%d random_seed=%u\n",
+				gametic, PlayClock, (unsigned)randomseed);
 		}
 		perf_fixedsimulationframes = (int)perf_fixedsimulationframes - 1;
 		perfTryRunTicsTraceStats.fixedSimulationReturn = true;
@@ -1450,7 +1479,7 @@ void TryRunTics (void)
 		I_FreezeTime(false);
 		perfFixedSimulationOwnsTimeFreeze = false;
 	}
-	if ((int)perf_fixedsimulationframes > 0)
+	if ((int)perf_fixedsimulationframes > 0 && !fixedSimulationAllowed)
 	{
 		perf_fixedsimulationframes = 0;
 	}
@@ -1658,7 +1687,8 @@ void TryRunTics (void)
 			NetUpdate ();	// check for new console commands
 			TicStabilityEnd();
 			if ((int)perf_fixedsimulationframes > 0 &&
-				gamestate == GS_LEVEL && !netgame && !demoplayback && counts > 0)
+				gamestate == GS_LEVEL && !netgame && !demoplayback && counts > 0 &&
+				((int)perf_fixedsimulationplayclock < 0 || PlayClock >= (int)perf_fixedsimulationplayclock))
 			{
 				// A delayed console command can arm fixed simulation from inside
 				// GameTicker after this catch-up batch was calculated. Preserve the
