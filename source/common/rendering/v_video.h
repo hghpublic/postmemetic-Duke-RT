@@ -423,11 +423,6 @@ public:
 	virtual void PrecacheMaterial(FMaterial *mat, int translation) {}
 	virtual FMaterial* CreateMaterial(FGameTexture* tex, int scaleflags);
 	virtual void BeginFrame() {}
-	// Optional backend latency markers. The core owns these semantic boundaries;
-	// backends without a driver low-latency integration deliberately do nothing.
-	virtual void BeginLatencySimulation(uint64_t presentationGeneration) {}
-	virtual void MarkLatencyInputSample(uint64_t presentationGeneration) {}
-	virtual void EndLatencySimulation(uint64_t presentationGeneration) {}
 	virtual void SetWindowSize(int w, int h) {}
 	virtual void StartPrecaching() {}
 	virtual FRenderState* RenderState() { return nullptr; }

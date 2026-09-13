@@ -4,7 +4,6 @@
 #include "../nri_output.h"
 #include "../framegen/nri_framegen.h"
 #include "nri_frame_shell.h"
-#include "nri_low_latency_policy.h"
 #include "nri_local.h"
 #include "Extensions/NRIWrapperD3D12.h"
 
@@ -84,9 +83,6 @@ public:
 	bool SupportsQueued2DTextureRenders() const override { return true; }
 	const char* DeviceName() const override;
 	void BeginFrame() override;
-	void BeginLatencySimulation(uint64_t presentationGeneration) override;
-	void MarkLatencyInputSample(uint64_t presentationGeneration) override;
-	void EndLatencySimulation(uint64_t presentationGeneration) override;
 	FRenderState* RenderState() override;
 	void Draw2D() override;
 	void WaitForCommands(bool finish) override;
@@ -152,7 +148,6 @@ public:
 	TArray<uint8_t> GetScreenshotBuffer(int& pitch, ESSType& color_type, float& gamma) override;
 	bool FlipSavePic() const override { return false; }
 	void PrintPathTracingCaps() const;
-	void PrintLowLatencyStatus() const;
 	void PrintPathTracingStatus() const;
 	void PrintPathTracingBuffers() const;
 	void ResetPathTracingHistory();
@@ -335,7 +330,7 @@ private:
 	void RefreshNativeFrameGenerationSwapChain();
 	bool RefreshFrameGenerationPresentTargets();
 	void DestroyFrameGenerationPresentTargets();
-	bool ShouldRequestLowLatencySwapChain() const;
+	bool ShouldRequestFrameGenerationLowLatencySwapChain() const;
 	nri::SwapChainBits GetEffectiveRequestedSwapChainFlags() const;
 	bool RefreshSwapChainDisplayDesc(bool logChanges);
 	void ResolvePathTracingSwapChainOutput(nri::SwapChainFormat& outRequestedFormat, nri::SwapChainFormat& outResolvedFormat, const char*& outReason) const;
@@ -384,7 +379,6 @@ private:
 	friend class NRISceneTextureResidency;
 	friend class NRIUpscalerContext;
 	friend class NRIFrameGenerationContext;
-	friend class NRILowLatencyPolicy;
 
 	std::unique_ptr<NRIRenderState> mRenderState;
 	std::unique_ptr<NRIRenderer> mRenderer;
@@ -417,7 +411,6 @@ private:
 	nri::Descriptor* mSamplers[(size_t)NRISamplerMode::Count] = {};
 	nri::DescriptorSet* mSamplerSets[(size_t)NRISamplerMode::Count] = {};
 	NRIFrameGenerationContext mFrameGeneration;
-	NRILowLatencyPolicy mLowLatencyPolicy;
 
 	std::vector<NRISwapChainImage> mSwapChainImages;
 	std::vector<NRITextureResource> mFrameGenerationPresentImages;

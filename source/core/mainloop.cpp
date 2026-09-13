@@ -305,10 +305,6 @@ void G_BuildTiccmd(ticcmd_t* cmd)
 		savegamefile = "";
 	}
 	cmd->ucmd = {};
-	if (screen != nullptr)
-	{
-		screen->MarkLatencyInputSample(gPresentationGeneration);
-	}
 	gameInput.getInput(&cmd->ucmd);
 	localcmdsync[maketic % LOCALCMDTICS] = gameInput.SyncInput();
 	cmd->consistency = consistency[myconnectindex][(maketic / ticdup) % BACKUPTICS];
@@ -1566,10 +1562,6 @@ void TryRunTics (void)
 		}
 		if (!gameInput.SyncInput())
 		{
-			if (screen != nullptr)
-			{
-				screen->MarkLatencyInputSample(gPresentationGeneration);
-			}
 			gameInput.getInput();
 		}
 		perfTryRunTicsTraceStats.zeroCountReturn = true;
@@ -1765,43 +1757,14 @@ void MainLoop ()
 			gameInput.UpdateInputScale();
 			PerfLoopTraceNoteInputMode(gameInput.SyncInput(), gameInput.GetInputScale());
 
-			double tryRunMs = 0.0;
-			double startTicMs = 0.0;
-			if (screen != nullptr)
-			{
-				screen->BeginLatencySimulation(gPresentationGeneration);
-			}
-			try
-			{
-				const double tryRunStartMs = I_msTimeF();
-				TryRunTics (); // will run at least one tic
-				tryRunMs = I_msTimeF() - tryRunStartMs;
-
-				// Every presented low-latency frame needs a real input-gather
-				// boundary. Command construction normally owns it; render-only
-				// iterations fall back to the guaranteed outer message pump.
-				const double startTicStartMs = I_msTimeF();
-				if (screen != nullptr)
-				{
-					screen->MarkLatencyInputSample(gPresentationGeneration);
-				}
-				I_StartTic();
-				startTicMs = I_msTimeF() - startTicStartMs;
-			}
-			catch (...)
-			{
-				if (screen != nullptr)
-				{
-					screen->EndLatencySimulation(gPresentationGeneration);
-				}
-				throw;
-			}
-			if (screen != nullptr)
-			{
-				screen->EndLatencySimulation(gPresentationGeneration);
-			}
-
+			const double tryRunStartMs = I_msTimeF();
+			TryRunTics (); // will run at least one tic
+			const double tryRunMs = I_msTimeF() - tryRunStartMs;
 			// Update display, next frame, with current state.
+			const double startTicStartMs = I_msTimeF();
+			I_StartTic();
+			const double startTicMs = I_msTimeF() - startTicStartMs;
+
 			const double displayStartMs = I_msTimeF();
 			Display();
 			const double displayMs = I_msTimeF() - displayStartMs;

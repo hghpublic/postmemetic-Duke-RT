@@ -1960,7 +1960,6 @@ CCMD(nri_ptcaps)
 	if (auto* frameBuffer = GetActiveNRIRenderDevice())
 	{
 		frameBuffer->PrintPathTracingCaps();
-		frameBuffer->PrintLowLatencyStatus();
 	}
 }
 
@@ -3114,33 +3113,6 @@ void NRIRenderDevice::BeginFrame()
 	mFrameBegun = true;
 }
 
-void NRIRenderDevice::BeginLatencySimulation(uint64_t presentationGeneration)
-{
-	if (!mInitialized || (!nri_lowlatency && !(nri_framegen && nri_framegenlatency)))
-	{
-		return;
-	}
-	mLowLatencyPolicy.BeginSimulation(*this, presentationGeneration);
-}
-
-void NRIRenderDevice::MarkLatencyInputSample(uint64_t presentationGeneration)
-{
-	if (!mInitialized || (!nri_lowlatency && !(nri_framegen && nri_framegenlatency)))
-	{
-		return;
-	}
-	mLowLatencyPolicy.MarkInputSample(*this, presentationGeneration);
-}
-
-void NRIRenderDevice::EndLatencySimulation(uint64_t presentationGeneration)
-{
-	if (!mInitialized || (!nri_lowlatency && !(nri_framegen && nri_framegenlatency)))
-	{
-		return;
-	}
-	mLowLatencyPolicy.EndSimulation(*this, presentationGeneration);
-}
-
 FRenderState* NRIRenderDevice::RenderState()
 {
 	return mRenderState.get();
@@ -3429,15 +3401,40 @@ void NRIRenderDevice::SetVSync(bool vsync)
 	RequestSwapChainRefresh("vsync-change", false);
 }
 
-bool NRIRenderDevice::ShouldRequestLowLatencySwapChain() const
+bool NRIRenderDevice::ShouldRequestFrameGenerationLowLatencySwapChain() const
 {
-	return mLowLatencyPolicy.ShouldRequestSwapChain(*this);
+	if (!nri_framegen || !nri_framegenlatency)
+	{
+		return false;
+	}
+
+	if (mDevice == nullptr || mSwapChainInterface.CreateSwapChain == nullptr)
+	{
+		return false;
+	}
+
+	if (GetLiveAPI() != nri::GraphicsAPI::D3D12)
+	{
+		return false;
+	}
+
+	const nri::DeviceDesc& deviceDesc = mCore.GetDeviceDesc(*mDevice);
+	if (!deviceDesc.features.lowLatency)
+	{
+		return false;
+	}
+
+	return
+		mLowLatency.SetLatencySleepMode != nullptr &&
+		mLowLatency.SetLatencyMarker != nullptr &&
+		mLowLatency.LatencySleep != nullptr &&
+		mLowLatency.GetLatencyReport != nullptr;
 }
 
 nri::SwapChainBits NRIRenderDevice::GetEffectiveRequestedSwapChainFlags() const
 {
 	nri::SwapChainBits flags = GetRequestedSwapChainFlags();
-	if (ShouldRequestLowLatencySwapChain())
+	if (ShouldRequestFrameGenerationLowLatencySwapChain())
 	{
 		flags = NRIFlags(flags, nri::SwapChainBits::ALLOW_LOW_LATENCY);
 	}
@@ -7777,6 +7774,25 @@ void NRIRenderDevice::PrintPathTracingCaps() const
 		(unsigned long long)frameGenProvider.dispatchCount,
 		(unsigned long long)frameGenProvider.presentCount,
 		frameGenProvider.nativeFallbackRequested ? "yes" : "no");
+	const auto& lowLatencyState = mFrameGeneration.GetLowLatencyState();
+	Printf("NRI PT low-latency: iface=%s swapchain=%s configured=%s sleep=%s count=%llu markers=%llu present=%s set_mode=%s sleep_result=%s sim=%s/%s submit=%s/%s report=%s present_us=%llu..%llu\n",
+		lowLatencyState.interfaceAvailable ? "yes" : "no",
+		lowLatencyState.swapChainEnabled ? "yes" : "no",
+		lowLatencyState.sleepModeConfigured ? "yes" : "no",
+		lowLatencyState.sleepInvoked ? "yes" : "no",
+		(unsigned long long)lowLatencyState.latencySleepCount,
+		(unsigned long long)lowLatencyState.markerCount,
+		lowLatencyState.presentBoundarySeen ? "yes" : "no",
+		GetNriResultName(lowLatencyState.setSleepModeResult),
+		GetNriResultName(lowLatencyState.latencySleepResult),
+		GetNriResultName(lowLatencyState.simulationStartMarkerResult),
+		GetNriResultName(lowLatencyState.simulationEndMarkerResult),
+		GetNriResultName(lowLatencyState.renderSubmitStartMarkerResult),
+		GetNriResultName(lowLatencyState.renderSubmitEndMarkerResult),
+		GetNriResultName(lowLatencyState.latencyReportResult),
+		(unsigned long long)lowLatencyState.latencyReport.presentStartTimeUs,
+		(unsigned long long)lowLatencyState.latencyReport.presentEndTimeUs);
+
 	if (mRenderer != nullptr)
 	{
 		Printf("NRI PT availability: %s", mRenderer->IsPathTracingSupported() ? "available" : "raster-fallback");
@@ -7788,72 +7804,9 @@ void NRIRenderDevice::PrintPathTracingCaps() const
 	}
 }
 
-void NRIRenderDevice::PrintLowLatencyStatus() const
-{
-	const auto& lowLatencyState = mLowLatencyPolicy.GetState();
-	Printf("NRI PT low-latency: schema=2 request=%s owner=%s framegen=%s feature=%s iface=%s swapchain=%s operational=%s configured=%s canonical_sample=first-input-gather submit_associated=%s sleep=%s sleep_us=%llu count=%llu markers=%llu complete=%llu aborted=%llu abort_reason=%s contract=%s presentation=%llu sleep_seq=%llu sim_start_seq=%llu input_seq=%llu sim_end_seq=%llu submit_start_seq=%llu submit_end_seq=%llu present_start_seq=%llu present_end_seq=%llu extra_sample_attempts=%llu present=%s submit_ok=%s present_ok=%s runtime_suppressed=%s runtime_failure=%s runtime_disable=%s set_mode=%s sleep_result=%s input_result=%s sim=%s/%s submit=%s/%s report_scope=latest_available_unjoined report=%s report_changed=%s report_all_zero=%s input_us=%llu simulation_us=%llu..%llu render_us=%llu..%llu present_us=%llu..%llu driver_us=%llu..%llu os_queue_us=%llu..%llu gpu_us=%llu..%llu\n",
-		lowLatencyState.requested ? "on" : "off",
-		lowLatencyState.operational ? "native-nri" : (IsFrameGenerationPresentPathActive() ? "ffx-proxy" : "none"),
-		nri_framegen ? "on" : "off",
-		lowLatencyState.featureAvailable ? "yes" : "no",
-		lowLatencyState.interfaceAvailable ? "yes" : "no",
-		lowLatencyState.swapChainEnabled ? "yes" : "no",
-		lowLatencyState.operational ? "yes" : "no",
-		lowLatencyState.sleepModeConfigured ? "yes" : "no",
-		lowLatencyState.submitAssociated ? "yes" : "no",
-		lowLatencyState.sleepInvoked ? "yes" : "no",
-		(unsigned long long)lowLatencyState.latencySleepUs,
-		(unsigned long long)lowLatencyState.latencySleepCount,
-		(unsigned long long)lowLatencyState.markerCount,
-		(unsigned long long)lowLatencyState.completeContractCount,
-		(unsigned long long)lowLatencyState.abortedTransactionCount,
-		lowLatencyState.lastAbortReason,
-		lowLatencyState.contractValid ? "valid" : "incomplete",
-		(unsigned long long)lowLatencyState.presentationGeneration,
-		(unsigned long long)lowLatencyState.sleepOrder,
-		(unsigned long long)lowLatencyState.simulationStartOrder,
-		(unsigned long long)lowLatencyState.inputSampleOrder,
-		(unsigned long long)lowLatencyState.simulationEndOrder,
-		(unsigned long long)lowLatencyState.renderSubmitStartOrder,
-		(unsigned long long)lowLatencyState.renderSubmitEndOrder,
-		(unsigned long long)lowLatencyState.presentStartOrder,
-		(unsigned long long)lowLatencyState.presentEndOrder,
-		(unsigned long long)lowLatencyState.duplicateInputSampleCount,
-		lowLatencyState.presentBoundarySeen ? "yes" : "no",
-		lowLatencyState.submitSucceeded ? "yes" : "no",
-		lowLatencyState.presentSucceeded ? "yes" : "no",
-		lowLatencyState.runtimeSuppressed ? "yes" : "no",
-		lowLatencyState.runtimeFailure,
-		GetNriResultName(lowLatencyState.runtimeDisableResult),
-		GetNriResultName(lowLatencyState.setSleepModeResult),
-		GetNriResultName(lowLatencyState.latencySleepResult),
-		GetNriResultName(lowLatencyState.inputSampleMarkerResult),
-		GetNriResultName(lowLatencyState.simulationStartMarkerResult),
-		GetNriResultName(lowLatencyState.simulationEndMarkerResult),
-		GetNriResultName(lowLatencyState.renderSubmitStartMarkerResult),
-		GetNriResultName(lowLatencyState.renderSubmitEndMarkerResult),
-		GetNriResultName(lowLatencyState.latencyReportResult),
-		lowLatencyState.reportChanged ? "yes" : "no",
-		lowLatencyState.reportAllZero ? "yes" : "no",
-		(unsigned long long)lowLatencyState.latencyReport.inputSampleTimeUs,
-		(unsigned long long)lowLatencyState.latencyReport.simulationStartTimeUs,
-		(unsigned long long)lowLatencyState.latencyReport.simulationEndTimeUs,
-		(unsigned long long)lowLatencyState.latencyReport.renderSubmitStartTimeUs,
-		(unsigned long long)lowLatencyState.latencyReport.renderSubmitEndTimeUs,
-		(unsigned long long)lowLatencyState.latencyReport.presentStartTimeUs,
-		(unsigned long long)lowLatencyState.latencyReport.presentEndTimeUs,
-		(unsigned long long)lowLatencyState.latencyReport.driverStartTimeUs,
-		(unsigned long long)lowLatencyState.latencyReport.driverEndTimeUs,
-		(unsigned long long)lowLatencyState.latencyReport.osRenderQueueStartTimeUs,
-		(unsigned long long)lowLatencyState.latencyReport.osRenderQueueEndTimeUs,
-		(unsigned long long)lowLatencyState.latencyReport.gpuRenderStartTimeUs,
-		(unsigned long long)lowLatencyState.latencyReport.gpuRenderEndTimeUs);
-}
-
 void NRIRenderDevice::PrintPathTracingStatus() const
 {
 	PrintPathTracingCaps();
-	PrintLowLatencyStatus();
 	PrintFrameBoundaryStatus();
 	PrintFrameSequenceStatus();
 	PrintSwapChainStatus();
@@ -8028,7 +7981,6 @@ void NRIRenderDevice::PrintPathTracingOutputModeChange(uint32_t frameIndex, NRIP
 void NRIRenderDevice::PrintPathTracingBuffers() const
 {
 	PrintPathTracingCaps();
-	PrintLowLatencyStatus();
 	PrintFrameBoundaryStatus();
 	PrintFrameSequenceStatus();
 	PrintSwapChainStatus();
@@ -9735,7 +9687,6 @@ bool NRIRenderDevice::CreateSwapChain()
 			if (mFrameGeneration.CreatePresentBridge(*this) && RefreshFrameGenerationPresentTargets())
 			{
 				mFrameGeneration.OnSwapChainCreated(*this);
-				mLowLatencyPolicy.OnSwapChainDestroyed(*this);
 				assert(mSwapChain == nullptr && mFrameGeneration.IsPresentBridgeActive());
 				mCreatedWindowPresentationMode = IsFullscreenModeActive() ? NRIWindowPresentationMode::BorderlessFullscreen : NRIWindowPresentationMode::Windowed;
 				mCreatedWindowPresentationModeValid = true;
@@ -9796,7 +9747,6 @@ bool NRIRenderDevice::CreateSwapChain()
 
 		RefreshNativeFrameGenerationSwapChain();
 		mFrameGeneration.OnSwapChainCreated(*this);
-		mLowLatencyPolicy.OnSwapChainCreated(*this);
 		assert(!mFrameGeneration.IsPresentBridgeActive());
 		SetNriDebugName(mCore, mSwapChain, "Raze.SwapChain");
 
@@ -9931,9 +9881,6 @@ bool NRIRenderDevice::CreateQueuedFrames()
 
 void NRIRenderDevice::DestroySwapChain()
 {
-	// The policy must stop referring to the native swapchain before its flags or
-	// object lifetime are cleared below.
-	mLowLatencyPolicy.OnSwapChainDestroyed(*this);
 	mFrameGeneration.DrainPresentBridge();
 	DestroyFrameGenerationPresentTargets();
 	RefreshNativeFrameGenerationSwapChain();
@@ -10443,6 +10390,9 @@ void NRIRenderDevice::EndFrameAndPresent()
 	const nri::FenceSubmitDesc commandFence = { mCommandCompletionFence, mRecordingCommandFenceValue, nri::StageBits::NONE };
 	const nri::CommandBuffer* commandBuffers[] = { mCommandBuffer };
 
+	stageStartMs = I_msTimeF();
+	mFrameGeneration.OnSimulationEnd(*this);
+	simulationEndMs = I_msTimeF() - stageStartMs;
 	nri::QueueSubmitDesc submitDesc = {};
 	submitDesc.commandBuffers = commandBuffers;
 	submitDesc.commandBufferNum = 1;
@@ -10457,9 +10407,7 @@ void NRIRenderDevice::EndFrameAndPresent()
 		signalFences[signalFenceCount++] = frameFence;
 		submitDesc.waitFences = &waitFence;
 		submitDesc.waitFenceNum = 1;
-		const bool lowLatencySwapChainEnabled =
-			((uint32_t)mSwapChainFlags & (uint32_t)nri::SwapChainBits::ALLOW_LOW_LATENCY) != 0 &&
-			mLowLatencyPolicy.GetState().operational;
+		const bool lowLatencySwapChainEnabled = ((uint32_t)mSwapChainFlags & (uint32_t)nri::SwapChainBits::ALLOW_LOW_LATENCY) != 0;
 		submitDesc.swapChain = lowLatencySwapChainEnabled ? mSwapChain : nullptr;
 	}
 	else
@@ -10477,6 +10425,9 @@ void NRIRenderDevice::EndFrameAndPresent()
 	bool completedFrameFenceValid = false;
 	uint64_t completedFrameFence = 0;
 	uint32_t inputLineageOutstandingBefore = 0;
+	stageStartMs = I_msTimeF();
+	mFrameGeneration.OnRenderSubmitStart(*this);
+	submitPrepMs = I_msTimeF() - stageStartMs;
 	if (inputLineageActive && mFrameFence != nullptr)
 	{
 		completedFrameFenceValid = TryGetFenceValue(
@@ -10498,14 +10449,8 @@ void NRIRenderDevice::EndFrameAndPresent()
 	{
 		ScopedNriTiming submitTiming(NriPTQueueSubmit, mLastFrameBoundaryStats.submitMs);
 		stageStartMs = I_msTimeF();
-		mLowLatencyPolicy.OnRenderSubmitStart(
-			*this,
-			submitDesc.swapChain != nullptr && submitDesc.swapChain == mSwapChain);
-		submitPrepMs = I_msTimeF() - stageStartMs;
-		stageStartMs = I_msTimeF();
 		submitResult = mCore.QueueSubmit(*mGraphicsQueue, submitDesc);
 		submitCallMs = I_msTimeF() - stageStartMs;
-		mLowLatencyPolicy.OnRenderSubmitEnd(*this, submitResult);
 	}
 	const uint64_t inputLineageSubmitEndUs = inputLineageActive ? PerfInputLineageNowUs() : 0;
 	if (inputLineageActive)
@@ -10546,6 +10491,7 @@ void NRIRenderDevice::EndFrameAndPresent()
 		if (mGpuTiming != nullptr) mGpuTiming->AbandonSlot(mCurrentQueuedFrameIndex);
 		AbandonRecordingCommandFenceValue();
 	}
+	mFrameGeneration.OnRenderSubmitEnd(*this);
 	if (submitResult != nri::Result::SUCCESS)
 	{
 		if (submitResult == nri::Result::DEVICE_LOST)
@@ -10566,7 +10512,7 @@ void NRIRenderDevice::EndFrameAndPresent()
 	streamerEndMs = I_msTimeF() - stageStartMs;
 	FPSLimit();
 	nri::Result presentResult = nri::Result::FAILURE;
-	mLowLatencyPolicy.OnPresentStart(*this);
+	mFrameGeneration.OnPresentStart(*this);
 	uint64_t inputLineagePresentStartUs = 0;
 	{
 		ScopedNriTiming presentTiming(NriPTQueuePresent, mLastFrameBoundaryStats.presentMs);
@@ -10597,8 +10543,7 @@ void NRIRenderDevice::EndFrameAndPresent()
 			presentResult == nri::Result::SUCCESS,
 			IsFrameGenerationPresentPathActive());
 	}
-	mLowLatencyPolicy.OnPresentEnd(*this, presentResult);
-	mFrameGeneration.OnPresentEnd(presentResult);
+	mFrameGeneration.OnPresentEnd(*this, presentResult);
 	mLastFrameBoundaryStats.presentResult = presentResult;
 	if (presentResult == nri::Result::SUCCESS)
 	{
@@ -10658,7 +10603,6 @@ void NRIRenderDevice::EndFrameAndPresent()
 		PrintFrameBoundaryStatus();
 		PrintSwapChainStatus();
 		PrintFrameShellStatus();
-		PrintLowLatencyStatus();
 		Print2DTextureStatus();
 		PrintVramTelemetryStatus();
 		tracePrintMs = I_msTimeF() - stageStartMs;

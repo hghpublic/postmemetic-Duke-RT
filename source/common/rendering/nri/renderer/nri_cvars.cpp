@@ -65,14 +65,6 @@ namespace
 		}
 	}
 
-	void RequestActiveLowLatencySwapChainRefresh()
-	{
-		if (NRIRenderDevice* frameBuffer = GetActiveNriRenderDeviceForCVar())
-		{
-			frameBuffer->RequestSwapChainRefresh("low-latency-settings-change", true);
-		}
-	}
-
 	void NotifyActiveGlowControlChange()
 	{
 		if (NRIRenderDevice* frameBuffer = GetActiveNriRenderDeviceForCVar())
@@ -1341,13 +1333,6 @@ CVAR(Bool, nri_framegenasync, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 CUSTOM_CVAR(Bool, nri_framegenlatency, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 {
 	RequestActiveFrameGenerationSwapChainRefresh();
-}
-
-// Native driver low latency remains opt-in until physical input-to-scanout
-// validation establishes its throughput/latency tradeoff on shipping hardware.
-CUSTOM_CVAR(Bool, nri_lowlatency, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
-{
-	RequestActiveLowLatencySwapChainRefresh();
 }
 
 CVAR(Int, nri_nrdmaxframes, 13, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)

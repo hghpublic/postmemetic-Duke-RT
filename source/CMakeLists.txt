@@ -920,7 +920,6 @@ set (VULKAN_SOURCES
 
 set (NRI_SOURCES
 	common/rendering/nri/system/nri_renderdevice.cpp
-	common/rendering/nri/system/nri_low_latency_policy.cpp
 	common/rendering/nri/system/nri_perf_capture.cpp
 	common/rendering/nri/system/nri_gpu_timing.cpp
 	common/rendering/nri/system/nri_hwbuffer.cpp

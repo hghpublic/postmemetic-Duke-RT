@@ -219,6 +219,26 @@ struct NRIFrameGenerationInputAudit
 	char statusReason[64] = "not-captured";
 };
 
+struct NRIFrameGenerationLowLatencyState
+{
+	bool interfaceAvailable = false;
+	bool swapChainEnabled = false;
+	bool sleepModeConfigured = false;
+	bool sleepInvoked = false;
+	bool presentBoundarySeen = false;
+	nri::LatencySleepMode configuredSleepMode = {};
+	nri::Result setSleepModeResult = nri::Result::FAILURE;
+	nri::Result latencySleepResult = nri::Result::FAILURE;
+	nri::Result simulationStartMarkerResult = nri::Result::FAILURE;
+	nri::Result simulationEndMarkerResult = nri::Result::FAILURE;
+	nri::Result renderSubmitStartMarkerResult = nri::Result::FAILURE;
+	nri::Result renderSubmitEndMarkerResult = nri::Result::FAILURE;
+	nri::Result latencyReportResult = nri::Result::FAILURE;
+	uint64_t latencySleepCount = 0;
+	uint64_t markerCount = 0;
+	nri::LatencyReport latencyReport = {};
+};
+
 struct NRIFrameGenerationProviderState
 {
 	bool runtimeLoaded = false;
@@ -304,7 +324,11 @@ public:
 	void OnSwapChainDestroyed(const NRIRenderDevice& frameBuffer);
 	void BeginFrame(const NRIRenderDevice& frameBuffer);
 	void EndFrame(const NRIRenderDevice& frameBuffer);
-	void OnPresentEnd(nri::Result presentResult);
+	void OnSimulationEnd(const NRIRenderDevice& frameBuffer);
+	void OnRenderSubmitStart(const NRIRenderDevice& frameBuffer);
+	void OnRenderSubmitEnd(const NRIRenderDevice& frameBuffer);
+	void OnPresentStart(const NRIRenderDevice& frameBuffer);
+	void OnPresentEnd(const NRIRenderDevice& frameBuffer, nri::Result presentResult);
 	void SetFrameDesc(const NRIRenderDevice& frameBuffer, const NRIFrameGenerationFrameDesc& desc);
 	void SetUiTexture(const NRITextureResource* uiTexture);
 	void ConfigureAndDispatchFrame(const NRIRenderDevice& frameBuffer);
@@ -320,6 +344,7 @@ public:
 	const NRIFrameGenerationPresentContract& GetPresentContract() const { return mPresentContract; }
 	const NRIFrameGenerationFrameDesc& GetFrameDesc() const { return mLastFrameDesc; }
 	const NRIFrameGenerationInputAudit& GetInputAudit() const { return mLastInputAudit; }
+	const NRIFrameGenerationLowLatencyState& GetLowLatencyState() const { return mLowLatencyState; }
 	const NRIFrameGenerationProviderState& GetProviderState() const { return mProviderState; }
 	bool HasFrameDesc() const { return mHasFrameDesc; }
 	bool IsPresentBridgeActive() const;
@@ -356,6 +381,10 @@ private:
 	NRIFrameGenerationPolicy BuildPolicy(const NRIRenderDevice& frameBuffer, const NRIFrameGenerationPresentContract& presentContract) const;
 	NRIFrameGenerationPresentContract BuildPresentContract(const NRIRenderDevice& frameBuffer) const;
 	NRIFrameGenerationInputAudit BuildInputAudit(const NRIFrameGenerationFrameDesc& desc) const;
+	bool IsLowLatencyOperational(const NRIRenderDevice& frameBuffer) const;
+	void ConfigureLowLatencyMode(const NRIRenderDevice& frameBuffer);
+	void SetLowLatencyMarker(const NRIRenderDevice& frameBuffer, nri::LatencyMarker marker, nri::Result& resultSlot);
+	void ResetLowLatencyState();
 	void ResetProviderState();
 	void RefreshPresentBridgeSnapshot();
 	void DestroyProviderPresentBridge();
@@ -375,6 +404,7 @@ private:
 	NRIFrameGenerationPresentContract mPresentContract = {};
 	NRIFrameGenerationFrameDesc mLastFrameDesc = {};
 	NRIFrameGenerationInputAudit mLastInputAudit = {};
+	NRIFrameGenerationLowLatencyState mLowLatencyState = {};
 	NRIFrameGenerationProviderState mProviderState = {};
 
 	void* mFfxModule = nullptr;
