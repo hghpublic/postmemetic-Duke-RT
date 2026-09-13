@@ -8,6 +8,7 @@ $transientRenderer = Read-Source 'source/common/rendering/nri/renderer/nri_smoke
 $smokeHeader = Read-Source 'source/common/rendering/nri/renderer/nri_smoke.h'
 $smokeGrid = Read-Source 'source/common/rendering/nri/renderer/nri_smoke_grid.cpp'
 $descriptorBudget = Read-Source 'source/common/rendering/nri/renderer/nri_smoke_descriptor_budget.h'
+$sharedPoolBudget = Read-Source 'source/common/rendering/nri/renderer/nri_static_tangent_capacity.h'
 $renderer = Read-Source 'source/common/rendering/nri/renderer/nri_renderer.cpp'
 $rendererHeader = Read-Source 'source/common/rendering/nri/renderer/nri_renderer.h'
 $renderDevice = Read-Source 'source/common/rendering/nri/system/nri_renderdevice.cpp'
@@ -38,7 +39,7 @@ Require ($smoke -match 'for \(auto& range : filteredSceneRanges\)\s*range.flags 
 Require (($renderer | Select-String -Pattern 'descriptorSetMaxNum\s*<\s*NRISmokeSystem::PipelineDescriptorSetCount' -AllMatches).Matches.Count -eq 2) 'Both renderer availability paths must require all six smoke descriptor sets.'
 
 # The shared pool fills before smoke initializes: three queued scene sets plus
-# twelve scene snapshots consume 420 SRVs and four voxel-compute input sets
+# twelve scene snapshots consume 435 SRVs and four voxel-compute input sets
 # consume another 16. Reserve every lazily allocated smoke SRV, including the
 # grid input sets, instead of accounting for only the two newest t3/t4 inputs.
 foreach ($contract in @(
@@ -49,7 +50,9 @@ foreach ($contract in @(
 }
 Require ($descriptorBudget -match 'StructuredPerQueuedFrame\s*=\s*InputCount\s*\+\s*LightCount\s*\+[\s\S]{0,120}FilteredSceneCount\s*\+\s*ExtendedSceneCount\s*\+\s*GridInputCount') 'Smoke descriptor budget must include every structured-buffer range.'
 Require ($descriptorBudget -match 'return\s+512u\s*\+\s*StructuredPerQueuedFrame\s*\*\s*queuedFrames') 'The established shared reserve must remain in addition to the complete smoke reservation.'
-Require ($renderDevice -match 'structuredBufferMaxNum\s*=\s*nri_smoke_descriptors::SharedStructuredPoolCapacity\(QueuedFrameCount\)') 'The device pool must consume the shared smoke descriptor budget.'
+Require ($renderDevice -match 'structuredBufferMaxNum\s*=\s*NRIStaticTangentStructuredPoolCapacity\(NRIFrameShell::QueuedFrameCount\)') 'The device pool must consume the combined scene/smoke descriptor budget.'
+Require ($sharedPoolBudget -match 'nri_smoke_descriptors::StructuredPerQueuedFrame\s*\*\s*queuedFrames') 'The complete scene pool census must use the current smoke layouts.'
+Require ($sharedPoolBudget -match 'smokeReserve\s*=\s*nri_smoke_descriptors::SharedStructuredPoolCapacity\(queuedFrames\)' -and $sharedPoolBudget -match 'return known \+ 32u > smokeReserve \? known \+ 32u : smokeReserve') 'The combined pool must cover both expanded scene snapshots and the established smoke reserve.'
 Require ($descriptorBudget -match 'TransientStorageCount\s*=\s*7u') 'The motion guide adds a seventh transient UAV.'
 Require ($transientResourcesHeader -match 'StorageDescriptorCount\s*=\s*nri_smoke_descriptors::TransientStorageCount') 'Transient storage layout and device-pool reserve must share their count.'
 Require ($renderDevice -match 'storageStructuredBufferMaxNum\s*=\s*nri_smoke_descriptors::SharedStoragePoolCapacity\(QueuedFrameCount\)') 'The device pool must reserve the motion UAV per queued frame.'
@@ -58,7 +61,7 @@ Require ($smoke -match 'lights\.descriptorNum\s*=\s*nri_smoke_descriptors::Light
 Require ($smoke -match 'kSmokeFilteredSceneBufferCount\s*=\s*nri_smoke_descriptors::FilteredSceneCount') 'The filtered-scene layout must consume the shared filtered count.'
 Require ($smoke -match 'kSmokeExtendedSceneBufferCount\s*=\s*nri_smoke_descriptors::ExtendedSceneCount') 'The extended-scene layout must consume the shared extended count.'
 Require ($smokeGrid -match 'inputRange\.descriptorNum\s*=\s*nri_smoke_descriptors::GridInputCount') 'The grid input layout must consume the shared grid count.'
-Require ($shaderContracts -match 'NRI_SCENE_DATA_DESCRIPTOR_NUM\s*=\s*28') 'The exact pool audit assumes 28 structured scene-data descriptors per set.'
+Require ($shaderContracts -match 'NRI_SCENE_DATA_DESCRIPTOR_NUM\s*=\s*29') 'The exact pool audit assumes 29 structured scene-data descriptors per set.'
 Require ($descriptorSets -match 'sceneDataSnapshotCount\s*=\s*std::max\(8u,\s*queuedFrameCount\s*\*\s*4u\)') 'The pool audit must track the live scene-data snapshot formula.'
 Require ($rendererHeader -match 'std::array<nri::DescriptorSet\*,\s*4>\s+mVoxelComputeInputSets') 'The pool audit must track all four voxel-compute input sets.'
 Require ($shaderContracts -match 'NRI_VOXEL_COMPUTE_INPUT_DESCRIPTOR_NUM\s*=\s*2') 'Voxel-compute input SRV count changed without updating the pool audit.'
@@ -66,13 +69,13 @@ Require ($shaderContracts -match 'NRI_VOXEL_COMPUTE_FACE_DESCRIPTOR_NUM\s*=\s*2'
 Require ($pipelineState -match 'inputRange\.descriptorNum\s*=\s*NRI_VOXEL_COMPUTE_INPUT_DESCRIPTOR_NUM') 'Voxel-compute input layout must consume its published descriptor count.'
 Require ($pipelineState -match 'faceRange\.descriptorNum\s*=\s*NRI_VOXEL_COMPUTE_FACE_DESCRIPTOR_NUM') 'Voxel-compute face layout must consume its published descriptor count.'
 $queuedFrames = 3
-$liveBeforeSmoke = ($queuedFrames + [Math]::Max(8, $queuedFrames * 4)) * 28 + 4 * (2 + 2)
+$liveBeforeSmoke = ($queuedFrames + [Math]::Max(8, $queuedFrames * 4)) * 29 + 4 * (2 + 2)
 $historicalLiveWithSmoke = $liveBeforeSmoke + $queuedFrames * (5 + 3 + 8 + 10 + 2)
 $liveWithSmoke = $liveBeforeSmoke + $queuedFrames * (6 + 3 + 8 + 10 + 2)
 $oldDeltaCapacity = 512 + 2 * $queuedFrames
 $reservedCapacity = 512 + 29 * $queuedFrames
-Require ($liveBeforeSmoke -eq 436) 'Unexpected pre-smoke structured descriptor total for three queued frames.'
-Require ($historicalLiveWithSmoke -eq 520 -and $liveWithSmoke -eq 523) 'Previous-lobe tracking adds one structured descriptor per queued frame.'
+Require ($liveBeforeSmoke -eq 451) 'Unexpected pre-smoke structured descriptor total for three queued frames.'
+Require ($historicalLiveWithSmoke -eq 535 -and $liveWithSmoke -eq 538) 'Previous-lobe tracking adds one structured descriptor per queued frame.'
 Require ($oldDeltaCapacity -eq 518 -and $historicalLiveWithSmoke -gt $oldDeltaCapacity) 'The regression proof must preserve the observed 520-over-518 failure.'
 Require ($reservedCapacity -eq 599 -and $reservedCapacity -ge $liveWithSmoke) 'The complete smoke reservation must provide 599 structured descriptors for three queued frames.'
 foreach ($name in @('TransientGroupCount', 'TransientLobeCount', 'TransientFullBuildBudget', 'TransientPointBudget')) {

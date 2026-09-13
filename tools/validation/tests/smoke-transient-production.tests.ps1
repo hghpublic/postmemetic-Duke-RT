@@ -20,10 +20,15 @@ $cutovers = @{
 # Canonical field hashes at 64e8366e7a. Strip only the explicitly transient-only
 # fields below and restore the old representation before comparing. This proves
 # that cutovers retain legacy counts, optics, cadence, admission/freshness and
-# analytic carrier counts. Map emitters and the fog style are compared verbatim.
+# analytic carrier counts. Map emitter rules are compared verbatim; the scoped
+# map/muzzle style density tuning below is asserted before normalization.
 # The explicitly asserted common explosion expansion and fire placement/rise/cadence/pulse/foreground exceptions below
 # are normalized back to their baseline values before hashing.
 # Fire is denser than the quarter-strength effects to maintain a continuous plume.
+$densityTunings = @{
+    duke_muzzle_smoke = @{ Expected = 6.0; Baseline = '1.2' }
+    ground_mood_smoke = @{ Expected = 8.0; Baseline = '1.6' }
+}
 $expectedOpticalScale = @{
     duke_explosion_smoke = 0.05
     duke_fire_smoke = 0.25
@@ -107,6 +112,19 @@ foreach ($block in $blocks) {
         }
     }
     elseif ($isTransient) { throw "Production $name has no accepted cutover entry." }
+
+    if ($kind -eq 'smokestyle' -and $densityTunings.ContainsKey($name)) {
+        # The committed fivefold map/muzzle retune changes only shared style
+        # density. Assert that exact exception, then retain the baseline hash
+        # as protection for every other legacy field and per-event multiplier.
+        $tuning = $densityTunings[$name]
+        $density = [regex]::Matches($body, '(?m)^\s*density\s+([0-9.]+)\s*$')
+        if ($density.Count -ne 1 -or
+            [double]::Parse($density[0].Groups[1].Value, [Globalization.CultureInfo]::InvariantCulture) -ne $tuning.Expected) {
+            throw "Production $name must retain its explicitly tuned shared density."
+        }
+        $body = [regex]::Replace($body, '(?m)^(\s*density\s+)[0-9.]+\s*$', '${1}' + $tuning.Baseline)
+    }
 
     if ($kind -eq 'smokestyle' -and $name -ne 'ground_mood_smoke') {
         $opticalScale = [regex]::Matches($body, '(?m)^\s*opticalamountscale\s+([0-9.]+)\s*$')

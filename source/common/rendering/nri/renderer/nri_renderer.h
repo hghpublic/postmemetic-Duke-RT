@@ -5,15 +5,18 @@
 #include "nri_debug_reporters.h"
 #include "nri_blue_noise.h"
 #include "nri_descriptor_sets.h"
+#include "nri_dynamic_overlay_blas_diagnostics.h"
 #include "nri_exposure.h"
 #include "nri_frame_graph.h"
 #include "nri_frame_resources.h"
 #include "nri_indirect_radiance_cache.h"
 #include "nri_nrd.h"
+#include "nri_occurrence_workload_mask_policy.h"
 #include "nri_persistent_voxels.h"
 #include "nri_pipeline_state.h"
 #include "nri_renderer_context.h"
 #include "nri_resources.h"
+#include "nri_static_tangent_integration.h"
 #include "nri_map_movers.h"
 #include "nri_map_motion_history.h"
 #include "nri_map_material_only_route.h"
@@ -35,6 +38,7 @@
 #include "nri_scene_lights.h"
 #include "nri_surface_probe.h"
 #include "nri_material_policy.h"
+#include "nri_scene_material_product.h"
 #include "nri_static_scene.h"
 #include "nri_static_scene_diagnostics.h"
 #include "nri_static_scene_geometry_upload.h"
@@ -74,6 +78,7 @@ struct RenderSceneCompletionInputs;
 struct RenderSceneDispatchInputs;
 struct RenderSceneFrameBuildInputs;
 struct RenderSceneFrameBuildResult;
+struct NRISceneFrameScratch;
 struct RenderSceneHistorySnapshot;
 
 struct NRIDirectionalLightState
@@ -1388,6 +1393,7 @@ public:
 		uint32_t dynamicOverlayBlasBuildBudget = 0;
 		bool dynamicOverlayBlasBuildEnabled = false;
 		bool dynamicOverlayBlasRouteEnabled = false;
+		NRIDynamicOverlayBlasPolicyStats dynamicOverlayBlasPolicy = {};
 		uint32_t filterCandidateOccurrences = 0;
 		uint32_t filterCandidateCertifiedOccurrences = 0;
 		uint32_t filterCandidateCertifiedPrimitives = 0;
@@ -1395,6 +1401,7 @@ public:
 		uint32_t filterCandidateRejectRange = 0;
 		uint32_t filterCandidateRejectMixed = 0;
 		bool filterCandidateEnabled = false;
+		NRIOccurrenceWorkloadMaskStats occurrenceWorkloadMasks = {};
 		uint32_t persistentVoxelAsCalls = 0;
 		uint32_t persistentVoxelAsBuilds = 0;
 		uint32_t persistentVoxelAsUniqueMeshBuilds = 0;
@@ -1733,6 +1740,11 @@ public:
 		uint64_t traceRendererFrame = 0;
 		uint64_t traceSettingsKey = 0;
 		uint64_t traceWorkloadKey = 0;
+		uint64_t traceSettingsKeyWithoutStaticTangent = 0;
+		uint64_t traceWorkloadKeyWithoutStaticTangent = 0;
+		uint32_t traceStaticTangentRequested = 0;
+		uint32_t traceStaticTangentActive = 0;
+		uint32_t traceAux1 = 0;
 		uint32_t traceRenderWidth = 0;
 		uint32_t traceRenderHeight = 0;
 		uint32_t traceOutputWidth = 0;
@@ -2160,6 +2172,7 @@ public:
 	{
 		TraceOpaque,
 		TraceOpaqueCache,
+		TraceOpaqueLeanDebug,
 		Composition,
 		TraceTransparent,
 		ExposureHistogramClear,
@@ -2525,7 +2538,8 @@ private:
 		NRIAccelerationStructureResource& outAccelerationStructure,
 		bool updateDynamicPerfStats,
 		NRIBufferResource* buildScratchBuffer = nullptr,
-		nri::AccelerationStructureBits buildFlags = nri::AccelerationStructureBits::PREFER_FAST_BUILD);
+		nri::AccelerationStructureBits buildFlags = nri::AccelerationStructureBits::PREFER_FAST_BUILD,
+		bool recordDynamicOverlayGpuTiming = false);
 	void NoteWorldBlasContentChanged();
 	bool PreloadStaticMapResources();
 	bool PreloadPersistentVoxelResources();
@@ -2646,6 +2660,14 @@ private:
 		nri_material_policy::ActorMaterialPresentationPolicy& outPolicy);
 	void ApplyEmissiveMaterialOverrides(const nri_scene::MaterialBridgeData& materials, std::vector<nri_scene::MaterialData>& inOutGpuMaterials) const;
 	void ApplyActorShadowMaterialOverrides(const nri_scene::MaterialBridgeData& materials, std::vector<nri_scene::MaterialData>& inOutGpuMaterials);
+	NRIMaterialProductPatchResult RefreshCombinedMaterialProduct(
+		const nri_scene::MaterialBridgeData& source,
+		size_t staticCount,
+		size_t persistentCount,
+		const std::vector<uint32_t>& deferredIndices,
+		std::vector<nri_scene::MaterialData>& combined,
+		std::vector<nri_scene::MaterialData>& persistent,
+		std::vector<nri_scene::MaterialData>& dynamic);
 	uint64_t ComputeChunkActorOverrideHash(const nri_scene::MaterialBridgeData& materials);
 	uint64_t ComputeChunkEmissiveOverrideHash(const nri_scene::MaterialBridgeData& materials) const;
 	void QueueStaticMapSceneLightingInvalidation();
@@ -2675,6 +2697,11 @@ private:
 	const NRIBufferResource& GetActivePrimitiveBuffer() const;
 	const NRIBufferResource& GetActiveMaterialBuffer() const;
 	bool BindSceneRootDescriptors();
+	NRIStaticTangentServices BuildStaticTangentServices();
+	NRIStaticTangentFrame BuildStaticTangentFrame() const;
+	nri::Descriptor* PublishStaticTangents(const NRIBufferResource&, const NRIBufferResource&, uint32_t);
+	void CommitStaticTangentPublication();
+	uint32_t RecordStaticTangents(uint32_t primitiveCount, bool supported, bool diagnosticWindow, nri::CommandBuffer* consumingCommand);
 
 	bool CreateStructuredBuffer(NRIBufferResource& resource, const void* data, uint64_t size, uint32_t stride, nri::BufferUsageBits usage, nri::AccessStage after);
 	bool EnsureStructuredBuffer(NRIBufferResource& resource, SceneBufferDebugStats& stats, const void* data, uint64_t size, uint32_t stride, nri::BufferUsageBits usage, nri::AccessStage after, bool writesQuiesced = false, const char* waitReason = nullptr);
@@ -2740,6 +2767,7 @@ private:
 	std::array<nri::Pipeline*, (size_t)PipelineSlot::Count> mPipelines = {};
 	nri::DescriptorSet* mSamplerSet = nullptr;
 	std::vector<nri::DescriptorSet*> mSceneTextureSets;
+	NRISceneTextureScratch mSceneTextureScratch;
 	std::vector<uint64_t> mSceneTextureKeyScratch;
 	std::vector<uint64_t> mSceneTextureSetHashes;
 	std::vector<uint8_t> mSceneTextureSetHashValid;
@@ -2811,6 +2839,7 @@ private:
 	NRIBufferResource mSpatialAbsenceTypedBuffer;
 	NRITraceShaderStats mTraceShaderStats;
 	NRIIndirectRadianceCache mIndirectRadianceCache;
+	NRIStaticTangentIntegration mStaticTangents;
 	NRIIndirectRadianceCacheTelemetrySnapshot mLastIndirectRadianceCacheTelemetry = {};
 	NRIBufferResource mScratchBuffer;
 	NRIBufferResource mResidentStaticBlasScratchBuffer;
@@ -2819,11 +2848,12 @@ private:
 	PrimitiveVisibilityIdentityCache mPrimitiveVisibilityIdentityCache = {};
 	NRISceneUploadProducerGenerations mSceneUploadProducerGenerations;
 	NRISceneUploadIdentityValidator mSceneUploadIdentityValidator;
+	std::unique_ptr<NRISceneFrameScratch> mSceneFrameScratch;
 	std::vector<nri_scene::MaterialData> mSelectCapturedGpuMaterialScratch;
 	std::vector<nri_scene::MaterialData> mSelectDynamicGpuMaterialScratch;
 	std::vector<nri_scene::MaterialData> mSelectPersistentVoxelGpuMaterialScratch;
 	std::vector<nri_scene::MaterialData> mSelectCombinedGpuMaterialScratch;
-	std::vector<nri_scene::MaterialData> mSelectRefreshedCombinedGpuMaterialScratch;
+	NRISceneMaterialProduct mCombinedMaterialProduct;
 	std::vector<uint32_t> mSelectDeferredTextureMaterialIndexScratch;
 	nri_scene::GeometryData mSelectLocalPlayerReflectionGeometryScratch;
 	nri_scene::GeometryData mSelectOverlayGeometryScratch;
@@ -2848,6 +2878,7 @@ private:
 	std::vector<SceneUploadDirtyRange> mSceneUploadIndexDirtyRangeScratch;
 	std::vector<DynamicOverlayBlasAsset> mDynamicOverlayBlasAssets;
 	std::vector<SelectedDynamicOverlayBlasOccurrence> mSelectedDynamicOverlayBlasOccurrences;
+	std::vector<SelectedDynamicOverlayBlasOccurrence> mSelectDynamicOverlayOccurrenceScratch;
 	std::vector<nri_scene::SceneVertex> mDynamicOverlayBlasVertexScratch;
 	std::vector<uint32_t> mDynamicOverlayBlasIndexScratch;
 	std::array<ResidentUploadScratchFrame, 3> mResidentUploadScratchFrames = {};
@@ -3090,6 +3121,7 @@ private:
 	uint32_t mBoundEmissiveDominantTile = 0;
 	uint32_t mBoundEmissiveDominantFlags = 0;
 	uint32_t mBoundEmissiveDominantDataSource = 0;
+	NRIEmissiveSamplingUploadScratch mEmissiveSamplingUploadScratch;
 	bool mEmissiveSamplingPayloadCacheValid = false;
 	uint64_t mEmissiveSamplingPayloadHash = 0;
 	bool mEmissiveStabilityTraceValid = false;

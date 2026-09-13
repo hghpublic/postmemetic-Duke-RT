@@ -541,6 +541,7 @@ bool NRIPipelineStateManager::CreatePipelines(NRIRenderer& renderer)
 	const char* traceStem = renderer.mSpatialAbsenceFormat == 1u ? "TraceOpaqueTyped.cs." :
 		(renderer.mSpatialAbsenceFormat == 2u ? "variants/diagnostic/TraceOpaqueCompare.cs." : "TraceOpaque.cs.");
 	const std::string trace = traceStem + suffix;
+	const std::string traceLeanDebug = "TraceOpaqueLeanDebug.cs." + suffix;
 	const std::string composition = "Composition.cs." + suffix;
 	const std::string traceTransparent = "TraceTransparent.cs." + suffix;
 	const std::string taa = "Taa.cs." + suffix;
@@ -567,6 +568,9 @@ bool NRIPipelineStateManager::CreatePipelines(NRIRenderer& renderer)
 
 	return
 		createPipeline(trace.c_str(), NRIRenderer::PipelineSlot::TraceOpaque, renderer.mPipelineLayout) &&
+		// The first lean artifact uses the legacy absence layout. Typed/comparison
+		// formats deliberately leave this slot empty and retain the full shader.
+		(renderer.mSpatialAbsenceFormat != 0u || createPipeline(traceLeanDebug.c_str(), NRIRenderer::PipelineSlot::TraceOpaqueLeanDebug, renderer.mPipelineLayout)) &&
 		createPipeline(composition.c_str(), NRIRenderer::PipelineSlot::Composition, renderer.mPipelineLayout) &&
 		createPipeline(traceTransparent.c_str(), NRIRenderer::PipelineSlot::TraceTransparent, renderer.mPipelineLayout) &&
 		createPipeline(exposureHistogramClear.c_str(), NRIRenderer::PipelineSlot::ExposureHistogramClear, renderer.mExposurePipelineLayout) &&

@@ -1154,7 +1154,7 @@ void AppendMaterialBridge(
 
 void BuildMaterials(const SceneView& sceneView, MaterialBridgeData& outMaterials)
 {
-	outMaterials = {};
+	ClearMaterialBridgeRetainingCapacity(outMaterials);
 	const auto paletteStart = std::chrono::steady_clock::now();
 	const bool paletteBuilt = BuildPaletteLookup(outMaterials);
 	outMaterials.buildStats.paletteMs = std::chrono::duration<double, std::milli>(

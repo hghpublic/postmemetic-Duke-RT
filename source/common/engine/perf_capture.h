@@ -16,6 +16,11 @@ struct PerfCompactNriStats
 	uint64_t traceRendererFrame = 0;
 	uint64_t traceSettingsKey = 0;
 	uint64_t traceWorkloadKey = 0;
+	uint64_t traceSettingsKeyWithoutStaticTangent = 0;
+	uint64_t traceWorkloadKeyWithoutStaticTangent = 0;
+	uint32_t traceStaticTangentRequested = 0;
+	uint32_t traceStaticTangentActive = 0;
+	uint32_t traceAux1 = 0;
 	double totalMs = 0.0, initMs = 0.0, mapMs = 0.0, stateMs = 0.0;
 	double selectMs = 0.0, lightsMs = 0.0, frameGraphMs = 0.0;
 	double postDiagnosticsMs = 0.0, unattributedMs = 0.0;
@@ -106,6 +111,9 @@ struct PerfCompactOuterFrame
 
 struct PerfCompactGpuTiming
 {
+	// Nested producer cost, not additive to Trace/segment totals.
+	double staticTangentBuildMs = 0.0;
+	uint32_t staticTangentScopes = 0, staticTangentValid = 0, staticTangentInvalid = 0, staticTangentDropped = 0;
 	double segmentMs = 0.0, sceneMs = 0.0, traceMs = 0.0, traceDispatchMs = 0.0, denoiseMs = 0.0;
 	double compositionMs = 0.0, upscaleMs = 0.0, finalMs = 0.0;
 	double smokeSimulationMs = 0.0, smokeVolumeMs = 0.0;

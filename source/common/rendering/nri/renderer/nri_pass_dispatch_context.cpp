@@ -132,6 +132,15 @@ bool NRIPassDispatchContext::SceneBindingService::BindSceneRootDescriptors() con
 	return bindSceneRootDescriptors != nullptr && bindSceneRootDescriptors(user);
 }
 
+uint32_t NRIPassDispatchContext::SceneBindingService::RecordStaticTangents(uint32_t count, bool supported, bool diagnosticWindow, nri::CommandBuffer* consumingCommand) const
+{
+	return recordStaticTangents != nullptr ? recordStaticTangents(user, count, supported, diagnosticWindow, consumingCommand) : 0u;
+}
+NRIStaticTangentDispatchState NRIPassDispatchContext::SceneBindingService::StaticTangentState() const
+{
+	return staticTangentState != nullptr ? staticTangentState(user) : NRIStaticTangentDispatchState{};
+}
+
 void NRIPassDispatchContext::ExposureService::ReadbackAutoExposureStats() const
 {
 	readbackAutoExposureStats(user);
