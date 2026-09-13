@@ -20,8 +20,9 @@ $cutovers = @{
 # Canonical field hashes at 64e8366e7a. Strip only the explicitly transient-only
 # fields below and restore the old representation before comparing. This proves
 # that cutovers retain legacy counts, optics, cadence, admission/freshness and
-# analytic carrier counts. Map emitter rules are compared verbatim; the scoped
-# map/muzzle style density tuning below is asserted before normalization.
+# analytic carrier counts. The scoped E1L1 emitter multipliers and map/muzzle
+# style density tunings below are asserted before normalization; every other
+# map-emitter field remains protected by its original hash.
 # The explicitly asserted common explosion expansion and fire placement/rise/cadence/pulse/foreground exceptions below
 # are normalized back to their baseline values before hashing.
 # Fire is denser than the quarter-strength effects to maintain a continuous plume.
@@ -29,6 +30,27 @@ $densityTunings = @{
     duke_muzzle_smoke = @{ Expected = 6.0; Baseline = '1.2' }
     ground_mood_smoke = @{ Expected = 8.0; Baseline = '1.6' }
 }
+$e1l1EmitterDensityTunings = @{
+    FarWindow = @{ Expected = 0.533333; Baseline = '0.8' }
+    NearWindow = @{ Expected = 0.533333; Baseline = '0.8' }
+    RoofLong = @{ Expected = 0.666667; Baseline = '1.0' }
+    RoofSquare = @{ Expected = 0.666667; Baseline = '1.0' }
+}
+# Keep these exceptions within E1L1, rather than granting same-name emitters in
+# another map the density exception. Count braces without relying on indentation.
+$e1l1Headers = [regex]::Matches($release, '(?m)^\s*map\s+"E1L1"\s*\{')
+if ($e1l1Headers.Count -ne 1) { throw 'Expected exactly one E1L1 map authoring block.' }
+$e1l1Open = $e1l1Headers[0].Index + $e1l1Headers[0].Length - 1
+$e1l1Close = -1
+$mapDepth = 0
+for ($index = $e1l1Open; $index -lt $release.Length; ++$index) {
+    if ($release[$index] -eq '{') { ++$mapDepth }
+    elseif ($release[$index] -eq '}') {
+        --$mapDepth
+        if ($mapDepth -eq 0) { $e1l1Close = $index; break }
+    }
+}
+if ($e1l1Close -lt 0) { throw 'The E1L1 map authoring block is unterminated.' }
 $expectedOpticalScale = @{
     duke_explosion_smoke = 0.05
     duke_fire_smoke = 0.25
@@ -112,6 +134,23 @@ foreach ($block in $blocks) {
         }
     }
     elseif ($isTransient) { throw "Production $name has no accepted cutover entry." }
+
+    if ($e1l1EmitterDensityTunings.ContainsKey($name)) {
+        if ($kind -ne 'smokeemitter' -or $block.Index -le $e1l1Open -or
+            $block.Index + $block.Length -gt $e1l1Close) {
+            throw "The approved map-area density tuning for $name must remain inside E1L1."
+        }
+        # Reduce only the four authored map-area multipliers by one third.
+        # Restoring their old values for hashing protects placement, cadence,
+        # source counts and all other authoring from accidental changes.
+        $tuning = $e1l1EmitterDensityTunings[$name]
+        $density = [regex]::Matches($body, '(?m)^\s*densityscale\s+([0-9.]+)\s*$')
+        if ($density.Count -ne 1 -or
+            [double]::Parse($density[0].Groups[1].Value, [Globalization.CultureInfo]::InvariantCulture) -ne $tuning.Expected) {
+            throw "Production E1L1 $name must retain its approved one-third density reduction."
+        }
+        $body = [regex]::Replace($body, '(?m)^(\s*densityscale\s+)[0-9.]+\s*$', '${1}' + $tuning.Baseline)
+    }
 
     if ($kind -eq 'smokestyle' -and $densityTunings.ContainsKey($name)) {
         # The committed fivefold map/muzzle retune changes only shared style
